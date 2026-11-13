@@ -10,4 +10,5 @@ export * from './support.types';
 export * from './common.types';
 export * from './teacher.types';
 export * from './superAdmin.types';
+export * from './auth.types';
 

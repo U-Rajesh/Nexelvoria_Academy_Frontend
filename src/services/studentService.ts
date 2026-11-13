@@ -16,6 +16,7 @@ import type {
   Course,
   Batch,
   Enrollment,
+  EnrollmentStatus,
   AttendanceSession,
   AssignmentSubmission,
   OnlineTest,
@@ -24,6 +25,7 @@ import type {
   JobOpening,
   JobApplication,
   ApiResponse,
+  StudentProfile,
 } from '../types';
 
 const sleep = (ms: number = 200) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -49,6 +51,82 @@ export const studentService = {
       .filter(Boolean) as { enrollment: Enrollment; course: Course; batch?: Batch }[];
 
     return { success: true, data: enriched };
+  },
+
+  /**
+   * Get active/upcoming cohorts for a course
+   */
+  async getBatchesForCourse(courseId: string): Promise<ApiResponse<Batch[]>> {
+    await sleep(100);
+    const batches = getStorageItem<Batch[]>(STORAGE_KEYS.BATCHES, SEED_BATCHES);
+    const filtered = batches.filter((b) => b.courseId === courseId && (b.status === 'upcoming' || b.status === 'ongoing'));
+    return { success: true, data: filtered };
+  },
+
+  /**
+   * Request student self-enrollment into a selected course batch (BR-002, BR-005)
+   */
+  async requestSelfEnrollment(
+    studentId: string,
+    courseId: string,
+    batchId?: string
+  ): Promise<ApiResponse<Enrollment>> {
+    await sleep(250);
+    const enrollments = getStorageItem<Enrollment[]>(STORAGE_KEYS.ENROLLMENTS, SEED_ENROLLMENTS);
+    const students = getStorageItem<StudentProfile[]>(STORAGE_KEYS.STUDENTS, []);
+    const batches = getStorageItem<Batch[]>(STORAGE_KEYS.BATCHES, SEED_BATCHES);
+
+    const existingIdx = enrollments.findIndex((e) => e.studentId === studentId && e.courseId === courseId);
+    if (existingIdx !== -1) {
+      if (batchId && enrollments[existingIdx].batchId !== batchId) {
+        enrollments[existingIdx].batchId = batchId;
+        setStorageItem(STORAGE_KEYS.ENROLLMENTS, enrollments);
+      }
+      return { success: true, data: enrollments[existingIdx], message: 'Enrollment already exists for this program.' };
+    }
+
+    const student = students.find((s) => s.id === studentId);
+    // If student is not yet approved by admissions admin (BR-002), enrollment remains pending approval
+    const initialStatus: EnrollmentStatus = student?.adminApprovalStatus === 'approved' ? 'approved_unpaid' : 'pending_approval';
+
+    const newEnr: Enrollment = {
+      id: `enr-${Date.now()}`,
+      studentId,
+      courseId,
+      batchId,
+      enrollmentType: 'self',
+      status: initialStatus, // Requires admin approval (BR-002) and payment (BR-005)
+      enrolledAt: new Date().toISOString(),
+      progressPercentage: 0,
+      completedLessonIds: [],
+      bookmarkedLessonIds: [],
+    };
+
+    setStorageItem(STORAGE_KEYS.ENROLLMENTS, [newEnr, ...enrollments]);
+
+    // Update batch roster
+    if (batchId) {
+      const bIdx = batches.findIndex((b) => b.id === batchId);
+      if (bIdx !== -1 && !batches[bIdx].enrolledStudentIds.includes(studentId)) {
+        batches[bIdx].enrolledStudentIds.push(studentId);
+        setStorageItem(STORAGE_KEYS.BATCHES, batches);
+      }
+    }
+
+    // Update student enrolledCourseIds
+    const stuIdx = students.findIndex((s) => s.id === studentId);
+    if (stuIdx !== -1) {
+      if (!students[stuIdx].enrolledCourseIds.includes(courseId)) {
+        students[stuIdx].enrolledCourseIds.push(courseId);
+        setStorageItem(STORAGE_KEYS.STUDENTS, students);
+      }
+    }
+
+    return {
+      success: true,
+      data: newEnr,
+      message: 'Course self-enrollment initiated. Please complete the one-time tuition payment to unlock lessons.',
+    };
   },
 
   /**

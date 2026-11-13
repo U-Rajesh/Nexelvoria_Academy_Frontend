@@ -21,6 +21,9 @@ import { Badge } from '../../components/common/Badge';
 import { Card, CardContent } from '../../components/common/Card';
 import { SEO } from '../../components/common/SEO';
 import { cmsService } from '../../services/cmsService';
+import { ScrollReveal } from '../../components/public/ScrollReveal';
+import { AnimatedStatistic } from '../../components/public/AnimatedStatistic';
+import { HiringPartnersMarquee } from '../../components/public/HiringPartnersMarquee';
 
 export const PlacementPage: React.FC = () => {
   const testimonials = cmsService.getTestimonials();
@@ -86,122 +89,143 @@ export const PlacementPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Placement Statistics Overview */}
+      {/* Placement Statistics Overview (Animated Counter) */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 text-center">
         <Card className="p-6 space-y-1 bg-white">
-          <p className="text-3xl font-extrabold text-amber-500">₹ 32.5 LPA</p>
-          <p className="text-xs text-slate-500 font-semibold uppercase">Highest Package</p>
+          <AnimatedStatistic
+            value="₹ 32.5 LPA"
+            label="Highest Package"
+            valueClassName="text-3xl font-extrabold text-amber-500"
+            delay={0}
+          />
         </Card>
         <Card className="p-6 space-y-1 bg-white">
-          <p className="text-3xl font-extrabold text-indigo-600">₹ 8.5 LPA</p>
-          <p className="text-xs text-slate-500 font-semibold uppercase">Average Package</p>
+          <AnimatedStatistic
+            value="₹ 8.5 LPA"
+            label="Average Package"
+            valueClassName="text-3xl font-extrabold text-indigo-600"
+            delay={120}
+          />
         </Card>
         <Card className="p-6 space-y-1 bg-white">
-          <p className="text-3xl font-extrabold text-emerald-600">94.8%</p>
-          <p className="text-xs text-slate-500 font-semibold uppercase">Placement Success</p>
+          <AnimatedStatistic
+            value="94.8%"
+            label="Placement Success"
+            valueClassName="text-3xl font-extrabold text-emerald-600"
+            delay={240}
+          />
         </Card>
         <Card className="p-6 space-y-1 bg-white">
-          <p className="text-3xl font-extrabold text-slate-900">120+</p>
-          <p className="text-xs text-slate-500 font-semibold uppercase">Hiring Partners</p>
+          <AnimatedStatistic
+            value="120+"
+            label="Hiring Partners"
+            valueClassName="text-3xl font-extrabold text-slate-900"
+            delay={360}
+          />
         </Card>
       </div>
 
       {/* 5-Step Placement Process */}
       <div className="space-y-10">
-        <div className="text-center max-w-2xl mx-auto space-y-2">
-          <Badge variant="purple" size="md">Step-by-Step Pathway</Badge>
-          <h2 className="text-3xl font-bold text-slate-900">Our Comprehensive Placement Process</h2>
-          <p className="text-xs sm:text-sm text-slate-500">Every enrolled student undergoes a structured 5-stage career transformation.</p>
-        </div>
+        <ScrollReveal animation="fade-up">
+          <div className="text-center max-w-2xl mx-auto space-y-2">
+            <Badge variant="purple" size="md">Step-by-Step Pathway</Badge>
+            <h2 className="text-3xl font-bold text-slate-900">Our Comprehensive Placement Process</h2>
+            <p className="text-xs sm:text-sm text-slate-500">Every enrolled student undergoes a structured 5-stage career transformation.</p>
+          </div>
+        </ScrollReveal>
 
         <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
-          {placementSteps.map((step) => (
-            <Card key={step.step} className="p-6 flex flex-col justify-between space-y-4 bg-white border border-slate-200">
-              <div className="space-y-3">
-                <span className="text-2xl font-black text-indigo-600 font-mono">{step.step}</span>
-                <h3 className="text-sm font-bold text-slate-900 leading-snug">{step.title}</h3>
-                <p className="text-xs text-slate-500 leading-relaxed">{step.desc}</p>
-              </div>
-            </Card>
+          {placementSteps.map((step, idx) => (
+            <ScrollReveal key={step.step} animation="fade-up" delay={idx * 100} className="h-full">
+              <Card className="p-6 flex flex-col justify-between space-y-4 bg-white border border-slate-200 h-full">
+                <div className="space-y-3">
+                  <span className="text-2xl font-black text-indigo-600 font-mono">{step.step}</span>
+                  <h3 className="text-sm font-bold text-slate-900 leading-snug">{step.title}</h3>
+                  <p className="text-xs text-slate-500 leading-relaxed">{step.desc}</p>
+                </div>
+              </Card>
+            </ScrollReveal>
           ))}
         </div>
       </div>
 
       {/* Salary Distribution Bracket */}
-      <div className="bg-slate-900 text-white rounded-2xl p-8 sm:p-12 space-y-8 border border-slate-800 shadow-lg">
-        <div className="max-w-2xl space-y-2">
-          <Badge variant="success" size="md" className="bg-emerald-800/60 text-emerald-200 border-emerald-600">Compensation Insights</Badge>
-          <h2 className="text-2xl sm:text-3xl font-bold text-white">Verified Salary Distribution for Recent Graduates</h2>
-          <p className="text-xs sm:text-sm text-slate-300">Based on audited placement offer records across our graduating cohorts.</p>
-        </div>
+      <ScrollReveal animation="scale-in">
+        <div className="bg-slate-900 text-white rounded-2xl p-8 sm:p-12 space-y-8 border border-slate-800 shadow-lg">
+          <div className="max-w-2xl space-y-2">
+            <Badge variant="success" size="md" className="bg-emerald-800/60 text-emerald-200 border-emerald-600">Compensation Insights</Badge>
+            <h2 className="text-2xl sm:text-3xl font-bold text-white">Verified Salary Distribution for Recent Graduates</h2>
+            <p className="text-xs sm:text-sm text-slate-300">Based on audited placement offer records across our graduating cohorts.</p>
+          </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {salaryDistribution.map((item, idx) => (
-            <div key={idx} className="p-6 rounded-xl bg-slate-800/80 border border-slate-700 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-slate-400 font-medium">{item.label}</span>
-                <span className="text-xl font-bold text-emerald-400 font-mono">{item.percentage}</span>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {salaryDistribution.map((item, idx) => (
+              <div key={idx} className="p-6 rounded-xl bg-slate-800/80 border border-slate-700 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-slate-400 font-medium">{item.label}</span>
+                  <span className="text-xl font-bold text-emerald-400 font-mono">{item.percentage}</span>
+                </div>
+                <p className="text-xl font-extrabold text-white">{item.bracket}</p>
               </div>
-              <p className="text-xl font-extrabold text-white">{item.bracket}</p>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-      </div>
+      </ScrollReveal>
 
       {/* Student Placement Success Stories */}
       <div className="space-y-8">
-        <div className="text-center max-w-2xl mx-auto space-y-2">
-          <Badge variant="info" size="md">Proven Outcomes</Badge>
-          <h2 className="text-3xl font-bold text-slate-900">Recent Graduate Success Stories</h2>
-          <p className="text-xs sm:text-sm text-slate-500">Alumni who bridged from university classrooms to high-growth engineering jobs.</p>
-        </div>
+        <ScrollReveal animation="fade-up">
+          <div className="text-center max-w-2xl mx-auto space-y-2">
+            <Badge variant="info" size="md">Proven Outcomes</Badge>
+            <h2 className="text-3xl font-bold text-slate-900">Recent Graduate Success Stories</h2>
+            <p className="text-xs sm:text-sm text-slate-500">Alumni who bridged from university classrooms to high-growth engineering jobs.</p>
+          </div>
+        </ScrollReveal>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {testimonials.map((t) => (
-            <Card key={t.id} className="p-6 flex flex-col justify-between space-y-4 bg-white">
-              <div className="space-y-3">
-                <div className="flex items-center gap-3">
-                  <img src={t.avatarUrl} alt={t.studentName} className="h-12 w-12 rounded-xl object-cover border border-slate-200" />
-                  <div>
-                    <h3 className="text-sm font-bold text-slate-900">{t.studentName}</h3>
-                    <p className="text-[11px] text-indigo-600 font-medium">{t.currentRole}</p>
+          {testimonials.map((t, idx) => (
+            <ScrollReveal key={t.id} animation="fade-up" delay={idx * 100} className="h-full">
+              <Card className="p-6 flex flex-col justify-between space-y-4 bg-white h-full">
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3.5">
+                    <img
+                      src={t.avatarUrl}
+                      alt={t.studentName}
+                      className="h-16 w-16 sm:h-18 sm:w-18 rounded-2xl object-cover object-top border-2 border-indigo-100 shadow-sm shrink-0"
+                    />
+                    <div className="min-w-0">
+                      <h3 className="text-sm font-bold text-slate-900 truncate">{t.studentName}</h3>
+                      <p className="text-xs text-indigo-600 font-semibold truncate">{t.currentRole}</p>
+                      <p className="text-[11px] text-slate-500 font-medium truncate">{t.companyName}</p>
+                    </div>
                   </div>
+                  <div className="p-3 bg-slate-50 rounded-xl space-y-1 text-xs">
+                    <p className="text-slate-500 text-[11px]">Placed at: <strong className="text-slate-800">{t.companyName}</strong></p>
+                    <p className="text-emerald-700 font-bold font-mono">Package: {t.packageCTC}</p>
+                  </div>
+                  <p className="text-xs text-slate-600 leading-relaxed italic line-clamp-3">&quot;{t.quote}&quot;</p>
                 </div>
-                <div className="p-3 bg-slate-50 rounded-xl space-y-1 text-xs">
-                  <p className="text-slate-500 text-[11px]">Placed at: <strong className="text-slate-800">{t.companyName}</strong></p>
-                  <p className="text-emerald-700 font-bold font-mono">Package: {t.packageCTC}</p>
+                <div className="text-[11px] text-slate-400 font-medium pt-2 border-t border-slate-100">
+                  {t.courseName}
                 </div>
-                <p className="text-xs text-slate-600 leading-relaxed italic line-clamp-3">&quot;{t.quote}&quot;</p>
-              </div>
-              <div className="text-[11px] text-slate-400 font-medium pt-2 border-t border-slate-100">
-                {t.courseName}
-              </div>
-            </Card>
+              </Card>
+            </ScrollReveal>
           ))}
         </div>
       </div>
 
-      {/* Hiring Partners Grid */}
-      <div className="space-y-8">
-        <div className="text-center max-w-2xl mx-auto space-y-2">
-          <Badge variant="purple" size="md">Corporate Network</Badge>
-          <h2 className="text-3xl font-bold text-slate-900">Our Prominent Hiring Partners</h2>
-          <p className="text-xs sm:text-sm text-slate-500">Recruiting our software engineering and cloud graduates across India and abroad.</p>
-        </div>
+      {/* Hiring Partners Continuous Marquee */}
+      <div className="space-y-6">
+        <ScrollReveal animation="fade-up">
+          <div className="text-center max-w-2xl mx-auto space-y-2">
+            <Badge variant="purple" size="md">Corporate Network</Badge>
+            <h2 className="text-3xl font-bold text-slate-900">Our Prominent Hiring Partners</h2>
+            <p className="text-xs sm:text-sm text-slate-500">Recruiting our software engineering and cloud graduates across India and abroad.</p>
+          </div>
+        </ScrollReveal>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 items-center">
-          {SEED_COMPANIES.concat([
-            { id: 'c4', name: 'Wipro Technologies', industry: 'IT Services', location: 'Pan India', website: '', activeOpeningsCount: 4, about: '' },
-            { id: 'c5', name: 'Capgemini Engineering', industry: 'Engineering', location: 'Hyderabad', website: '', activeOpeningsCount: 3, about: '' },
-            { id: 'c6', name: 'Accenture Solutions', industry: 'Consulting', location: 'Bengaluru', website: '', activeOpeningsCount: 5, about: '' },
-          ]).map((comp) => (
-            <div key={comp.id} className="p-5 rounded-xl border border-slate-200/90 bg-white flex flex-col items-center justify-center space-y-2 hover:border-indigo-400 hover:shadow-xs transition-all">
-              <Building className="h-7 w-7 text-indigo-600" />
-              <span className="text-xs font-bold text-slate-800 text-center">{comp.name}</span>
-              <span className="text-[10px] text-slate-400">{comp.industry}</span>
-            </div>
-          ))}
-        </div>
+        <HiringPartnersMarquee />
       </div>
 
       {/* Call to Action */}

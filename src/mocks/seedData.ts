@@ -20,6 +20,7 @@ import type {
   SupportTicket,
   InAppNotification,
   AuditLog,
+  InterviewQuestion,
 } from '../types';
 
 export const SEED_USERS: {
@@ -36,6 +37,7 @@ export const SEED_USERS: {
     mobile: '9876543210',
     role: 'student',
     status: 'active',
+    accountState: 'approved',
     avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80',
     createdAt: '2026-08-10T10:00:00Z',
     collegeName: 'Osmania University College of Engineering',
@@ -53,6 +55,61 @@ export const SEED_USERS: {
     linkedInUrl: 'https://linkedin.com/in/rohansharma-dev',
     githubUrl: 'https://github.com/rohansharma-dev',
     guardianContact: '9848022338',
+    resumeFileName: 'Rohan_Sharma_CV_FullStack.pdf',
+    resumeFileSize: '1.8 MB',
+    twoFactorEnabled: false,
+    activeSessions: [
+      {
+        id: 'sess-01',
+        device: 'Windows Desktop (Workstation)',
+        browser: 'Chrome 131.0',
+        os: 'Windows 11',
+        ipAddress: '157.48.12.90',
+        location: 'Hyderabad, India',
+        lastActive: 'Just now',
+        isCurrent: true,
+      },
+      {
+        id: 'sess-02',
+        device: 'Apple iPhone 15 Pro',
+        browser: 'Mobile Safari 18.1',
+        os: 'iOS 18.1',
+        ipAddress: '49.37.152.11',
+        location: 'Secunderabad, India',
+        lastActive: '2 hours ago',
+        isCurrent: false,
+      },
+    ],
+    loginHistory: [
+      {
+        id: 'log-hist-01',
+        timestamp: '2026-11-12T09:14:20Z',
+        device: 'Windows Desktop (Workstation)',
+        browser: 'Chrome 131.0',
+        ipAddress: '157.48.12.90',
+        location: 'Hyderabad, India',
+        status: 'success',
+      },
+      {
+        id: 'log-hist-02',
+        timestamp: '2026-11-11T18:42:10Z',
+        device: 'Apple iPhone 15 Pro',
+        browser: 'Mobile Safari 18.1',
+        ipAddress: '49.37.152.11',
+        location: 'Secunderabad, India',
+        status: 'success',
+      },
+      {
+        id: 'log-hist-03',
+        timestamp: '2026-11-10T14:05:33Z',
+        device: 'Windows Desktop (Workstation)',
+        browser: 'Chrome 131.0',
+        ipAddress: '157.48.12.90',
+        location: 'Hyderabad, India',
+        status: 'failed',
+        failureReason: 'Incorrect password attempt',
+      },
+    ],
   },
   studentPending: {
     id: 'user-stu-002',
@@ -61,6 +118,7 @@ export const SEED_USERS: {
     mobile: '9812345678',
     role: 'student',
     status: 'pending',
+    accountState: 'pending_approval',
     avatarUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80',
     createdAt: '2026-11-08T09:15:00Z',
     collegeName: 'JNTU Hyderabad',
@@ -75,6 +133,34 @@ export const SEED_USERS: {
     adminApprovalStatus: 'pending', // Demonstrates BR-002 gate in Admin approvals
     enrolledCourseIds: [],
     linkedInUrl: 'https://linkedin.com/in/ananyapatel',
+    githubUrl: 'https://github.com/ananyapatel',
+    guardianContact: '9811223344',
+    resumeFileName: 'Ananya_Patel_DataScience_Resume.pdf',
+    resumeFileSize: '2.4 MB',
+    twoFactorEnabled: false,
+    activeSessions: [
+      {
+        id: 'sess-03',
+        device: 'MacBook Air M2',
+        browser: 'Chrome 130.0',
+        os: 'macOS 15.0',
+        ipAddress: '122.175.48.20',
+        location: 'Hyderabad, India',
+        lastActive: '10 mins ago',
+        isCurrent: true,
+      },
+    ],
+    loginHistory: [
+      {
+        id: 'log-hist-04',
+        timestamp: '2026-11-12T08:30:00Z',
+        device: 'MacBook Air M2',
+        browser: 'Chrome 130.0',
+        ipAddress: '122.175.48.20',
+        location: 'Hyderabad, India',
+        status: 'success',
+      },
+    ],
   },
   teacher: {
     id: 'user-tch-001',
@@ -134,6 +220,7 @@ export const SEED_COURSES: Course[] = [
   {
     id: 'course-fsd-01',
     slug: 'full-stack-java-cloud',
+    courseCode: 'CRS-JFS-101',
     title: 'Full Stack Java & Cloud Microservices',
     shortDescription: 'Master modern Java 21, Spring Boot 3, Microservices, Docker, Kubernetes, and React frontend with enterprise architecture.',
     longDescription: 'An exhaustive enterprise-grade training program designed to transform students into production-ready full-stack software engineers. Covers Core Java, Advanced Spring Boot, REST APIs, PostgreSQL, AWS deployment, CI/CD pipelines, and placement preparation.',
@@ -146,6 +233,7 @@ export const SEED_COURSES: Course[] = [
     category: 'Software Development',
     technologies: ['Java 21', 'Spring Boot 3', 'PostgreSQL', 'Docker', 'Kubernetes', 'React', 'AWS'],
     isPublished: true,
+    status: 'Published',
     hasPlacementGuarantee: true,
     prerequisites: ['Basic understanding of object-oriented programming', 'Familiarity with C++ or core concepts'],
     learningOutcomes: [
@@ -173,6 +261,7 @@ export const SEED_COURSES: Course[] = [
                 chapterId: 'chap-1-1',
                 title: 'Lesson 1.1: Project Loom & Virtual Threads Deep Dive',
                 durationMinutes: 45,
+                lessonType: 'video',
                 videoUrl: 'https://www.youtube.com/embed/dQw4w9WgXcQ',
                 pdfUrl: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
                 studyMaterialText: 'Virtual threads represent lightweight threads managed by the JVM rather than the OS kernel...',
@@ -184,10 +273,12 @@ export const SEED_COURSES: Course[] = [
                 chapterId: 'chap-1-1',
                 title: 'Lesson 1.2: Structured Concurrency & Scoped Values',
                 durationMinutes: 50,
+                lessonType: 'video',
                 videoUrl: 'https://www.youtube.com/embed/dQw4w9WgXcQ',
                 pdfUrl: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
                 studyMaterialText: 'Structured concurrency treats multiple tasks running in different threads as a single unit of work...',
                 isFreePreview: false,
+                isDownloadRestricted: true, // LMS-006: Read-only download restrictions apply
                 order: 2,
               },
             ],
@@ -203,6 +294,7 @@ export const SEED_COURSES: Course[] = [
                 chapterId: 'chap-1-2',
                 title: 'Lesson 1.3: Pattern Matching for Switch Expressions',
                 durationMinutes: 40,
+                lessonType: 'reading',
                 videoUrl: 'https://www.youtube.com/embed/dQw4w9WgXcQ',
                 isFreePreview: false,
                 order: 1,
@@ -229,6 +321,7 @@ export const SEED_COURSES: Course[] = [
                 chapterId: 'chap-2-1',
                 title: 'Lesson 2.1: Circuit Breaker & Retry Patterns',
                 durationMinutes: 60,
+                lessonType: 'video',
                 isFreePreview: false,
                 order: 1,
               },
@@ -241,6 +334,7 @@ export const SEED_COURSES: Course[] = [
   {
     id: 'course-mern-02',
     slug: 'mern-stack-specialist',
+    courseCode: 'CRS-MRN-202',
     title: 'Modern MERN Stack & Next.js Architecture',
     shortDescription: 'Build high-performance, real-time web applications using MongoDB, Express, React 19, Node.js, and Next.js SSR.',
     longDescription: 'Comprehensive hands-on training focusing on TypeScript across the full stack, Tailwind CSS, Redux Toolkit, WebSockets, and serverless AWS architectures.',
@@ -253,6 +347,7 @@ export const SEED_COURSES: Course[] = [
     category: 'Software Development',
     technologies: ['React 19', 'Next.js', 'Node.js', 'Express', 'MongoDB', 'TypeScript', 'Tailwind CSS'],
     isPublished: true,
+    status: 'Published',
     hasPlacementGuarantee: true,
     prerequisites: ['HTML, CSS and JavaScript fundamentals'],
     learningOutcomes: [
@@ -265,6 +360,7 @@ export const SEED_COURSES: Course[] = [
   {
     id: 'course-ds-03',
     slug: 'data-science-genai',
+    courseCode: 'CRS-DSG-303',
     title: 'Applied Data Science, Machine Learning & GenAI',
     shortDescription: 'From Python, Pandas, and Scikit-Learn to Deep Learning, LLM Fine-tuning, LangChain, and RAG architectures.',
     longDescription: 'Master the future of artificial intelligence. Build generative AI applications, work with vector databases, fine-tune open-source LLMs, and master data analytics.',
@@ -277,6 +373,7 @@ export const SEED_COURSES: Course[] = [
     category: 'Data & AI',
     technologies: ['Python', 'PyTorch', 'Hugging Face', 'LangChain', 'Llama 3', 'Pinecone', 'PostgreSQL'],
     isPublished: true,
+    status: 'Published',
     hasPlacementGuarantee: true,
     prerequisites: ['Basic mathematics and programming curiosity'],
     learningOutcomes: [
@@ -289,6 +386,7 @@ export const SEED_COURSES: Course[] = [
   {
     id: 'course-devops-04',
     slug: 'cloud-devops-kubernetes',
+    courseCode: 'CRS-CLD-404',
     title: 'Cloud DevOps & Kubernetes Engineering',
     shortDescription: 'Automate enterprise infrastructure with Linux, AWS, Terraform, Ansible, Docker, Kubernetes, and Prometheus.',
     longDescription: 'Designed for engineers aiming for top Cloud & Site Reliability Engineering (SRE) roles. Covers GitOps with ArgoCD, Terraform IaC, and AWS architectures.',
@@ -301,12 +399,39 @@ export const SEED_COURSES: Course[] = [
     category: 'Cloud & DevOps',
     technologies: ['AWS', 'Docker', 'Kubernetes', 'Terraform', 'ArgoCD', 'Jenkins', 'Linux'],
     isPublished: true,
+    status: 'Published',
     hasPlacementGuarantee: false,
     prerequisites: ['Basic Linux command knowledge'],
     learningOutcomes: [
       'Automate cloud infrastructure using Terraform and Ansible',
       'Architect highly available Kubernetes clusters on AWS',
       'Configure GitOps CI/CD pipelines with ArgoCD',
+    ],
+    modules: [],
+  },
+  {
+    id: 'course-cyber-05',
+    slug: 'enterprise-cybersecurity-threat',
+    courseCode: 'CRS-CYB-505',
+    title: 'Enterprise Cybersecurity & Threat Intelligence',
+    shortDescription: 'Defend enterprise infrastructure with threat hunting, ethical hacking, SIEM, and SOC operations.',
+    longDescription: 'Complete blue and red team curriculum exploring network security, penetration testing, malware reverse engineering, and cloud security compliance.',
+    thumbnailUrl: 'https://images.unsplash.com/photo-1563986768609-322da13575f3?auto=format&fit=crop&w=600&q=80',
+    durationWeeks: 22,
+    totalHours: 220,
+    feeINR: 50000,
+    discountedFeeINR: 42000,
+    level: 'Advanced',
+    category: 'Cybersecurity',
+    technologies: ['Wireshark', 'Burp Suite', 'Metasploit', 'Splunk', 'Linux', 'Python'],
+    isPublished: false,
+    status: 'Draft',
+    hasPlacementGuarantee: true,
+    prerequisites: ['Foundational networking & TCP/IP stack'],
+    learningOutcomes: [
+      'Identify zero-day vulnerabilities in enterprise applications',
+      'Operate SIEM tools for real-time security alerting',
+      'Conduct end-to-end penetration tests according to OWASP Top 10',
     ],
     modules: [],
   },
@@ -322,7 +447,10 @@ export const SEED_BATCHES: Batch[] = [
     startDate: '2026-10-01',
     endDate: '2027-03-31',
     scheduleTiming: 'Mon - Fri 7:30 AM - 9:30 AM IST',
+    scheduleDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    scheduleTime: '07:30 - 09:30 IST',
     assignedTeacherIds: ['user-tch-001'],
+    primaryTeacherId: 'user-tch-001',
     enrolledStudentIds: ['user-stu-001'],
     status: 'ongoing',
     maxCapacity: 40,
@@ -337,11 +465,50 @@ export const SEED_BATCHES: Batch[] = [
     startDate: '2026-11-15',
     endDate: '2027-04-15',
     scheduleTiming: 'Mon - Fri 6:30 PM - 8:30 PM IST',
+    scheduleDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    scheduleTime: '18:30 - 20:30 IST',
     assignedTeacherIds: ['user-tch-001'],
+    primaryTeacherId: 'user-tch-001',
     enrolledStudentIds: [],
     status: 'upcoming',
     maxCapacity: 35,
     meetingUrl: 'https://meet.google.com/nex-mern-batch',
+  },
+  {
+    id: 'batch-ds-03',
+    courseId: 'course-ds-03',
+    courseName: 'Applied Data Science, Machine Learning & GenAI',
+    name: 'Data Science & GenAI - Dec 2026 Weekend Cohort',
+    batchCode: 'DSG-2026-W1',
+    startDate: '2026-12-05',
+    endDate: '2027-05-30',
+    scheduleTiming: 'Sat - Sun 10:00 AM - 2:00 PM IST',
+    scheduleDays: ['Sat', 'Sun'],
+    scheduleTime: '10:00 - 14:00 IST',
+    assignedTeacherIds: ['user-tch-001'],
+    primaryTeacherId: 'user-tch-001',
+    enrolledStudentIds: [],
+    status: 'upcoming',
+    maxCapacity: 40,
+    meetingUrl: 'https://meet.google.com/nex-dsg-batch',
+  },
+  {
+    id: 'batch-devops-04',
+    courseId: 'course-devops-04',
+    courseName: 'Cloud DevOps & Kubernetes Engineering',
+    name: 'Cloud DevOps - Summer 2026 Batch',
+    batchCode: 'CLD-2026-S1',
+    startDate: '2026-04-01',
+    endDate: '2026-08-30',
+    scheduleTiming: 'Mon - Fri 8:00 AM - 10:00 AM IST',
+    scheduleDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    scheduleTime: '08:00 - 10:00 IST',
+    assignedTeacherIds: ['user-tch-001'],
+    primaryTeacherId: 'user-tch-001',
+    enrolledStudentIds: [],
+    status: 'completed',
+    maxCapacity: 30,
+    meetingUrl: 'https://meet.google.com/nex-cld-completed',
   },
 ];
 
@@ -783,4 +950,232 @@ export const SEED_AUDIT_LOGS: AuditLog[] = [
     details: 'Verified: 100% course completion, 100% attendance (>=75%), 90% exam score (>=60%). Validated for Rohan Sharma.',
   },
 ];
+
+export const SEED_INTERVIEW_QUESTIONS: InterviewQuestion[] = [
+  {
+    id: 'iq-001',
+    category: 'Java & Spring Boot',
+    difficulty: 'Medium',
+    title: 'Virtual Threads (Project Loom) vs Platform Threads',
+    question:
+      'Explain the internal mechanics of Virtual Threads introduced in Java 21. How do they differ from OS platform threads, and what happens when a virtual thread performs a blocking I/O operation?',
+    modelAnswer:
+      'Virtual threads are lightweight implementations of java.lang.Thread that are managed by the JVM rather than the underlying OS kernel. While a platform thread typically consumes ~1MB of memory and is limited to thousands per machine, a virtual thread has a minimal memory footprint of ~2-4KB. When a virtual thread encounters a blocking I/O operation (e.g. database query, socket read), the JVM unmounts it from its carrier platform thread (from a ForkJoinPool) and preserves its continuation stack in the JVM heap. The carrier thread is immediately freed to execute other virtual threads. Once the I/O event completes, the JVM schedules the continuation to mount onto any available carrier thread and resume execution.',
+    evaluationRubric: [
+      {
+        criteria: 'Architecture & JVM Internals',
+        weightage: '40%',
+        goodResponseIndicator: 'Mentions carrier threads, ForkJoinPool, stack continuations, and heap memory footprint.',
+      },
+      {
+        criteria: 'Blocking I/O Unmounting',
+        weightage: '35%',
+        goodResponseIndicator: 'Accurately explains unmounting/mounting cycle during blocking network/file calls.',
+      },
+      {
+        criteria: 'Practical Use Cases & Anti-patterns',
+        weightage: '25%',
+        goodResponseIndicator: 'Notes that virtual threads should not be pooled and explains synchronized block pinning.',
+      },
+    ],
+    tags: ['Java 21', 'Virtual Threads', 'Concurrency', 'JVM Internals'],
+  },
+  {
+    id: 'iq-002',
+    category: 'React & Frontend',
+    difficulty: 'Medium',
+    title: 'React 19 Server Components vs Client Components',
+    question:
+      'How does the component model differ between React Server Components (RSC) and Client Components? When would you designate a component with the "use client" directive, and what are the performance trade-offs?',
+    modelAnswer:
+      'React Server Components execute exclusively on the server (or during build time) and never send their JavaScript bundle to the browser client. They emit a serialized virtual DOM tree (RSC payload) with zero client bundle impact, direct access to server data sources, and enhanced security for backend credentials. Client Components, marked with "use client", are sent as JavaScript bundles to the browser and hydrate into interactive DOM elements. "use client" is strictly necessary whenever a component requires interactivity (onClick, onChange), React state (useState, useReducer), lifecycle effects (useEffect), or browser-specific APIs (window, localStorage).',
+    evaluationRubric: [
+      {
+        criteria: 'Bundle & Performance Impact',
+        weightage: '40%',
+        goodResponseIndicator: 'Explains zero-bundle size advantage of RSC and hydration overhead of client components.',
+      },
+      {
+        criteria: 'Boundary Identification',
+        weightage: '35%',
+        goodResponseIndicator: 'Identifies clear rules for when to mark components with "use client" (state, events, hooks).',
+      },
+      {
+        criteria: 'Data Flow & Composition',
+        weightage: '25%',
+        goodResponseIndicator: 'Discusses passing Server Components as children/props to Client Components without re-bundling.',
+      },
+    ],
+    tags: ['React 19', 'RSC', 'Hydration', 'Performance', 'Architecture'],
+  },
+  {
+    id: 'iq-003',
+    category: 'System Design',
+    difficulty: 'Hard',
+    title: 'Distributed Rate Limiter Design',
+    question:
+      'Design a high-throughput, low-latency Distributed Rate Limiter capable of handling 100,000 requests per second across a cluster of API Gateway instances with sub-10ms response latency.',
+    modelAnswer:
+      'To build a distributed rate limiter for 100k RPS: 1) Algorithm: Token Bucket or Sliding Window Counter (Redis Sorted Sets or Redis Lua scripts) are standard. Sliding Window Counter offers better precision against burst attacks. 2) Data Store: Distributed Redis cluster with in-memory storage, sharded by User/Client API Key. 3) Concurrency: Atomic execution using Redis Lua scripts to evaluate and increment counter in a single network round-trip. 4) Scalability & Resilience: Introduce local in-memory L1 cache (e.g., Guava/Caffeine) on each API Gateway node that syncs batches with Redis asynchronously to minimize Redis network overhead. If Redis is temporarily unreachable, fallback to a graceful degradation policy (allow requests or throttle to conservative threshold). 5) Headers: Return standard HTTP headers (X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset) and HTTP 429 Too Many Requests.',
+    evaluationRubric: [
+      {
+        criteria: 'Algorithm Choice & Precision',
+        weightage: '30%',
+        goodResponseIndicator: 'Compares Token Bucket vs Sliding Window Counter and evaluates boundary burst behavior.',
+      },
+      {
+        criteria: 'Distributed Concurrency & State',
+        weightage: '40%',
+        goodResponseIndicator: 'Employs atomic Redis Lua scripts and addresses clock drift / synchronization challenges.',
+      },
+      {
+        criteria: 'Fault Tolerance & Performance',
+        weightage: '30%',
+        goodResponseIndicator: 'Designs L1 gateway caching, Redis failover strategy, and standard RFC 6585 rate limiting headers.',
+      },
+    ],
+    tags: ['System Design', 'Redis', 'Rate Limiting', 'Distributed Systems', 'API Gateway'],
+  },
+  {
+    id: 'iq-004',
+    category: 'DSA & Algorithms',
+    difficulty: 'Medium',
+    title: 'Best Time to Buy and Sell Stock with At Most 2 Transactions',
+    question:
+      'You are given an array prices where prices[i] is the price of a given stock on the ith day. Find the maximum profit you can achieve with at most two transactions. Note: You cannot engage in multiple transactions simultaneously.',
+    modelAnswer:
+      'This problem can be solved in O(N) time and O(1) space using dynamic programming state machine tracking four states: 1) firstBuy = max(firstBuy, -price), representing min money spent buying first stock. 2) firstProfit = max(firstProfit, firstBuy + price), max profit after first sell. 3) secondBuy = max(secondBuy, firstProfit - price), reinvesting first profit into second purchase. 4) secondProfit = max(secondProfit, secondBuy + price), final max profit after second sell. By iterating once through the prices array, secondProfit yields the optimal answer in O(N) linear time and O(1) auxiliary memory.',
+    evaluationRubric: [
+      {
+        criteria: 'Optimal Complexity',
+        weightage: '40%',
+        goodResponseIndicator: 'Achieves O(N) time complexity and O(1) constant extra space.',
+      },
+      {
+        criteria: 'DP State Machine Logic',
+        weightage: '40%',
+        goodResponseIndicator: 'Clearly traces the 4 state transitions and initialization values (-infinity).',
+      },
+      {
+        criteria: 'Edge Cases Handling',
+        weightage: '20%',
+        goodResponseIndicator: 'Handles monotonically decreasing prices (zero profit) and arrays with fewer than 2 elements.',
+      },
+    ],
+    tags: ['DSA', 'Dynamic Programming', 'Arrays', 'Greedy', 'O(N) Time'],
+  },
+  {
+    id: 'iq-005',
+    category: 'Behavioral & HR',
+    difficulty: 'Medium',
+    title: 'Production Incident Resolution & Root Cause Communication',
+    question:
+      'Describe a situation where a severe bug or outage occurred in a software system you contributed to. How did you diagnose the issue, manage stakeholder expectations, and lead the post-mortem?',
+    modelAnswer:
+      'Using the STAR framework: Situation: During an end-of-quarter high-traffic enrollment surge, our database connection pool exhausted due to unclosed JDBC transactions in a batch worker, spiking 500 errors to 12%. Task: As senior engineer, I took charge of mitigating the active blast radius while communicating with leadership. Action: 1) Triggered the incident response runbook, hot-restarted the worker replicas with an increased pool size and query timeout to stabilize production within 18 minutes. 2) Triaged logs in Datadog/CloudWatch to pinpoint the unreleased connections in the transaction interceptor. 3) Deployed a patch with try-with-resources and automated leak alerts. 4) Result: 99.98% uptime restored. Led a blameless post-mortem that introduced mandatory connection lifecycle tests and automated pool exhaustion alarms in CI/CD.',
+    evaluationRubric: [
+      {
+        criteria: 'STAR Framework Structure',
+        weightage: '30%',
+        goodResponseIndicator: 'Follows Situation, Task, Action, and Result with quantifiable metrics and clear ownership.',
+      },
+      {
+        criteria: 'Incident Triage & Composure',
+        weightage: '40%',
+        goodResponseIndicator: 'Prioritizes blast radius containment first before deep debugging; communicates proactively.',
+      },
+      {
+        criteria: 'Blameless Post-Mortem & Prevention',
+        weightage: '30%',
+        goodResponseIndicator: 'Focuses on systemic defenses (alerts, CI/CD checks, runbooks) rather than individual blame.',
+      },
+    ],
+    tags: ['Behavioral', 'Incident Management', 'STAR Technique', 'Leadership', 'Communication'],
+  },
+  {
+    id: 'iq-006',
+    category: 'Java & Spring Boot',
+    difficulty: 'Hard',
+    title: 'Distributed Transactions: Saga Pattern vs 2-Phase Commit (2PC)',
+    question:
+      'Compare the 2-Phase Commit (2PC) protocol with the Saga Pattern for distributed microservices. What are the key architectural differences between Choreography and Orchestration in Sagas?',
+    modelAnswer:
+      '2-Phase Commit (2PC) is a synchronous atomic commit protocol (Prepare + Commit phases) with a central coordinator. While it guarantees ACID consistency, it suffers from blocking locks, high latency, single point of failure (coordinator failure locks resources), and is ill-suited for cloud-native microservices. The Saga pattern trades ACID for BASE (Eventual Consistency) by breaking a distributed transaction into a sequence of local transactions, each updating its own database and publishing an event. If a local step fails, the Saga executes compensating transactions in reverse order to undo prior steps. In Choreography-based Sagas, services listen to events from message brokers (Kafka/RabbitMQ) and decide their next action without a central controller—simple for small flows, but difficult to monitor. In Orchestration-based Sagas, a central orchestrator (e.g. Temporal, Camunda, or dedicated Spring service) explicitly calls microservices and coordinates compensations, providing centralized visibility and simplified testing.',
+    evaluationRubric: [
+      {
+        criteria: 'ACID vs BASE Eventual Consistency',
+        weightage: '35%',
+        goodResponseIndicator: 'Explains why 2PC lock contention degrades scalability in distributed architectures.',
+      },
+      {
+        criteria: 'Compensating Transactions',
+        weightage: '35%',
+        goodResponseIndicator: 'Articulates how compensating transactions restore state without locking resources.',
+      },
+      {
+        criteria: 'Choreography vs Orchestration Trade-offs',
+        weightage: '30%',
+        goodResponseIndicator: 'Contrasts coupling, debugging complexity, and event storms between both approaches.',
+      },
+    ],
+    tags: ['Microservices', 'Distributed Systems', 'Saga Pattern', 'Spring Boot', 'Kafka'],
+  },
+  {
+    id: 'iq-007',
+    category: 'React & Frontend',
+    difficulty: 'Easy',
+    title: 'Memory Leaks & Subscriptions in React useEffect',
+    question:
+      'How does the cleanup function in React useEffect work? Give a concrete example of preventing memory leaks when subscribing to WebSockets or DOM event listeners.',
+    modelAnswer:
+      'When useEffect returns a function, React executes that cleanup function before the component unmounts and before re-running the effect on subsequent renders when dependencies change. Without cleanup, ongoing subscriptions (like WebSockets, setInterval, or window resize listeners) continue consuming memory and may invoke state setters on unmounted components, causing memory leaks and unexpected behavior. Example: const ws = new WebSocket(url); ws.onmessage = handleMsg; return () => { ws.close(); }; ensures the socket is cleanly terminated when the component lifecycle ends.',
+    evaluationRubric: [
+      {
+        criteria: 'Lifecycle Mechanics',
+        weightage: '40%',
+        goodResponseIndicator: 'Explains execution on both unmount and before subsequent effect runs.',
+      },
+      {
+        criteria: 'Practical Implementation',
+        weightage: '40%',
+        goodResponseIndicator: 'Demonstrates clean listener removal or WebSocket closure pattern.',
+      },
+      {
+        criteria: 'StrictMode Double-Invoking Awareness',
+        weightage: '20%',
+        goodResponseIndicator: 'Notes that React 18+ StrictMode mounts/unmounts in dev to verify idempotent cleanups.',
+      },
+    ],
+    tags: ['React', 'Hooks', 'useEffect', 'Memory Management', 'WebSockets'],
+  },
+  {
+    id: 'iq-008',
+    category: 'Behavioral & HR',
+    difficulty: 'Easy',
+    title: 'Handling Technical Disagreements with Senior Peers',
+    question:
+      'How do you approach a situation where you disagree with a Senior Tech Lead or peer engineer on a proposed technical architecture or database schema?',
+    modelAnswer:
+      'I approach technical disagreements with empathy, intellectual humility, and data-driven objectivity. First, I schedule a 1-on-1 discussion to deeply understand their rationale, constraints, and business context that I might not be privy to. Second, rather than debating opinions, I bring objective evidence: benchmarking data, proof-of-concept code, RFC documentation, or edge-case failure simulations. Third, we map both options against agreed non-functional requirements (read vs write latency, developer velocity, migration effort). Finally, I embrace the principle of "disagree and commit"—if after full evaluation the lead chooses an alternative direction, I commit 100% to delivering that solution successfully without lingering reservations.',
+    evaluationRubric: [
+      {
+        criteria: 'Objective, Data-Driven Approach',
+        weightage: '40%',
+        goodResponseIndicator: 'Uses spikes, benchmarks, and RFC trade-off matrices rather than emotional debate.',
+      },
+      {
+        criteria: 'Active Listening & Empathy',
+        weightage: '30%',
+        goodResponseIndicator: 'Listens first to uncover architectural constraints and broader business goals.',
+      },
+      {
+        criteria: 'Disagree and Commit Culture',
+        weightage: '30%',
+        goodResponseIndicator: 'Expresses professional maturity by committing fully once a decision has been reached.',
+      },
+    ],
+    tags: ['Behavioral', 'Conflict Resolution', 'Team Collaboration', 'Engineering Culture'],
+  },
+];
+
 

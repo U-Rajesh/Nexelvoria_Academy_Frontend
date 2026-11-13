@@ -11,6 +11,7 @@ export interface Enrollment {
   studentId: string;
   courseId: string;
   batchId?: string;
+  enrollmentType?: 'self' | 'admin';
   status: EnrollmentStatus;
   enrolledAt: string;
   completedAt?: string;

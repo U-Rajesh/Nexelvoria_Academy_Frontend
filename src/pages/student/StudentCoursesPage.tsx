@@ -56,19 +56,35 @@ export const StudentCoursesPage: React.FC = () => {
           </p>
         </div>
 
-        <Badge variant="purple" size="md">
-          {enrollments.length} Active {enrollments.length === 1 ? 'Program' : 'Programs'}
-        </Badge>
+        <div className="flex items-center gap-3">
+          <Badge variant="purple" size="md">
+            {enrollments.length} Active {enrollments.length === 1 ? 'Program' : 'Programs'}
+          </Badge>
+          <Link to="/courses">
+            <Button variant="outline" size="sm" rightIcon={<ArrowRight className="h-3.5 w-3.5" />}>
+              Explore More Programs
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {/* Courses Grid */}
       {isLoading ? (
         <div className="p-12 text-center text-xs text-slate-400">Loading your enrolled courses...</div>
       ) : enrollments.length === 0 ? (
-        <Card className="p-12 text-center text-slate-400 text-xs">
-          <BookOpen className="h-10 w-10 mx-auto text-slate-300 mb-2" />
-          <p className="font-semibold text-slate-600">No Authorized Course Enrollments</p>
-          <p className="mt-1">You are not currently enrolled in any course batches. Please contact admissions.</p>
+        <Card className="p-12 text-center text-slate-400 text-xs space-y-4">
+          <BookOpen className="h-10 w-10 mx-auto text-slate-300" />
+          <div className="space-y-1">
+            <p className="font-semibold text-slate-700 text-sm">No Enrolled Courses Found</p>
+            <p className="text-xs text-slate-500 max-w-sm mx-auto">
+              You have not enrolled in any training programs yet. Explore our career programs, choose a cohort, and begin your journey.
+            </p>
+          </div>
+          <Link to="/courses">
+            <Button variant="primary" size="sm" rightIcon={<ArrowRight className="h-4 w-4" />}>
+              Browse Course Catalog & Self-Enroll
+            </Button>
+          </Link>
         </Card>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

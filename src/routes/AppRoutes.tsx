@@ -58,6 +58,7 @@ import { StudentMockInterviewsPage } from '../pages/student/StudentMockInterview
 import { StudentNotificationsPage } from '../pages/student/StudentNotificationsPage';
 import { StudentSupportPage } from '../pages/student/StudentSupportPage';
 import { StudentProfilePage, StudentChangePasswordPage } from '../pages/student/StudentProfilePage';
+import { StudentSecurityPage } from '../pages/student/StudentSecurityPage';
 
 // Teacher Portal Pages
 import { TeacherDashboardPage } from '../pages/teacher/TeacherDashboardPage';
@@ -91,6 +92,7 @@ import { AdminAddStudentPage } from '../pages/admin/AdminAddStudentPage';
 import { AdminEnrollmentPage } from '../pages/admin/AdminEnrollmentPage';
 import { AdminCourseListPage } from '../pages/admin/AdminCourseListPage';
 import { AdminBatchListPage } from '../pages/admin/AdminBatchListPage';
+import { AdminBatchDetailPage } from '../pages/admin/AdminBatchDetailPage';
 import { AdminTeacherListPage } from '../pages/admin/AdminTeacherListPage';
 import { AdminTeacherAllocationPage } from '../pages/admin/AdminTeacherAllocationPage';
 import { AdminPaymentListPage } from '../pages/admin/AdminPaymentListPage';
@@ -187,6 +189,7 @@ export const AppRoutes: React.FC = () => {
         <Route path="placements" element={<StudentPlacementsPage />} />
         <Route path="mock-interviews" element={<StudentMockInterviewsPage />} />
         <Route path="notifications" element={<StudentNotificationsPage />} />
+        <Route path="security" element={<StudentSecurityPage />} />
         <Route path="support" element={<StudentSupportPage />} />
         <Route path="change-password" element={<StudentChangePasswordPage />} />
         <Route index element={<Navigate to="/student/dashboard" replace />} />
@@ -243,6 +246,7 @@ export const AppRoutes: React.FC = () => {
         <Route path="enrollments" element={<AdminEnrollmentPage />} />
         <Route path="courses" element={<AdminCourseListPage />} />
         <Route path="batches" element={<AdminBatchListPage />} />
+        <Route path="batches/:batchId" element={<AdminBatchDetailPage />} />
         <Route path="teachers" element={<AdminTeacherListPage />} />
         <Route path="teachers/allocation" element={<AdminTeacherAllocationPage />} />
         <Route path="payments" element={<AdminPaymentListPage />} />

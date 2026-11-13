@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Layers,
   Search,
@@ -27,6 +28,8 @@ import type { Enrollment, StudentProfile, Course, Batch, CouponDiscount } from '
 export const AdminEnrollmentPage: React.FC = () => {
   const { user } = useAuth();
   const { showToast } = useNotification();
+  const [searchParams] = useSearchParams();
+  const batchIdParam = searchParams.get('batchId');
 
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
   const [students, setStudents] = useState<StudentProfile[]>([]);
@@ -61,7 +64,17 @@ export const AdminEnrollmentPage: React.FC = () => {
       setCourses(cRes.data);
       if (cRes.data.length > 0) setSelectedCourseId(cRes.data[0].id);
     }
-    if (bRes.success) setBatches(bRes.data);
+    if (bRes.success) {
+      setBatches(bRes.data);
+      if (batchIdParam) {
+        const found = bRes.data.find((b) => b.id === batchIdParam);
+        if (found) {
+          setSelectedBatchId(found.id);
+          setSelectedCourseId(found.courseId);
+          setEnrollModalOpen(true);
+        }
+      }
+    }
     if (dRes.success) setDiscounts(dRes.data);
   };
 

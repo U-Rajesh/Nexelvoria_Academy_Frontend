@@ -19,13 +19,15 @@ import { useAuth } from '../context/AuthContext';
 import { APP_CONFIG } from '../constants/appConfig';
 import { Button } from '../components/common/Button';
 import { Linkedin, Github } from '../components/common/SocialIcons';
-import { cmsService, type WebsiteBanner } from '../services/cmsService';
+import { cmsService, type WebsiteBanner, type HeaderFooterConfig, type ContactInfoConfig } from '../services/cmsService';
 import { analytics } from '../utils/analytics';
 
 export const PublicLayout: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [activeBanner, setActiveBanner] = useState<WebsiteBanner | null>(null);
+  const [headerFooterConfig] = useState<HeaderFooterConfig>(() => cmsService.getHeaderFooterConfig());
+  const [contactConfig] = useState<ContactInfoConfig>(() => cmsService.getContactInfo());
   const { user, isAuthenticated, logout } = useAuth();
   const location = useLocation();
 
@@ -45,18 +47,32 @@ export const PublicLayout: React.FC = () => {
     setMobileMenuOpen(false);
   }, [location.pathname]);
 
-  const navLinks = [
-    { label: 'Home', path: '/' },
-    { label: 'Courses', path: '/courses' },
-    { label: 'Placements', path: '/placements' },
-    { label: 'Trainers', path: '/trainers' },
-    { label: 'Partnerships', path: '/college-partnerships' },
-    { label: 'Corporate', path: '/corporate-training' },
-    { label: 'Success Stories', path: '/testimonials' },
-    { label: 'Blog', path: '/blog' },
-    { label: 'About Us', path: '/about-us' },
-    { label: 'Contact', path: '/contact-us' },
-  ];
+  const navLinks = (headerFooterConfig.navLinks && headerFooterConfig.navLinks.length > 0)
+    ? headerFooterConfig.navLinks
+    : [
+        { label: 'Home', path: '/' },
+        { label: 'Courses', path: '/courses' },
+        { label: 'Placements', path: '/placements' },
+        { label: 'Trainers', path: '/trainers' },
+        { label: 'Partnerships', path: '/college-partnerships' },
+        { label: 'Corporate', path: '/corporate-training' },
+        { label: 'Success Stories', path: '/testimonials' },
+        { label: 'Blog', path: '/blog' },
+        { label: 'About Us', path: '/about-us' },
+        { label: 'Contact', path: '/contact-us' },
+      ];
+
+  const supportPhone = contactConfig.supportPhone || APP_CONFIG.supportPhone;
+  const supportEmail = contactConfig.supportEmail || APP_CONFIG.supportEmail;
+  const whatsappNumber = contactConfig.whatsappNumber || APP_CONFIG.whatsappNumber;
+  const linkedinUrl = contactConfig.socialLinks?.linkedin || APP_CONFIG.socialLinks.linkedin;
+  const githubUrl = contactConfig.socialLinks?.github || APP_CONFIG.socialLinks.github;
+  const logoTitle = headerFooterConfig.logoTitle || 'Nexelvoria';
+  const logoSubtitle = headerFooterConfig.logoSubtitle || 'Online Training & LMS';
+  const footerDescription = headerFooterConfig.footerDescription ||
+    'Industry-led training institute bridging academic education with production engineering excellence. Equipping developers and tech professionals with hands-on competencies and placement guarantees.';
+  const copyrightText = headerFooterConfig.copyrightText ||
+    `© ${new Date().getFullYear()} Nexelvoria Academy. All rights reserved. Timezone: Asia/Kolkata.`;
 
   const getDashboardPath = () => {
     if (!user) return '/login';
@@ -112,10 +128,10 @@ export const PublicLayout: React.FC = () => {
             </span>
             <span className="hidden md:inline text-slate-600">|</span>
             <a
-              href={`tel:${APP_CONFIG.supportPhone.replace(/[^0-9+]/g, '')}`}
+              href={`tel:${supportPhone.replace(/[^0-9+]/g, '')}`}
               className="hidden md:flex items-center gap-1 text-slate-400 hover:text-white transition-colors"
             >
-              <Phone className="h-3 w-3" /> {APP_CONFIG.supportPhone}
+              <Phone className="h-3 w-3" /> {supportPhone}
             </a>
           </div>
 
@@ -134,26 +150,30 @@ export const PublicLayout: React.FC = () => {
             <span className="text-slate-600">|</span>
             {/* Social Links (PUB-025) */}
             <div className="flex items-center gap-2.5 text-slate-400">
-              <a
-                href={APP_CONFIG.socialLinks.linkedin}
-                target="_blank"
-                rel="noopener noreferrer"
-                title="LinkedIn"
-                aria-label="LinkedIn Profile"
-                className="hover:text-indigo-400 transition-colors"
-              >
-                <Linkedin size={13} />
-              </a>
-              <a
-                href={APP_CONFIG.socialLinks.github}
-                target="_blank"
-                rel="noopener noreferrer"
-                title="GitHub"
-                aria-label="GitHub Profile"
-                className="hover:text-white transition-colors"
-              >
-                <Github size={13} />
-              </a>
+              {linkedinUrl && (
+                <a
+                  href={linkedinUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="LinkedIn"
+                  aria-label="LinkedIn Profile"
+                  className="hover:text-indigo-400 transition-colors"
+                >
+                  <Linkedin size={13} />
+                </a>
+              )}
+              {githubUrl && (
+                <a
+                  href={githubUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="GitHub"
+                  aria-label="GitHub Profile"
+                  className="hover:text-white transition-colors"
+                >
+                  <Github size={13} />
+                </a>
+              )}
             </div>
           </div>
         </div>
@@ -170,10 +190,10 @@ export const PublicLayout: React.FC = () => {
               </div>
               <div>
                 <span className="text-lg font-bold text-slate-900 tracking-tight block">
-                  Nexelvoria <span className="text-indigo-600">Academy</span>
+                  {logoTitle} <span className="text-indigo-600">Academy</span>
                 </span>
                 <span className="text-[10px] text-slate-500 tracking-wider uppercase block font-medium">
-                  Online Training & LMS
+                  {logoSubtitle}
                 </span>
               </div>
             </Link>
@@ -311,7 +331,7 @@ export const PublicLayout: React.FC = () => {
 
       {/* Floating WhatsApp Action Button (PUB-020) */}
       <a
-        href={`https://wa.me/${APP_CONFIG.whatsappNumber.replace(/[^0-9]/g, '')}?text=Hello%20Nexelvoria%20Academy,%20I%20would%20like%20to%20inquire%20about%20your%20training%20programs.`}
+        href={`https://wa.me/${whatsappNumber.replace(/[^0-9]/g, '')}?text=Hello%20Nexelvoria%20Academy,%20I%20would%20like%20to%20inquire%20about%20your%20training%20programs.`}
         target="_blank"
         rel="noopener noreferrer"
         aria-label="Chat with Admissions on WhatsApp"
@@ -334,42 +354,45 @@ export const PublicLayout: React.FC = () => {
                   <GraduationCap className="h-6 w-6" />
                 </div>
                 <span className="text-xl font-bold text-white tracking-tight">
-                  Nexelvoria <span className="text-indigo-400">Academy</span>
+                  {logoTitle} <span className="text-indigo-400">Academy</span>
                 </span>
               </div>
               <p className="text-sm text-slate-400 leading-relaxed max-w-sm">
-                Industry-led training institute bridging academic education with production engineering excellence.
-                Equipping developers and tech professionals with hands-on competencies and placement guarantees.
+                {footerDescription}
               </p>
               <div className="space-y-1.5 text-xs text-slate-400">
                 <p className="flex items-center gap-2">
-                  <Mail className="h-3.5 w-3.5 text-indigo-400" /> {APP_CONFIG.supportEmail}
+                  <Mail className="h-3.5 w-3.5 text-indigo-400" /> {supportEmail}
                 </p>
                 <p className="flex items-center gap-2">
-                  <Phone className="h-3.5 w-3.5 text-indigo-400" /> {APP_CONFIG.supportPhone}
+                  <Phone className="h-3.5 w-3.5 text-indigo-400" /> {supportPhone}
                 </p>
               </div>
 
               {/* Social Media Links (PUB-025) */}
               <div className="pt-2 flex items-center gap-3 text-slate-400">
-                <a
-                  href={APP_CONFIG.socialLinks.linkedin}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="p-2 rounded-lg bg-slate-800 hover:bg-indigo-600 hover:text-white transition-colors"
-                  aria-label="Follow Nexelvoria on LinkedIn"
-                >
-                  <Linkedin size={16} />
-                </a>
-                <a
-                  href={APP_CONFIG.socialLinks.github}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 hover:text-white transition-colors"
-                  aria-label="Nexelvoria GitHub"
-                >
-                  <Github size={16} />
-                </a>
+                {linkedinUrl && (
+                  <a
+                    href={linkedinUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-2 rounded-lg bg-slate-800 hover:bg-indigo-600 hover:text-white transition-colors"
+                    aria-label="Follow Nexelvoria on LinkedIn"
+                  >
+                    <Linkedin size={16} />
+                  </a>
+                )}
+                {githubUrl && (
+                  <a
+                    href={githubUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 hover:text-white transition-colors"
+                    aria-label="Nexelvoria GitHub"
+                  >
+                    <Github size={16} />
+                  </a>
+                )}
               </div>
             </div>
 
@@ -422,7 +445,7 @@ export const PublicLayout: React.FC = () => {
           </div>
 
           <div className="mt-12 pt-8 border-t border-slate-800 text-xs text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-4">
-            <p>© {new Date().getFullYear()} Nexelvoria Academy. All rights reserved. Timezone: Asia/Kolkata.</p>
+            <p>{copyrightText}</p>
             <div className="flex items-center gap-6">
               <Link to="/privacy-policy" className="hover:text-slate-400">Privacy</Link>
               <Link to="/terms-and-conditions" className="hover:text-slate-400">Terms</Link>

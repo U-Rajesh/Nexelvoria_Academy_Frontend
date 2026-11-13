@@ -33,59 +33,96 @@ export const StudentBatchesPage: React.FC = () => {
     });
   }, [user]);
 
-  const batch = enrollments[0]?.batch || SEED_BATCHES[0];
+  const activeBatches = enrollments
+    .map((e) => e.batch)
+    .filter(Boolean) as Batch[];
+  const displayBatches = activeBatches.length > 0 ? activeBatches : [SEED_BATCHES[0]];
 
   return (
     <div className="space-y-8">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Assigned Batches & Timetable</h1>
-        <p className="text-xs text-slate-500 mt-1">
-          View your cohort timetable, scheduled live sessions, assigned instructor, and cohort peers.
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Assigned Batches & Timetable</h1>
+          <p className="text-xs text-slate-500 mt-1">
+            View your cohort timetable, scheduled live sessions, assigned instructor, and cohort peers.
+          </p>
+        </div>
+        <Badge variant="purple" size="md">
+          {displayBatches.length} {displayBatches.length === 1 ? 'Cohort' : 'Cohorts'} Assigned
+        </Badge>
       </div>
 
-      <Card className="p-6 space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
-          <div>
-            <Badge variant="purple" size="sm">{batch.batchCode}</Badge>
-            <h3 className="text-lg font-bold text-slate-900 mt-1">{batch.name}</h3>
-            <p className="text-xs text-slate-500">{batch.courseName}</p>
-          </div>
-          <Badge variant="success" size="md" dot>Ongoing Cohort</Badge>
-        </div>
+      <div className="space-y-6">
+        {displayBatches.map((batch) => (
+          <Card key={batch.id} className="p-6 space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+              <div>
+                <span className="text-[10px] font-mono text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded font-bold">
+                  {batch.batchCode}
+                </span>
+                <h3 className="text-lg font-bold text-slate-900 mt-1">{batch.name}</h3>
+                <p className="text-xs text-slate-500">{batch.courseName}</p>
+              </div>
+              <Badge variant={batch.status === 'ongoing' ? 'success' : 'purple'} size="md" dot>
+                {batch.status === 'ongoing' ? 'Ongoing Cohort' : batch.status.toUpperCase()}
+              </Badge>
+            </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 text-xs text-slate-600">
-          <div className="space-y-1">
-            <span className="text-slate-400 block font-medium">Schedule Timing</span>
-            <span className="font-semibold text-slate-900">{batch.scheduleTiming}</span>
-          </div>
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 text-xs text-slate-600">
+              <div className="space-y-1">
+                <span className="text-slate-400 block font-medium">Schedule Timing</span>
+                <span className="font-semibold text-slate-900 flex items-center gap-1">
+                  <Clock className="h-3.5 w-3.5 text-slate-400" /> {batch.scheduleTiming}
+                </span>
+                {batch.scheduleDays && batch.scheduleDays.length > 0 && (
+                  <span className="text-[10px] text-slate-500 block">
+                    Days: {batch.scheduleDays.join(', ')} ({batch.timezone || 'IST'})
+                  </span>
+                )}
+              </div>
 
-          <div className="space-y-1">
-            <span className="text-slate-400 block font-medium">Start & End Dates</span>
-            <span className="font-semibold text-slate-900">
-              {formatDate(batch.startDate)} to {formatDate(batch.endDate)}
-            </span>
-          </div>
+              <div className="space-y-1">
+                <span className="text-slate-400 block font-medium">Start & End Dates</span>
+                <span className="font-semibold text-slate-900 flex items-center gap-1">
+                  <Calendar className="h-3.5 w-3.5 text-slate-400" /> {formatDate(batch.startDate)} to {formatDate(batch.endDate)}
+                </span>
+              </div>
 
-          <div className="space-y-1">
-            <span className="text-slate-400 block font-medium">Lead Trainer</span>
-            <span className="font-semibold text-slate-900">Dr. Vikram Rao (Ph.D.)</span>
-          </div>
-        </div>
+              <div className="space-y-1">
+                <span className="text-slate-400 block font-medium">Lead Trainer</span>
+                <span className="font-semibold text-slate-900 flex items-center gap-1">
+                  <UserCheck className="h-3.5 w-3.5 text-indigo-600" /> Dr. Vikram Rao (Ph.D.)
+                </span>
+              </div>
 
-        {/* Live Class Link Launcher */}
-        <div className="p-4 bg-indigo-50 border border-indigo-100 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-          <div>
-            <strong className="text-indigo-900 block">Configured Meeting Room (BR-015)</strong>
-            <span className="text-indigo-700">Daily lectures run on Google Meet at 7:30 AM IST.</span>
-          </div>
-          <a href={batch.meetingUrl} target="_blank" rel="noopener noreferrer">
-            <Button variant="primary" size="sm" rightIcon={<ExternalLink className="h-3.5 w-3.5" />}>
-              Launch Google Meet
-            </Button>
-          </a>
-        </div>
-      </Card>
+              <div className="space-y-1">
+                <span className="text-slate-400 block font-medium">Next Live Session</span>
+                <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-800 rounded-lg text-xs font-semibold border border-emerald-200">
+                  <Radio className="h-3 w-3 text-emerald-600 animate-pulse shrink-0" />
+                  <span className="truncate">Tomorrow {batch.startTime || '7:30 AM'} {batch.timezone || 'IST'}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Live Class Link Launcher (BR-015) */}
+            <div className="p-4 bg-indigo-50 border border-indigo-100 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+              <div>
+                <strong className="text-indigo-900 block">Configured Meeting Room (BR-015)</strong>
+                <span className="text-indigo-700">Daily live lectures run via Google Meet.</span>
+              </div>
+              {batch.meetingUrl ? (
+                <a href={batch.meetingUrl} target="_blank" rel="noopener noreferrer">
+                  <Button variant="primary" size="sm" rightIcon={<ExternalLink className="h-3.5 w-3.5" />}>
+                    Launch Google Meet
+                  </Button>
+                </a>
+              ) : (
+                <span className="text-slate-400 text-xs italic">Meeting room offline</span>
+              )}
+            </div>
+          </Card>
+        ))}
+      </div>
     </div>
   );
 };

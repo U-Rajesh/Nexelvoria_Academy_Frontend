@@ -6,11 +6,12 @@ import { Badge } from '../../components/common/Badge';
 import { Card } from '../../components/common/Card';
 import { SEO } from '../../components/common/SEO';
 import { SEED_COURSES } from '../../mocks/seedData';
-import { cmsService } from '../../services/cmsService';
+import { cmsService, type ContactInfoConfig } from '../../services/cmsService';
 import { useNotification } from '../../context/NotificationContext';
 import { analytics } from '../../utils/analytics';
 
 export const ContactUsPage: React.FC = () => {
+  const [contactConfig] = useState<ContactInfoConfig>(() => cmsService.getContactInfo());
   const [activeTab, setActiveTab] = useState<'general' | 'admission' | 'callback'>('admission');
 
   // Forms states
@@ -105,8 +106,8 @@ export const ContactUsPage: React.FC = () => {
               <MapPin className="h-5 w-5" />
             </div>
             <h3 className="text-sm font-bold text-slate-900">Campus & Headquarters</h3>
-            <p className="text-xs text-slate-600 leading-relaxed">{APP_CONFIG.address}</p>
-            <span className="text-[11px] text-indigo-600 font-semibold block">Nearest Metro: Cyber Towers Station</span>
+            <p className="text-xs text-slate-600 leading-relaxed">{contactConfig.address || APP_CONFIG.address}</p>
+            <span className="text-[11px] text-indigo-600 font-semibold block">{contactConfig.nearestMetro || 'Nearest Metro: Cyber Towers Station'}</span>
           </Card>
 
           <Card className="p-6 space-y-3 bg-white">
@@ -114,9 +115,9 @@ export const ContactUsPage: React.FC = () => {
               <Phone className="h-5 w-5" />
             </div>
             <h3 className="text-sm font-bold text-slate-900">Admissions Helpline</h3>
-            <p className="text-xs text-slate-800 font-semibold">{APP_CONFIG.supportPhone}</p>
+            <p className="text-xs text-slate-800 font-semibold">{contactConfig.supportPhone || APP_CONFIG.supportPhone}</p>
             <p className="text-[11px] text-slate-400 flex items-center gap-1">
-              <Clock className="h-3 w-3" /> Mon – Sat: 9:00 AM – 7:00 PM IST
+              <Clock className="h-3 w-3" /> {contactConfig.operatingHours || 'Mon – Sat: 9:00 AM – 7:00 PM IST'}
             </p>
           </Card>
 
@@ -125,8 +126,8 @@ export const ContactUsPage: React.FC = () => {
               <Mail className="h-5 w-5" />
             </div>
             <h3 className="text-sm font-bold text-slate-900">Official Inquiries & Support</h3>
-            <p className="text-xs text-slate-800 font-semibold">{APP_CONFIG.supportEmail}</p>
-            <p className="text-[11px] text-slate-400">Response turnaround: within 4 business hours</p>
+            <p className="text-xs text-slate-800 font-semibold">{contactConfig.supportEmail || APP_CONFIG.supportEmail}</p>
+            <p className="text-[11px] text-slate-400">{contactConfig.turnaroundTime ? `Response turnaround: ${contactConfig.turnaroundTime}` : 'Response turnaround: within 4 business hours'}</p>
           </Card>
 
           <div className="p-5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-950 space-y-2">
@@ -137,7 +138,7 @@ export const ContactUsPage: React.FC = () => {
               Prefer instant messaging? Chat directly with an academic advisor on WhatsApp for instant syllabus delivery.
             </p>
             <a
-              href={`https://wa.me/${APP_CONFIG.whatsappNumber.replace(/[^0-9]/g, '')}?text=Hello%20Nexelvoria%20Admissions`}
+              href={`https://wa.me/${(contactConfig.whatsappNumber || APP_CONFIG.whatsappNumber).replace(/[^0-9]/g, '')}?text=Hello%20Nexelvoria%20Admissions`}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-block pt-1 text-xs font-bold text-emerald-700 hover:text-emerald-900 underline"
