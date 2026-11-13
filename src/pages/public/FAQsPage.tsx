@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ChevronDown, Search, HelpCircle, ArrowRight, MessageCircle } from 'lucide-react';
-import { Badge } from '../../components/common/Badge';
+import { PageLabel } from '../../components/common/PageLabel';
 import { Button } from '../../components/common/Button';
 import { SEO } from '../../components/common/SEO';
 import { cmsService, type FAQItem } from '../../services/cmsService';
@@ -49,7 +49,7 @@ export const FAQsPage: React.FC = () => {
 
       {/* Header */}
       <div className="text-center space-y-3">
-        <Badge variant="purple" size="md">Knowledge Base</Badge>
+        <PageLabel>Knowledge Base</PageLabel>
         <h1 className="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight">
           Frequently Asked Questions
         </h1>

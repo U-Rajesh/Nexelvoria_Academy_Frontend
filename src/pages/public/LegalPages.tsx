@@ -1,6 +1,6 @@
 import React from 'react';
-import { ShieldCheck, FileText, AlertCircle, DollarSign } from 'lucide-react';
-import { Badge } from '../../components/common/Badge';
+import { AlertCircle } from 'lucide-react';
+import { PageLabel } from '../../components/common/PageLabel';
 import { SEO } from '../../components/common/SEO';
 
 export const PrivacyPolicyPage: React.FC = () => {
@@ -12,8 +12,8 @@ export const PrivacyPolicyPage: React.FC = () => {
         keywords={['Privacy Policy', 'Data Protection', 'Student Privacy', 'Nexelvoria Legal']}
       />
 
-      <div className="space-y-2">
-        <Badge variant="purple" size="sm">Legal & Compliance</Badge>
+      <div className="text-center max-w-2xl mx-auto space-y-3 pb-2">
+        <PageLabel>Legal & Compliance</PageLabel>
         <h1 className="text-3xl font-extrabold text-slate-900">Privacy Policy</h1>
         <p className="text-xs text-slate-500">Last updated: 4 November 2026 • Compliant with Indian Data Protection Regulations</p>
       </div>
@@ -56,8 +56,8 @@ export const TermsPage: React.FC = () => {
         keywords={['Terms of Service', 'Code of Conduct', 'Attendance Rules', 'Honor Code']}
       />
 
-      <div className="space-y-2">
-        <Badge variant="purple" size="sm">Legal & Compliance</Badge>
+      <div className="text-center max-w-2xl mx-auto space-y-3 pb-2">
+        <PageLabel>Legal & Compliance</PageLabel>
         <h1 className="text-3xl font-extrabold text-slate-900">Terms of Service & Honor Code</h1>
         <p className="text-xs text-slate-500">Effective Date: 4 November 2026</p>
       </div>
@@ -96,8 +96,8 @@ export const RefundPolicyPage: React.FC = () => {
         keywords={['Refund Policy', 'Tuition Fees', 'Super Admin Refund', 'Cancellation Terms']}
       />
 
-      <div className="space-y-2">
-        <Badge variant="purple" size="sm">Financial Policies</Badge>
+      <div className="text-center max-w-2xl mx-auto space-y-3 pb-2">
+        <PageLabel>Financial Policies</PageLabel>
         <h1 className="text-3xl font-extrabold text-slate-900">Refund and Cancellation Policy</h1>
         <p className="text-xs text-slate-500">Document Baseline: SRS Module PAY & Section 13</p>
       </div>

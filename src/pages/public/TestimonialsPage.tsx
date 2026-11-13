@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { Star, Award, Video } from 'lucide-react';
+import { Star, Video } from 'lucide-react';
 import { Badge } from '../../components/common/Badge';
+import { PageLabel } from '../../components/common/PageLabel';
 import { Card } from '../../components/common/Card';
-import { Button } from '../../components/common/Button';
 import { SEO } from '../../components/common/SEO';
+import { AmbientDarkGlow } from '../../components/public/AnimatedBackgroundLayer';
 import { cmsService, type TestimonialItem } from '../../services/cmsService';
 
 export const TestimonialsPage: React.FC = () => {
@@ -26,7 +27,7 @@ export const TestimonialsPage: React.FC = () => {
       />
 
       <div className="text-center max-w-3xl mx-auto space-y-3">
-        <Badge variant="purple" size="md">Alumni Stories & Reviews</Badge>
+        <PageLabel>Alumni Stories & Reviews</PageLabel>
         <h1 className="text-4xl font-extrabold text-slate-900 tracking-tight">
           Real Engineers. Real Career Transformations.
         </h1>
@@ -95,17 +96,18 @@ export const TestimonialsPage: React.FC = () => {
       </div>
 
       {/* Video Testimonials Spotlight */}
-      <div className="bg-gradient-to-tr from-slate-900 via-indigo-950 to-slate-900 text-white rounded-3xl p-8 sm:p-12 space-y-6">
-        <div className="flex items-center gap-2">
+      <div className="relative overflow-hidden bg-slate-900 border border-slate-800/80 text-white rounded-3xl p-8 sm:p-12 space-y-6 shadow-xl">
+        <AmbientDarkGlow variant="indigo-violet" />
+        <div className="flex items-center gap-2 relative z-10">
           <Video className="h-6 w-6 text-indigo-400" />
           <h2 className="text-2xl font-bold text-white">Alumni Video Spotlights</h2>
         </div>
-        <p className="text-xs sm:text-sm text-slate-300 max-w-2xl">
+        <p className="text-xs sm:text-sm text-slate-300 max-w-2xl relative z-10">
           Watch recorded interviews with alumni discussing their day-to-day work, the impact of weekly mock interviews, and how maintaining 75% attendance prepared them for enterprise sprints.
         </p>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 pt-2">
-          <div className="rounded-2xl bg-slate-800/80 border border-slate-700 p-5 space-y-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 pt-2 relative z-10">
+          <div className="rounded-2xl bg-slate-800/60 backdrop-blur-xs border border-slate-700/60 p-5 space-y-3 hover:border-indigo-400/50 hover:bg-slate-800/80 transition-all duration-200">
             <div className="aspect-video bg-slate-900 rounded-xl flex items-center justify-center relative overflow-hidden group cursor-pointer">
               <img
                 src="https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&w=600&q=80"

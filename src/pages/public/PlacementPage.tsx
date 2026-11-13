@@ -17,12 +17,13 @@ import {
 } from 'lucide-react';
 import { SEED_COMPANIES } from '../../mocks/seedData';
 import { Button } from '../../components/common/Button';
-import { Badge } from '../../components/common/Badge';
+import { PageLabel } from '../../components/common/PageLabel';
 import { Card, CardContent } from '../../components/common/Card';
 import { SEO } from '../../components/common/SEO';
 import { cmsService } from '../../services/cmsService';
 import { ScrollReveal } from '../../components/public/ScrollReveal';
 import { AnimatedStatistic } from '../../components/public/AnimatedStatistic';
+import { AmbientDarkGlow } from '../../components/public/AnimatedBackgroundLayer';
 import { HiringPartnersMarquee } from '../../components/public/HiringPartnersMarquee';
 
 export const PlacementPage: React.FC = () => {
@@ -71,8 +72,8 @@ export const PlacementPage: React.FC = () => {
       />
 
       {/* Header Banner */}
-      <div className="text-center max-w-3xl mx-auto space-y-4">
-        <Badge variant="success" size="md">Placement & Career Services</Badge>
+      <div className="text-center max-w-3xl mx-auto space-y-3">
+        <PageLabel>Placement & Career Services</PageLabel>
         <h1 className="text-3xl sm:text-5xl font-extrabold text-slate-900 tracking-tight">
           Accelerate from Training into Tier-1 Tech Careers
         </h1>
@@ -128,8 +129,8 @@ export const PlacementPage: React.FC = () => {
       {/* 5-Step Placement Process */}
       <div className="space-y-10">
         <ScrollReveal animation="fade-up">
-          <div className="text-center max-w-2xl mx-auto space-y-2">
-            <Badge variant="purple" size="md">Step-by-Step Pathway</Badge>
+          <div className="text-center max-w-2xl mx-auto space-y-3">
+            <PageLabel>Step-by-Step Pathway</PageLabel>
             <h2 className="text-3xl font-bold text-slate-900">Our Comprehensive Placement Process</h2>
             <p className="text-xs sm:text-sm text-slate-500">Every enrolled student undergoes a structured 5-stage career transformation.</p>
           </div>
@@ -152,16 +153,17 @@ export const PlacementPage: React.FC = () => {
 
       {/* Salary Distribution Bracket */}
       <ScrollReveal animation="scale-in">
-        <div className="bg-slate-900 text-white rounded-2xl p-8 sm:p-12 space-y-8 border border-slate-800 shadow-lg">
-          <div className="max-w-2xl space-y-2">
-            <Badge variant="success" size="md" className="bg-emerald-800/60 text-emerald-200 border-emerald-600">Compensation Insights</Badge>
+        <div className="relative overflow-hidden bg-slate-900 text-white rounded-2xl p-8 sm:p-12 space-y-8 border border-slate-800/80 shadow-xl">
+          <AmbientDarkGlow variant="emerald-cyan" />
+          <div className="max-w-2xl space-y-3 relative z-10">
+            <PageLabel theme="dark">Compensation Insights</PageLabel>
             <h2 className="text-2xl sm:text-3xl font-bold text-white">Verified Salary Distribution for Recent Graduates</h2>
             <p className="text-xs sm:text-sm text-slate-300">Based on audited placement offer records across our graduating cohorts.</p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 relative z-10">
             {salaryDistribution.map((item, idx) => (
-              <div key={idx} className="p-6 rounded-xl bg-slate-800/80 border border-slate-700 space-y-2">
+              <div key={idx} className="p-6 rounded-xl bg-slate-800/60 backdrop-blur-xs border border-slate-700/70 space-y-2 hover:border-emerald-500/40 hover:bg-slate-800/80 transition-all duration-200">
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-slate-400 font-medium">{item.label}</span>
                   <span className="text-xl font-bold text-emerald-400 font-mono">{item.percentage}</span>
@@ -176,8 +178,8 @@ export const PlacementPage: React.FC = () => {
       {/* Student Placement Success Stories */}
       <div className="space-y-8">
         <ScrollReveal animation="fade-up">
-          <div className="text-center max-w-2xl mx-auto space-y-2">
-            <Badge variant="info" size="md">Proven Outcomes</Badge>
+          <div className="text-center max-w-2xl mx-auto space-y-3">
+            <PageLabel>Proven Outcomes</PageLabel>
             <h2 className="text-3xl font-bold text-slate-900">Recent Graduate Success Stories</h2>
             <p className="text-xs sm:text-sm text-slate-500">Alumni who bridged from university classrooms to high-growth engineering jobs.</p>
           </div>
@@ -218,8 +220,8 @@ export const PlacementPage: React.FC = () => {
       {/* Hiring Partners Continuous Marquee */}
       <div className="space-y-6">
         <ScrollReveal animation="fade-up">
-          <div className="text-center max-w-2xl mx-auto space-y-2">
-            <Badge variant="purple" size="md">Corporate Network</Badge>
+          <div className="text-center max-w-2xl mx-auto space-y-3">
+            <PageLabel>Corporate Network</PageLabel>
             <h2 className="text-3xl font-bold text-slate-900">Our Prominent Hiring Partners</h2>
             <p className="text-xs sm:text-sm text-slate-500">Recruiting our software engineering and cloud graduates across India and abroad.</p>
           </div>
