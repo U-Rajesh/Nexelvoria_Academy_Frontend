@@ -77,16 +77,17 @@ export const TestimonialsPage: React.FC = () => {
               </p>
             </div>
 
-            <div className="pt-4 border-t border-slate-100 flex items-center gap-3">
+            <div className="pt-4 border-t border-slate-100 flex items-center gap-3.5">
               <img
                 src={t.avatarUrl}
                 alt={t.studentName}
-                className="h-11 w-11 rounded-full object-cover border border-indigo-100 shadow-xs shrink-0"
+                className="h-16 w-16 sm:h-18 sm:w-18 rounded-2xl object-cover object-top border-2 border-indigo-100 shadow-sm shrink-0"
               />
-              <div className="overflow-hidden">
-                <h4 className="text-xs font-bold text-slate-900 truncate">{t.studentName}</h4>
-                <p className="text-[10px] text-slate-400 truncate">{t.courseName}</p>
-                <span className="text-[10px] text-emerald-600 font-semibold">✓ Verified Alumni</span>
+              <div className="overflow-hidden min-w-0">
+                <h4 className="text-xs sm:text-sm font-bold text-slate-900 truncate">{t.studentName}</h4>
+                <p className="text-[11px] text-indigo-600 font-medium truncate">{t.currentRole}</p>
+                <p className="text-[10px] text-slate-400 truncate">{t.companyName}</p>
+                <span className="text-[10px] text-emerald-600 font-semibold block mt-0.5">✓ Verified Alumni</span>
               </div>
             </div>
           </Card>

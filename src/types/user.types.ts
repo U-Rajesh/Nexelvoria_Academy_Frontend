@@ -1,3 +1,5 @@
+import type { AccountState, SessionItem, LoginHistoryItem, TwoFactorSettings } from './auth.types';
+
 export type UserRole = 'public' | 'student' | 'teacher' | 'admin' | 'super_admin';
 
 export type UserStatus = 'active' | 'pending' | 'suspended' | 'deactivated';
@@ -15,6 +17,7 @@ export interface User {
 
 export interface StudentProfile extends User {
   role: 'student';
+  accountState?: AccountState;
   collegeName: string;
   degreeBranch: string;
   passingYear: string;
@@ -23,6 +26,9 @@ export interface StudentProfile extends User {
   gender: 'male' | 'female' | 'other';
   fullAddress: string;
   resumeUrl?: string;
+  resumeFileName?: string;
+  resumeFileSize?: string;
+  resumeDataUrl?: string;
   linkedInUrl?: string;
   githubUrl?: string;
   guardianContact?: string;
@@ -32,6 +38,13 @@ export interface StudentProfile extends User {
   adminApprovalRemarks?: string;
   approvedAt?: string;
   enrolledCourseIds: string[];
+  twoFactorEnabled?: boolean;
+  twoFactorSettings?: TwoFactorSettings;
+  activeSessions?: SessionItem[];
+  loginHistory?: LoginHistoryItem[];
+  failedLoginAttempts?: number;
+  lockedUntil?: string;
+  lastPasswordChange?: string;
 }
 
 export interface TeacherProfile extends User {

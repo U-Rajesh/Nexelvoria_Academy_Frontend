@@ -1,14 +1,19 @@
+export type LessonType = 'video' | 'reading' | 'pdf' | 'assignment' | 'quiz';
+
 export interface Lesson {
   id: string;
   chapterId: string;
   title: string;
   durationMinutes: number;
+  lessonType?: LessonType;
   videoUrl?: string; // S3/CloudFront or YouTube URL
   pdfUrl?: string;
   studyMaterialText?: string;
   externalLinks?: { title: string; url: string }[];
   isFreePreview: boolean; // Accessible prior to payment (BR-003)
   order: number;
+  isLocked?: boolean;
+  isDownloadRestricted?: boolean; // LMS-006: Study materials download permission control (Read-Only)
 }
 
 export interface Chapter {
@@ -29,9 +34,12 @@ export interface CourseModule {
   chapters: Chapter[];
 }
 
+export type CourseStatus = 'Draft' | 'Published' | 'Active' | 'Inactive' | 'Archived';
+
 export interface Course {
   id: string;
   slug: string;
+  courseCode?: string; // e.g. "CRS-JFS-101"
   title: string;
   shortDescription: string;
   longDescription: string;
@@ -45,11 +53,15 @@ export interface Course {
   technologies: string[];
   modules: CourseModule[];
   isPublished: boolean;
+  status?: CourseStatus;
   hasPlacementGuarantee: boolean; // Flagged with pending terms per SRS
   prerequisites: string[];
   learningOutcomes: string[];
+  eligibilityCriteria?: string[];
   syllabusPdfUrl?: string;
 }
+
+export type BatchStatus = 'upcoming' | 'ongoing' | 'completed' | 'active' | 'inactive' | 'cancelled';
 
 export interface Batch {
   id: string;
@@ -60,10 +72,17 @@ export interface Batch {
   startDate: string;
   endDate: string;
   scheduleTiming: string; // e.g., "Mon-Fri 7:30 AM - 9:30 AM IST"
+  scheduleDays?: string[]; // e.g. ["Mon", "Tue", "Wed", "Thu", "Fri"]
+  scheduleTime?: string; // e.g. "07:30 - 09:30 IST"
+  startTime?: string; // e.g. "07:30"
+  endTime?: string; // e.g. "09:30"
+  timezone?: string; // e.g. "IST"
   assignedTeacherIds: string[];
+  primaryTeacherId?: string;
+  assistantTeacherId?: string;
   enrolledStudentIds: string[];
-  status: 'upcoming' | 'ongoing' | 'completed';
-  maxCapacity?: number; // Pending final confirmation per SRS
+  status: BatchStatus;
+  maxCapacity?: number; // Pending final confirmation per SRS (TBD default 40)
   meetingUrl?: string; // Manually configured meeting link (BR-015)
 }
 

@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { APP_CONFIG } from '../../constants/appConfig';
+import { cmsService } from '../../services/cmsService';
 
 export interface SEOProps {
   title?: string;
@@ -17,14 +18,26 @@ export const SEO: React.FC<SEOProps> = ({
   keywords,
   canonicalUrl,
   ogType = 'website',
-  ogImage = 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=1200&q=80',
+  ogImage,
 }) => {
   const location = useLocation();
 
   useEffect(() => {
+    // Check if CMS has custom SEO defined for this route
+    const customSEO = cmsService.getPageSEO(location.pathname);
+
+    const effectiveTitle = customSEO?.title || title;
+    const effectiveDescription = customSEO?.description || description;
+    const effectiveKeywords =
+      customSEO?.keywords && customSEO.keywords.length > 0 ? customSEO.keywords : keywords;
+    const effectiveOgImage =
+      customSEO?.ogImage ||
+      ogImage ||
+      'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=1200&q=80';
+
     // 1. Page Title
-    const formattedTitle = title
-      ? `${title} | ${APP_CONFIG.name}`
+    const formattedTitle = effectiveTitle
+      ? `${effectiveTitle} | ${APP_CONFIG.name}`
       : `${APP_CONFIG.name} – Online Training Institute & LMS`;
     document.title = formattedTitle;
 
@@ -41,13 +54,13 @@ export const SEO: React.FC<SEOProps> = ({
 
     // 2. Meta Description
     const metaDescription =
-      description ||
+      effectiveDescription ||
       'Nexelvoria Academy - Premier online training institute offering full-stack Java, MERN, Cloud DevOps, and GenAI courses with LMS and placement assistance.';
     setMetaTag('name', 'description', metaDescription);
 
     // 3. Meta Keywords
-    if (keywords && keywords.length > 0) {
-      setMetaTag('name', 'keywords', keywords.join(', '));
+    if (effectiveKeywords && effectiveKeywords.length > 0) {
+      setMetaTag('name', 'keywords', effectiveKeywords.join(', '));
     }
 
     // 4. Open Graph Tags
@@ -56,14 +69,14 @@ export const SEO: React.FC<SEOProps> = ({
     setMetaTag('property', 'og:description', metaDescription);
     setMetaTag('property', 'og:type', ogType);
     setMetaTag('property', 'og:url', fullUrl);
-    setMetaTag('property', 'og:image', ogImage);
+    setMetaTag('property', 'og:image', effectiveOgImage);
     setMetaTag('property', 'og:site_name', APP_CONFIG.name);
 
     // 5. Twitter Card Tags
     setMetaTag('name', 'twitter:card', 'summary_large_image');
     setMetaTag('name', 'twitter:title', formattedTitle);
     setMetaTag('name', 'twitter:description', metaDescription);
-    setMetaTag('name', 'twitter:image', ogImage);
+    setMetaTag('name', 'twitter:image', effectiveOgImage);
 
     // 6. Canonical URL
     let linkCanonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]');
@@ -77,4 +90,3 @@ export const SEO: React.FC<SEOProps> = ({
 
   return null;
 };
-

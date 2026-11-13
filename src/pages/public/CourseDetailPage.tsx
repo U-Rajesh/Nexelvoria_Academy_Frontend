@@ -14,8 +14,12 @@ import {
   ShieldCheck,
   CheckCircle2,
   MessageSquare,
+  Lock,
 } from 'lucide-react';
 import { SEED_COURSES } from '../../mocks/seedData';
+import { getStorageItem } from '../../utils/storage';
+import { STORAGE_KEYS } from '../../constants/appConfig';
+import type { Course } from '../../types';
 import { formatINR } from '../../utils/formatters';
 import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
@@ -26,6 +30,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useNotification } from '../../context/NotificationContext';
 import { cmsService } from '../../services/cmsService';
 import { analytics } from '../../utils/analytics';
+import { CourseEnrollmentModal } from '../../components/course/CourseEnrollmentModal';
 
 export const CourseDetailPage: React.FC = () => {
   const { courseSlug } = useParams<{ courseSlug: string }>();
@@ -36,9 +41,11 @@ export const CourseDetailPage: React.FC = () => {
   const [activeModuleId, setActiveModuleId] = useState<string>('mod-1');
   const [previewVideoUrl, setPreviewVideoUrl] = useState<string | null>(null);
   const [enquiryModalOpen, setEnquiryModalOpen] = useState(false);
+  const [enrollmentModalOpen, setEnrollmentModalOpen] = useState(false);
   const [enquiryForm, setEnquiryForm] = useState({ name: '', email: '', phone: '', message: '' });
 
-  const course = SEED_COURSES.find((c) => c.slug === courseSlug || c.id === courseSlug);
+  const allCourses = getStorageItem<Course[]>(STORAGE_KEYS.COURSES, SEED_COURSES);
+  const course = allCourses.find((c) => c.slug === courseSlug || c.id === courseSlug);
 
   if (!course) {
     return (
@@ -54,11 +61,7 @@ export const CourseDetailPage: React.FC = () => {
 
   const handleEnrollClick = () => {
     analytics.trackEvent('click_enroll_now', 'Course', course.title);
-    if (!isAuthenticated) {
-      navigate(`/register?course=${encodeURIComponent(course.title)}`);
-    } else {
-      navigate('/student/courses');
-    }
+    setEnrollmentModalOpen(true);
   };
 
   const handleDownloadSyllabus = () => {
@@ -275,13 +278,17 @@ export const CourseDetailPage: React.FC = () => {
                                     {lesson.title}
                                   </span>
 
-                                  {lesson.videoUrl && (
+                                  {lesson.isFreePreview && lesson.videoUrl ? (
                                     <button
                                       onClick={() => setPreviewVideoUrl(lesson.videoUrl || null)}
-                                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 cursor-pointer bg-white px-2 py-0.5 rounded border border-indigo-100"
+                                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 hover:text-emerald-900 cursor-pointer bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200"
                                     >
-                                      <PlayCircle className="h-3 w-3" /> Preview
+                                      <PlayCircle className="h-3 w-3" /> Free Preview
                                     </button>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 text-[11px] text-slate-400">
+                                      <Lock className="h-3 w-3 text-slate-300" /> Protected
+                                    </span>
                                   )}
                                 </div>
                               ))}
@@ -461,6 +468,13 @@ export const CourseDetailPage: React.FC = () => {
           </div>
         </form>
       </Modal>
+
+      {/* Course Admission & Batch Enrollment Modal */}
+      <CourseEnrollmentModal
+        isOpen={enrollmentModalOpen}
+        onClose={() => setEnrollmentModalOpen(false)}
+        course={course}
+      />
     </div>
   );
 };

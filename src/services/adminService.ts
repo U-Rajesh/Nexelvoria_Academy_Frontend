@@ -43,6 +43,9 @@ import type {
   AuditLog,
   CouponDiscount,
   ApiResponse,
+  CourseStatus,
+  BatchStatus,
+  CourseModule,
 } from '../types';
 
 const sleep = (ms: number = 150) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -220,6 +223,12 @@ export const adminService = {
     if (idx === -1) return { success: false, data: null as any, error: 'Student not found.' };
 
     students[idx].status = status as any;
+    if (status === 'suspended') {
+      students[idx].accountState = 'suspended';
+    } else if (status === 'active') {
+      students[idx].accountState = students[idx].adminApprovalStatus === 'approved' ? 'approved' : 'pending_approval';
+      students[idx].failedLoginAttempts = 0;
+    }
     setStorageItem(STORAGE_KEYS.STUDENTS, students);
 
     recordAuditLog(
@@ -230,6 +239,29 @@ export const adminService = {
     );
 
     return { success: true, data: students[idx], message: `Student marked as ${status}.` };
+  },
+
+  async unlockStudentAccount(
+    admin: { id: string; name: string },
+    studentId: string
+  ): Promise<ApiResponse<StudentProfile>> {
+    await sleep(200);
+    const students = getStorageItem<StudentProfile[]>(STORAGE_KEYS.STUDENTS, []);
+    const idx = students.findIndex((s) => s.id === studentId);
+    if (idx === -1) return { success: false, data: null as any, error: 'Student not found.' };
+
+    students[idx].failedLoginAttempts = 0;
+    students[idx].accountState = students[idx].adminApprovalStatus === 'approved' ? 'approved' : 'pending_approval';
+    setStorageItem(STORAGE_KEYS.STUDENTS, students);
+
+    recordAuditLog(
+      { id: admin.id, name: admin.name, role: 'admin' },
+      'ACCOUNT_UNLOCKED_BY_ADMIN',
+      `Student: ${students[idx].name} (${studentId})`,
+      'Account lockout cleared and login attempts reset.'
+    );
+
+    return { success: true, data: students[idx], message: `Account unlocked for ${students[idx].name}.` };
   },
 
   async approveStudentRegistration(
@@ -243,6 +275,7 @@ export const adminService = {
     if (idx === -1) return { success: false, data: null as any, error: 'Student not found.' };
 
     students[idx].adminApprovalStatus = 'approved';
+    students[idx].accountState = 'approved';
     students[idx].status = 'active';
     students[idx].adminApprovalRemarks = remarks || 'Approved by Administrator.';
     students[idx].approvedAt = new Date().toISOString();
@@ -273,6 +306,7 @@ export const adminService = {
     if (idx === -1) return { success: false, data: null as any, error: 'Student not found.' };
 
     students[idx].adminApprovalStatus = 'rejected';
+    students[idx].accountState = 'rejected';
     students[idx].adminApprovalRemarks = remarks;
     setStorageItem(STORAGE_KEYS.STUDENTS, students);
 
@@ -429,6 +463,7 @@ export const adminService = {
     if (idx === -1) return { success: false, data: null as any, error: 'Course not found.' };
 
     courses[idx].isPublished = !courses[idx].isPublished;
+    courses[idx].status = courses[idx].isPublished ? 'Published' : 'Draft';
     setStorageItem(STORAGE_KEYS.COURSES, courses);
 
     recordAuditLog(
@@ -441,6 +476,60 @@ export const adminService = {
     return { success: true, data: courses[idx], message: `Course ${courses[idx].isPublished ? 'published' : 'unpublished'}.` };
   },
 
+  async updateCourseStatus(
+    admin: { id: string; name: string },
+    courseId: string,
+    status: CourseStatus
+  ): Promise<ApiResponse<Course>> {
+    await sleep(200);
+    const courses = getStorageItem<Course[]>(STORAGE_KEYS.COURSES, SEED_COURSES);
+    const idx = courses.findIndex((c) => c.id === courseId);
+    if (idx === -1) return { success: false, data: null as any, error: 'Course not found.' };
+
+    courses[idx].status = status;
+    courses[idx].isPublished = status === 'Published' || status === 'Active';
+    setStorageItem(STORAGE_KEYS.COURSES, courses);
+
+    recordAuditLog(
+      { id: admin.id, name: admin.name, role: 'admin' },
+      'COURSE_STATUS_UPDATED',
+      `Course: ${courses[idx].title} (${courseId})`,
+      `Lifecycle status transitioned to: ${status}`
+    );
+
+    return { success: true, data: courses[idx], message: `Course status set to ${status}.` };
+  },
+
+  async updateCourseCurriculum(
+    admin: { id: string; name: string },
+    courseId: string,
+    modules: CourseModule[]
+  ): Promise<ApiResponse<Course>> {
+    await sleep(250);
+    const courses = getStorageItem<Course[]>(STORAGE_KEYS.COURSES, SEED_COURSES);
+    const idx = courses.findIndex((c) => c.id === courseId);
+    if (idx === -1) return { success: false, data: null as any, error: 'Course not found.' };
+
+    courses[idx].modules = modules;
+    setStorageItem(STORAGE_KEYS.COURSES, courses);
+
+    recordAuditLog(
+      { id: admin.id, name: admin.name, role: 'admin' },
+      'CURRICULUM_UPDATED',
+      `Course: ${courses[idx].title} (${courseId})`,
+      `Syllabus updated: ${modules.length} modules configured.`
+    );
+
+    return { success: true, data: courses[idx], message: 'Curriculum syllabus updated successfully.' };
+  },
+
+  async archiveCourse(
+    admin: { id: string; name: string },
+    courseId: string
+  ): Promise<ApiResponse<Course>> {
+    return this.updateCourseStatus(admin, courseId, 'Archived');
+  },
+
   /**
    * 5. Batch Management (ADM-007)
    */
@@ -448,6 +537,31 @@ export const adminService = {
     await sleep();
     const batches = getStorageItem<Batch[]>(STORAGE_KEYS.BATCHES, SEED_BATCHES);
     return { success: true, data: batches };
+  },
+
+  async getBatchById(batchId: string): Promise<ApiResponse<Batch>> {
+    await sleep(100);
+    const batches = getStorageItem<Batch[]>(STORAGE_KEYS.BATCHES, SEED_BATCHES);
+    const batch = batches.find((b) => b.id === batchId);
+    if (!batch) return { success: false, data: null as any, error: 'Batch not found.' };
+    return { success: true, data: batch };
+  },
+
+  async getBatchStudents(batchId: string): Promise<ApiResponse<{ student: StudentProfile; enrollment: Enrollment }[]>> {
+    await sleep(150);
+    const enrollments = getStorageItem<Enrollment[]>(STORAGE_KEYS.ENROLLMENTS, SEED_ENROLLMENTS);
+    const students = getStorageItem<StudentProfile[]>(STORAGE_KEYS.STUDENTS, [SEED_USERS.student]);
+
+    const batchEnrollments = enrollments.filter((e) => e.batchId === batchId);
+    const roster = batchEnrollments
+      .map((enr) => {
+        const student = students.find((s) => s.id === enr.studentId);
+        if (!student) return null;
+        return { student, enrollment: enr };
+      })
+      .filter(Boolean) as { student: StudentProfile; enrollment: Enrollment }[];
+
+    return { success: true, data: roster };
   },
 
   async createBatch(admin: { id: string; name: string }, batchData: Omit<Batch, 'id' | 'enrolledStudentIds'>): Promise<ApiResponse<Batch>> {
@@ -487,6 +601,14 @@ export const adminService = {
     );
 
     return { success: true, data: batches[idx], message: 'Batch cohort updated.' };
+  },
+
+  async updateBatchStatus(
+    admin: { id: string; name: string },
+    batchId: string,
+    status: BatchStatus
+  ): Promise<ApiResponse<Batch>> {
+    return this.updateBatch(admin, batchId, { status });
   },
 
   /**
@@ -876,6 +998,7 @@ export const adminService = {
       courseTitle: string;
       attendancePercentage: number;
       examScorePercentage: number;
+      templateId?: 'standard_dark' | 'executive_gold' | 'minimal_blue';
     }
   ): Promise<ApiResponse<CertificateRecord>> {
     await sleep(300);
@@ -895,7 +1018,8 @@ export const adminService = {
       examScorePercentage: data.examScorePercentage,
       status: 'valid',
       qrVerificationUrl: `/verify-certificate?id=${certNumber}`,
-      templateId: 'standard_dark',
+      templateId: data.templateId || 'standard_dark',
+      issuedManuallyByAdminId: admin.id,
     };
 
     setStorageItem(STORAGE_KEYS.CERTIFICATES, [newCert, ...certificates]);
@@ -904,7 +1028,7 @@ export const adminService = {
       { id: admin.id, name: admin.name, role: 'admin' },
       'CERTIFICATE_ISSUED_MANUAL',
       `Certificate: ${certNumber} (${data.studentName})`,
-      `Admin manual issuance verified. Attendance: ${data.attendancePercentage}%, Exam: ${data.examScorePercentage}% (BR-011).`
+      `Admin manual issuance verified. Template: ${data.templateId || 'standard_dark'}. Attendance: ${data.attendancePercentage}%, Exam: ${data.examScorePercentage}% (BR-011).`
     );
 
     return { success: true, data: newCert, message: `Certificate ${certNumber} successfully issued.` };
