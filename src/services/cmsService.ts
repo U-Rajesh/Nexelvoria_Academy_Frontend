@@ -929,17 +929,17 @@ const INITIAL_ABOUT_CONFIG: AboutUsConfig = {
 
 const INITIAL_HIRING_PARTNERS: HiringPartnerCompany[] = [
   { id: 'comp-01', name: 'Accio Technologies', website: 'https://acciotech.example.com', location: 'Hyderabad / Bangalore', industry: 'FinTech & High-Frequency Trading', about: 'Leading technology product powerhouse building distributed payment gateways across Southeast Asia.', activeOpeningsCount: 3, isVisible: true, displayOrder: 1 },
-  { id: 'comp-02', name: 'Tata Consultancy Services', website: 'https://tcs.com', location: 'Hyderabad / Chennai / Pune', industry: 'Global IT Consulting & Solutions', about: 'Multinational digital transformer delivering cloud solutions to 1,000+ Fortune 500 customers.', activeOpeningsCount: 8, isVisible: true, displayOrder: 2 },
-  { id: 'comp-03', name: 'Infosys Limited', website: 'https://infosys.com', location: 'Bangalore / Hyderabad', industry: 'Cloud & Next-Gen Services', about: 'Global leader in next-generation digital services and consulting for banking and insurance.', activeOpeningsCount: 12, isVisible: true, displayOrder: 3 },
-  { id: 'comp-ext-1', name: 'Wipro Technologies', website: 'https://wipro.com', location: 'Pan India', industry: 'Enterprise IT Services', about: 'Global technology services and consulting.', activeOpeningsCount: 6, isVisible: true, displayOrder: 4 },
-  { id: 'comp-ext-2', name: 'Capgemini Engineering', website: 'https://capgemini.com', location: 'Hyderabad / Pune', industry: 'Cloud & Digital Engineering', about: 'Leader in digital transformation and innovation.', activeOpeningsCount: 4, isVisible: true, displayOrder: 5 },
-  { id: 'comp-ext-3', name: 'Accenture India', website: 'https://accenture.com', location: 'Bengaluru / Hyderabad', industry: 'Consulting & Cloud Modernization', about: 'Delivering on the promise of technology and human ingenuity.', activeOpeningsCount: 8, isVisible: true, displayOrder: 6 },
-  { id: 'comp-ext-4', name: 'Cognizant Digital', website: 'https://cognizant.com', location: 'Chennai / Hyderabad', industry: 'Digital Systems & Cloud Native', about: 'Helping clients modernize technology and reimagine processes.', activeOpeningsCount: 5, isVisible: true, displayOrder: 7 },
-  { id: 'comp-ext-5', name: 'Oracle Financial Services', website: 'https://oracle.com', location: 'Hyderabad / Bengaluru', industry: 'Enterprise Software & Cloud', about: 'Cloud infrastructure and autonomous enterprise databases.', activeOpeningsCount: 3, isVisible: true, displayOrder: 8 },
-  { id: 'comp-ext-6', name: 'Deloitte Digital', website: 'https://deloitte.com', location: 'Hyderabad', industry: 'Technology & Enterprise Architecture', about: 'Strategic digital advisory and enterprise architecture.', activeOpeningsCount: 4, isVisible: true, displayOrder: 9 },
-  { id: 'comp-04', name: 'Persistent Systems', website: 'https://persistent.com', location: 'Pune / Hyderabad', industry: 'Digital Engineering & Enterprise Modernization', about: 'Trusted software partner creating resilient microservices and digital products.', activeOpeningsCount: 5, isVisible: true, displayOrder: 10 },
-  { id: 'comp-05', name: 'HCLTech', website: 'https://hcltech.com', location: 'Noida / Hyderabad', industry: 'Next-Generation Technology Solutions', about: 'Engineering modern software products and hybrid cloud environments.', activeOpeningsCount: 7, isVisible: true, displayOrder: 11 },
-  { id: 'comp-06', name: 'Tech Mahindra', website: 'https://techmahindra.com', location: 'Hyderabad / Pune', industry: 'Telecommunications & Digital Transformation', about: 'Connecting solutions across 5G networks, cloud migration, and IoT.', activeOpeningsCount: 6, isVisible: true, displayOrder: 12 },
+  { id: 'comp-02', name: 'Tata Consultancy Services', logoUrl: '/logos/tcs.svg', website: 'https://tcs.com', location: 'Hyderabad / Chennai / Pune', industry: 'Global IT Consulting & Solutions', about: 'Multinational digital transformer delivering cloud solutions to 1,000+ Fortune 500 customers.', activeOpeningsCount: 8, isVisible: true, displayOrder: 2 },
+  { id: 'comp-03', name: 'Infosys Limited', logoUrl: '/logos/infosys.svg', website: 'https://infosys.com', location: 'Bangalore / Hyderabad', industry: 'Cloud & Next-Gen Services', about: 'Global leader in next-generation digital services and consulting for banking and insurance.', activeOpeningsCount: 12, isVisible: true, displayOrder: 3 },
+  { id: 'comp-ext-1', name: 'Wipro Technologies', logoUrl: '/logos/wipro.svg', website: 'https://wipro.com', location: 'Pan India', industry: 'Enterprise IT Services', about: 'Global technology services and consulting.', activeOpeningsCount: 6, isVisible: true, displayOrder: 4 },
+  { id: 'comp-ext-2', name: 'Capgemini Engineering', logoUrl: '/logos/capgemini.svg', website: 'https://capgemini.com', location: 'Hyderabad / Pune', industry: 'Cloud & Digital Engineering', about: 'Leader in digital transformation and innovation.', activeOpeningsCount: 4, isVisible: true, displayOrder: 5 },
+  { id: 'comp-ext-3', name: 'Accenture India', logoUrl: '/logos/accenture.svg', website: 'https://accenture.com', location: 'Bengaluru / Hyderabad', industry: 'Consulting & Cloud Modernization', about: 'Delivering on the promise of technology and human ingenuity.', activeOpeningsCount: 8, isVisible: true, displayOrder: 6 },
+  { id: 'comp-ext-4', name: 'Cognizant Digital', logoUrl: '/logos/cognizant.svg', website: 'https://cognizant.com', location: 'Chennai / Hyderabad', industry: 'Digital Systems & Cloud Native', about: 'Helping clients modernize technology and reimagine processes.', activeOpeningsCount: 5, isVisible: true, displayOrder: 7 },
+  { id: 'comp-ext-5', name: 'Oracle Financial Services', logoUrl: '/logos/oracle.svg', website: 'https://oracle.com', location: 'Hyderabad / Bengaluru', industry: 'Enterprise Software & Cloud', about: 'Cloud infrastructure and autonomous enterprise databases.', activeOpeningsCount: 3, isVisible: true, displayOrder: 8 },
+  { id: 'comp-ext-6', name: 'Deloitte Digital', logoUrl: '/logos/deloitte.svg', website: 'https://deloitte.com', location: 'Hyderabad', industry: 'Technology & Enterprise Architecture', about: 'Strategic digital advisory and enterprise architecture.', activeOpeningsCount: 4, isVisible: true, displayOrder: 9 },
+  { id: 'comp-04', name: 'Persistent Systems', logoUrl: '/logos/persistent.svg', website: 'https://persistent.com', location: 'Pune / Hyderabad', industry: 'Digital Engineering & Enterprise Modernization', about: 'Trusted software partner creating resilient microservices and digital products.', activeOpeningsCount: 5, isVisible: true, displayOrder: 10 },
+  { id: 'comp-05', name: 'HCLTech', logoUrl: '/logos/hcltech.svg', website: 'https://hcltech.com', location: 'Noida / Hyderabad', industry: 'Next-Generation Technology Solutions', about: 'Engineering modern software products and hybrid cloud environments.', activeOpeningsCount: 7, isVisible: true, displayOrder: 11 },
+  { id: 'comp-06', name: 'Tech Mahindra', logoUrl: '/logos/tech-mahindra.svg', website: 'https://techmahindra.com', location: 'Hyderabad / Pune', industry: 'Telecommunications & Digital Transformation', about: 'Connecting solutions across 5G networks, cloud migration, and IoT.', activeOpeningsCount: 6, isVisible: true, displayOrder: 12 },
 ];
 
 const INITIAL_MARQUEE_CONFIG: MarqueeAnimationConfig = {
@@ -1284,7 +1284,11 @@ class CMSService {
 
   // --- 6. Hiring Partners & Marquee Controls ---
   getHiringPartners(): HiringPartnerCompany[] {
-    return this.getStorageItem<HiringPartnerCompany[]>(STORAGE_KEYS.HIRING_PARTNERS, INITIAL_HIRING_PARTNERS);
+    const partners = this.getStorageItem<HiringPartnerCompany[]>(STORAGE_KEYS.HIRING_PARTNERS, INITIAL_HIRING_PARTNERS);
+    // Partners persisted before logos were seeded have no logoUrl; backfill from the seed by id.
+    return partners.map((p) =>
+      p.logoUrl ? p : { ...p, logoUrl: INITIAL_HIRING_PARTNERS.find((seed) => seed.id === p.id)?.logoUrl }
+    );
   }
 
   saveHiringPartner(partner: HiringPartnerCompany): void {

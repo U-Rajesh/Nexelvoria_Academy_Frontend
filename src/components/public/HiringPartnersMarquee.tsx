@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { Building, Briefcase, MapPin } from 'lucide-react';
 import { cmsService, type HiringPartnerCompany, type MarqueeAnimationConfig } from '../../services/cmsService';
 
 interface HiringPartnersMarqueeProps {
@@ -7,6 +6,71 @@ interface HiringPartnersMarqueeProps {
   className?: string;
   theme?: 'light' | 'dark';
 }
+
+const speedToDuration = (speed: 'slow' | 'normal' | 'fast'): string => {
+  if (speed === 'slow') return '45s';
+  if (speed === 'fast') return '18s';
+  return '30s';
+};
+
+interface MarqueeRowProps {
+  companies: HiringPartnerCompany[];
+  rowKey: string;
+  animationClass: string;
+  duration: string;
+  pauseClass: string;
+  cardBorder: string;
+}
+
+const MarqueeRow: React.FC<MarqueeRowProps> = ({
+  companies,
+  rowKey,
+  animationClass,
+  duration,
+  pauseClass,
+  cardBorder,
+}) => {
+  const [failedLogos, setFailedLogos] = useState<Set<string>>(() => new Set());
+
+  // Three identical copies; the keyframes shift by exactly one copy (-33.333%) for a seamless loop.
+  // Spacing is per-item padding (not flex `gap`) so each copy is exactly one third of the track width.
+  const items = [...companies, ...companies, ...companies];
+
+  return (
+    <div className={`flex w-fit ${animationClass} ${pauseClass}`} style={{ animationDuration: duration }}>
+      {items.map((comp, idx) => {
+        const showLogo = !!comp.logoUrl && !failedLogos.has(comp.id);
+        return (
+          <div
+            key={`${rowKey}-${comp.id}-${idx}`}
+            className="shrink-0 px-2 sm:px-2.5"
+            aria-hidden={idx >= companies.length}
+          >
+            <div
+              className={`flex h-20 w-44 sm:h-24 sm:w-52 items-center justify-center rounded-2xl border bg-white px-6 py-5 sm:px-7 sm:py-6 shadow-sm transition-all duration-300 hover:shadow-md ${cardBorder}`}
+              title={comp.name}
+            >
+              {showLogo ? (
+                <img
+                  src={comp.logoUrl}
+                  alt={comp.name}
+                  loading="lazy"
+                  draggable={false}
+                  className="h-full w-full object-contain"
+                  onError={() => setFailedLogos((prev) => new Set(prev).add(comp.id))}
+                />
+              ) : (
+                <span className="line-clamp-2 text-center text-sm font-bold leading-tight tracking-tight text-slate-700">
+                  {comp.name}
+                </span>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
 
 export const HiringPartnersMarquee: React.FC<HiringPartnersMarqueeProps> = ({
   companies: initialCompanies,
@@ -33,32 +97,18 @@ export const HiringPartnersMarquee: React.FC<HiringPartnersMarqueeProps> = ({
     return null;
   }
 
-  // Calculate speed durations in seconds
-  const speedToDuration = (speed: 'slow' | 'normal' | 'fast'): string => {
-    if (speed === 'slow') return '45s';
-    if (speed === 'fast') return '18s';
-    return '30s';
-  };
-
-  const row1Duration = speedToDuration(marqueeConfig.row1Speed || 'normal');
-  const row2Duration = speedToDuration(marqueeConfig.row2Speed || 'normal');
+  const isTwoRows = marqueeConfig.rowCount === 2;
 
   // Split companies into subsets
-  const half = Math.ceil(partnerCompanies.length / (marqueeConfig.rowCount === 1 ? 1 : 2));
+  const half = Math.ceil(partnerCompanies.length / (isTwoRows ? 2 : 1));
   const row1Companies = partnerCompanies.slice(0, half);
-  const row2Companies = marqueeConfig.rowCount === 2 ? partnerCompanies.slice(half) : [];
+  const row2Companies = isTwoRows ? partnerCompanies.slice(half) : [];
 
-  // Triple buffer to guarantee seamless 100% gapless continuous marquee
-  const row1Items = [...row1Companies, ...row1Companies, ...row1Companies];
-  const row2Items =
-    row2Companies.length > 0
-      ? [...row2Companies, ...row2Companies, ...row2Companies]
-      : [];
-
-  const cardBg =
+  // Logo cards stay white in both themes so brand colours render as intended.
+  const cardBorder =
     theme === 'dark'
-      ? 'bg-slate-800/80 border-slate-700/80 text-white hover:border-indigo-400'
-      : 'bg-white border-slate-200/90 text-slate-800 hover:border-indigo-500 hover:shadow-md';
+      ? 'border-slate-700/60 hover:border-indigo-400/70'
+      : 'border-slate-200/80 hover:border-indigo-200';
 
   const maskGradientLeft =
     theme === 'dark'
@@ -71,21 +121,16 @@ export const HiringPartnersMarquee: React.FC<HiringPartnersMarqueeProps> = ({
       : 'from-transparent via-slate-50/80 to-slate-50';
 
   const row1AnimationClass =
-    marqueeConfig.row1Direction === 'right'
-      ? 'animate-marquee-right'
-      : 'animate-marquee-left';
+    marqueeConfig.row1Direction === 'right' ? 'animate-marquee-right' : 'animate-marquee-left';
 
   const row2AnimationClass =
-    marqueeConfig.row2Direction === 'left'
-      ? 'animate-marquee-left'
-      : 'animate-marquee-right';
+    marqueeConfig.row2Direction === 'left' ? 'animate-marquee-left' : 'animate-marquee-right';
 
-  const hoverPauseClass = marqueeConfig.pauseOnHover
-    ? 'hover:[animation-play-state:paused]'
-    : '';
+  // Hovering anywhere over the marquee pauses both rows.
+  const pauseClass = marqueeConfig.pauseOnHover ? 'group-hover:[animation-play-state:paused]' : '';
 
   return (
-    <div className={`relative overflow-hidden w-full space-y-4 py-4 select-none ${className}`}>
+    <div className={`group relative overflow-hidden w-full space-y-4 sm:space-y-5 py-4 select-none ${className}`}>
       {/* Edge Gradient Fades for Smooth Bleed */}
       <div
         className={`pointer-events-none absolute inset-y-0 left-0 w-16 sm:w-28 bg-gradient-to-r ${maskGradientLeft} z-10`}
@@ -94,86 +139,24 @@ export const HiringPartnersMarquee: React.FC<HiringPartnersMarqueeProps> = ({
         className={`pointer-events-none absolute inset-y-0 right-0 w-16 sm:w-28 bg-gradient-to-r ${maskGradientRight} z-10`}
       />
 
-      {/* Row 1 */}
-      <div
-        className={`flex w-fit ${row1AnimationClass} ${hoverPauseClass} gap-4`}
-        style={{ animationDuration: row1Duration }}
-      >
-        {row1Items.map((comp, idx) => (
-          <div
-            key={`r1-${comp.id}-${idx}`}
-            className={`w-64 shrink-0 p-4 rounded-xl border transition-all duration-200 flex items-center gap-3.5 ${cardBg}`}
-          >
-            {comp.logoUrl ? (
-              <img
-                src={comp.logoUrl}
-                alt={comp.name}
-                className="h-10 w-10 rounded-lg object-contain bg-slate-50 p-1 border border-slate-200 shrink-0"
-              />
-            ) : (
-              <div className="h-10 w-10 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0 border border-indigo-100">
-                <Building className="h-5 w-5" />
-              </div>
-            )}
-            <div className="min-w-0 flex-1">
-              <h4 className="text-xs font-bold truncate">{comp.name}</h4>
-              <p className="text-[11px] text-slate-400 truncate">{comp.industry}</p>
-              <div className="flex items-center gap-2 mt-1 text-[10px] text-slate-400">
-                <span className="flex items-center gap-0.5 truncate">
-                  <MapPin className="h-2.5 w-2.5" />
-                  {comp.location ? comp.location.split('/')[0].trim() : 'India'}
-                </span>
-                <span>•</span>
-                <span className="text-emerald-600 font-semibold flex items-center gap-0.5">
-                  <Briefcase className="h-2.5 w-2.5" />
-                  {comp.activeOpeningsCount || 3} openings
-                </span>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
+      <MarqueeRow
+        companies={row1Companies}
+        rowKey="r1"
+        animationClass={row1AnimationClass}
+        duration={speedToDuration(marqueeConfig.row1Speed || 'normal')}
+        pauseClass={pauseClass}
+        cardBorder={cardBorder}
+      />
 
-      {/* Row 2 (if enabled) */}
-      {marqueeConfig.rowCount === 2 && row2Items.length > 0 && (
-        <div
-          className={`flex w-fit ${row2AnimationClass} ${hoverPauseClass} gap-4`}
-          style={{ animationDuration: row2Duration }}
-        >
-          {row2Items.map((comp, idx) => (
-            <div
-              key={`r2-${comp.id}-${idx}`}
-              className={`w-64 shrink-0 p-4 rounded-xl border transition-all duration-200 flex items-center gap-3.5 ${cardBg}`}
-            >
-              {comp.logoUrl ? (
-                <img
-                  src={comp.logoUrl}
-                  alt={comp.name}
-                  className="h-10 w-10 rounded-lg object-contain bg-slate-50 p-1 border border-slate-200 shrink-0"
-                />
-              ) : (
-                <div className="h-10 w-10 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0 border border-indigo-100">
-                  <Building className="h-5 w-5" />
-                </div>
-              )}
-              <div className="min-w-0 flex-1">
-                <h4 className="text-xs font-bold truncate">{comp.name}</h4>
-                <p className="text-[11px] text-slate-400 truncate">{comp.industry}</p>
-                <div className="flex items-center gap-2 mt-1 text-[10px] text-slate-400">
-                  <span className="flex items-center gap-0.5 truncate">
-                    <MapPin className="h-2.5 w-2.5" />
-                    {comp.location ? comp.location.split('/')[0].trim() : 'India'}
-                  </span>
-                  <span>•</span>
-                  <span className="text-emerald-600 font-semibold flex items-center gap-0.5">
-                    <Briefcase className="h-2.5 w-2.5" />
-                    {comp.activeOpeningsCount || 3} openings
-                  </span>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
+      {isTwoRows && row2Companies.length > 0 && (
+        <MarqueeRow
+          companies={row2Companies}
+          rowKey="r2"
+          animationClass={row2AnimationClass}
+          duration={speedToDuration(marqueeConfig.row2Speed || 'normal')}
+          pauseClass={pauseClass}
+          cardBorder={cardBorder}
+        />
       )}
     </div>
   );
