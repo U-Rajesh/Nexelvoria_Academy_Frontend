@@ -11,6 +11,7 @@ import {
   Eye,
   FileCode,
   ShieldAlert,
+  Lock,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { studentService } from '../../services/studentService';
@@ -31,6 +32,7 @@ interface MaterialItem {
   courseTitle: string;
   description: string;
   downloadUrl: string;
+  isDownloadRestricted?: boolean;
   previewContent?: string;
 }
 
@@ -105,6 +107,7 @@ export const StudentMaterialsPage: React.FC = () => {
       courseTitle: 'Full Stack Java Cloud Architecture',
       description: 'Detailed walk-throughs of URL shorteners, distributed rate limiters, payment ledgers, and notification dispatch microservices.',
       downloadUrl: '#',
+      isDownloadRestricted: true, // LMS-006: Admin restricted download
       previewContent: 'Includes back-of-the-envelope calculations, CAP theorem trade-offs, database indexing with B-Trees, and Redis LRU cache eviction algorithms.',
     },
   ];
@@ -123,6 +126,14 @@ export const StudentMaterialsPage: React.FC = () => {
   });
 
   const handleDownload = (mat: MaterialItem) => {
+    if (mat.isDownloadRestricted) {
+      showToast({
+        type: 'warning',
+        title: 'Download Restricted (LMS-006)',
+        message: 'Direct file download is restricted by administration for this asset. Please view via the online preview viewer.',
+      });
+      return;
+    }
     showToast({
       type: 'success',
       title: 'Download Started',
@@ -233,15 +244,24 @@ export const StudentMaterialsPage: React.FC = () => {
                 >
                   Preview
                 </Button>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  className="text-xs"
-                  onClick={() => handleDownload(mat)}
-                  leftIcon={<Download className="h-3.5 w-3.5" />}
-                >
-                  Download
-                </Button>
+                {mat.isDownloadRestricted ? (
+                  <span
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 bg-amber-50 px-2.5 py-1.5 rounded-lg border border-amber-200 cursor-not-allowed"
+                    title="Downloads restricted by administrator (LMS-006)"
+                  >
+                    <Lock className="h-3 w-3 text-amber-600" /> Read-Only
+                  </span>
+                ) : (
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    className="text-xs"
+                    onClick={() => handleDownload(mat)}
+                    leftIcon={<Download className="h-3.5 w-3.5" />}
+                  >
+                    Download
+                  </Button>
+                )}
               </div>
             </div>
           </Card>
@@ -257,6 +277,12 @@ export const StudentMaterialsPage: React.FC = () => {
       >
         {previewMaterial && (
           <div className="space-y-4 text-xs">
+            {previewMaterial.isDownloadRestricted && (
+              <div className="flex items-center gap-2 p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 font-semibold text-xs">
+                <Lock className="h-4 w-4 text-amber-600 shrink-0" />
+                <span>Administrative Notice (LMS-006): Direct file download is restricted. Viewing in read-only mode.</span>
+              </div>
+            )}
             <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-slate-700 leading-relaxed space-y-2">
               <h4 className="font-bold text-slate-900">Document Overview</h4>
               <p>{previewMaterial.description}</p>
@@ -268,17 +294,19 @@ export const StudentMaterialsPage: React.FC = () => {
               <Button variant="outline" size="sm" onClick={() => setPreviewMaterial(null)}>
                 Close Preview
               </Button>
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={() => {
-                  handleDownload(previewMaterial);
-                  setPreviewMaterial(null);
-                }}
-                leftIcon={<Download className="h-3.5 w-3.5" />}
-              >
-                Download Resource
-              </Button>
+              {!previewMaterial.isDownloadRestricted && (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => {
+                    handleDownload(previewMaterial);
+                    setPreviewMaterial(null);
+                  }}
+                  leftIcon={<Download className="h-3.5 w-3.5" />}
+                >
+                  Download Resource
+                </Button>
+              )}
             </div>
           </div>
         )}

@@ -78,3 +78,19 @@ export interface MockInterviewSchedule {
   };
 }
 
+export interface InterviewQuestion {
+  id: string;
+  category: 'Java & Spring Boot' | 'React & Frontend' | 'System Design' | 'DSA & Algorithms' | 'Behavioral & HR';
+  difficulty: 'Easy' | 'Medium' | 'Hard';
+  title: string;
+  question: string;
+  modelAnswer: string;
+  evaluationRubric: {
+    criteria: string;
+    weightage: string;
+    goodResponseIndicator: string;
+  }[];
+  tags: string[];
+}
+
+

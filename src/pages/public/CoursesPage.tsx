@@ -2,6 +2,9 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Search, Clock, BookOpen, ArrowRight, Filter, Award, MessageSquare, CheckCircle, Sparkles } from 'lucide-react';
 import { SEED_COURSES } from '../../mocks/seedData';
+import { getStorageItem } from '../../utils/storage';
+import { STORAGE_KEYS } from '../../constants/appConfig';
+import type { Course } from '../../types';
 import { formatINR } from '../../utils/formatters';
 import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
@@ -24,14 +27,19 @@ export const CoursesPage: React.FC = () => {
   const categories = ['All', 'Software Development', 'Data & AI', 'Cloud & DevOps'];
   const levels = ['All', 'Beginner to Advanced', 'Intermediate', 'Advanced'];
 
-  const filteredCourses = SEED_COURSES.filter((course) => {
+  const allCourses = getStorageItem<Course[]>(STORAGE_KEYS.COURSES, SEED_COURSES);
+
+  const filteredCourses = allCourses.filter((course) => {
+    const courseStatus = course.status || (course.isPublished ? 'Published' : 'Draft');
+    // Only Published or Active courses are visible to the public (excludes Draft, Inactive, and Archived)
+    const isPublic = courseStatus === 'Published' || courseStatus === 'Active';
     const matchesCategory = selectedCategory === 'All' || course.category === selectedCategory;
     const matchesLevel = selectedLevel === 'All' || course.level === selectedLevel;
     const matchesSearch =
       course.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       course.shortDescription.toLowerCase().includes(searchQuery.toLowerCase()) ||
       course.technologies.some((t) => t.toLowerCase().includes(searchQuery.toLowerCase()));
-    return matchesCategory && matchesLevel && matchesSearch;
+    return isPublic && matchesCategory && matchesLevel && matchesSearch;
   });
 
   const handleEnquirySubmit = (e: React.FormEvent) => {
@@ -151,7 +159,12 @@ export const CoursesPage: React.FC = () => {
                   alt={course.title}
                   className="w-full h-full object-cover"
                 />
-                <div className="absolute top-3 left-3 flex gap-2">
+                <div className="absolute top-3 left-3 flex items-center gap-1.5">
+                  {course.courseCode && (
+                    <span className="text-[10px] font-mono font-bold bg-slate-900/80 text-white px-2 py-0.5 rounded shadow-xs">
+                      {course.courseCode}
+                    </span>
+                  )}
                   <Badge variant="neutral" size="sm">{course.category}</Badge>
                 </div>
                 {course.hasPlacementGuarantee && (

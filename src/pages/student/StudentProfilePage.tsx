@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import {
   User,
   Mail,
@@ -15,6 +16,8 @@ import {
   Eye,
   EyeOff,
   KeyRound,
+  Shield,
+  ArrowRight,
 } from 'lucide-react';
 import { Linkedin, Github } from '../../components/common/SocialIcons';
 import { useAuth } from '../../context/AuthContext';
@@ -22,6 +25,7 @@ import { useNotification } from '../../context/NotificationContext';
 import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
 import { Card } from '../../components/common/Card';
+import { PasswordStrengthIndicator } from '../../components/auth/PasswordStrengthIndicator';
 import { getStorageItem, setStorageItem } from '../../utils/storage';
 
 interface StudentProfileFormData {
@@ -359,11 +363,23 @@ export const StudentProfilePage: React.FC = () => {
 export const StudentChangePasswordPage: React.FC = () => {
   const { showToast } = useNotification();
   const [form, setForm] = useState({ current: '', next: '', confirm: '' });
-  const [showPass, setShowPass] = useState(false);
+  const [showCurrent, setShowCurrent] = useState(false);
+  const [showNext, setShowNext] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!form.current) {
+      showToast({
+        type: 'error',
+        title: 'Current Password Required',
+        message: 'Please provide your existing password for verification.',
+      });
+      return;
+    }
+
     if (form.next.length < 8) {
       showToast({
         type: 'error',
@@ -372,6 +388,16 @@ export const StudentChangePasswordPage: React.FC = () => {
       });
       return;
     }
+
+    if (!/[A-Z]/.test(form.next) || !/[0-9]/.test(form.next) || !/[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(form.next)) {
+      showToast({
+        type: 'error',
+        title: 'Password Complexity',
+        message: 'Password must include uppercase letters, numbers, and at least one special symbol.',
+      });
+      return;
+    }
+
     if (form.next !== form.confirm) {
       showToast({
         type: 'error',
@@ -395,60 +421,86 @@ export const StudentChangePasswordPage: React.FC = () => {
 
   return (
     <div className="max-w-md mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Change Password</h1>
-        <p className="text-xs text-slate-500 mt-1">
-          Keep your student portal account safe with a strong, updated password.
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Change Password</h1>
+          <p className="text-xs text-slate-500 mt-1">
+            Keep your student portal account safe with a strong, updated password.
+          </p>
+        </div>
+        <Link
+          to="/student/security"
+          className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 bg-indigo-50 px-2.5 py-1.5 rounded-lg border border-indigo-100"
+        >
+          <Shield className="h-3.5 w-3.5" />
+          <span>Security Hub</span>
+        </Link>
       </div>
 
-      <Card className="p-6">
+      <Card className="p-6 space-y-4">
         <form onSubmit={handleSubmit} className="space-y-4 text-xs">
           <div>
             <label className="block font-semibold text-slate-700 mb-1">Current Password</label>
-            <input
-              type={showPass ? 'text' : 'password'}
-              required
-              value={form.current}
-              onChange={(e) => setForm({ ...form, current: e.target.value })}
-              placeholder="Enter current password"
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
+            <div className="relative">
+              <input
+                type={showCurrent ? 'text' : 'password'}
+                required
+                value={form.current}
+                onChange={(e) => setForm({ ...form, current: e.target.value })}
+                placeholder="Enter current password"
+                className="w-full pl-3 pr-9 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              <button
+                type="button"
+                onClick={() => setShowCurrent(!showCurrent)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              >
+                {showCurrent ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+              </button>
+            </div>
           </div>
 
           <div>
             <label className="block font-semibold text-slate-700 mb-1">New Password (Min 8 chars)</label>
-            <input
-              type={showPass ? 'text' : 'password'}
-              required
-              value={form.next}
-              onChange={(e) => setForm({ ...form, next: e.target.value })}
-              placeholder="Enter new strong password"
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
+            <div className="relative">
+              <input
+                type={showNext ? 'text' : 'password'}
+                required
+                value={form.next}
+                onChange={(e) => setForm({ ...form, next: e.target.value })}
+                placeholder="Enter new strong password"
+                className="w-full pl-3 pr-9 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              <button
+                type="button"
+                onClick={() => setShowNext(!showNext)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              >
+                {showNext ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+              </button>
+            </div>
+            <PasswordStrengthIndicator password={form.next} />
           </div>
 
           <div>
             <label className="block font-semibold text-slate-700 mb-1">Confirm New Password</label>
-            <input
-              type={showPass ? 'text' : 'password'}
-              required
-              value={form.confirm}
-              onChange={(e) => setForm({ ...form, confirm: e.target.value })}
-              placeholder="Confirm new password"
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-          </div>
-
-          <div className="flex items-center justify-between pt-1">
-            <button
-              type="button"
-              onClick={() => setShowPass(!showPass)}
-              className="text-[11px] text-slate-500 hover:text-slate-800 flex items-center gap-1 cursor-pointer"
-            >
-              {showPass ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-              <span>{showPass ? 'Hide password characters' : 'Show password characters'}</span>
-            </button>
+            <div className="relative">
+              <input
+                type={showConfirm ? 'text' : 'password'}
+                required
+                value={form.confirm}
+                onChange={(e) => setForm({ ...form, confirm: e.target.value })}
+                placeholder="Confirm new password"
+                className="w-full pl-3 pr-9 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirm(!showConfirm)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              >
+                {showConfirm ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+              </button>
+            </div>
           </div>
 
           <div className="pt-2">
@@ -464,6 +516,14 @@ export const StudentChangePasswordPage: React.FC = () => {
             </Button>
           </div>
         </form>
+
+        <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
+          <span>Need to manage active sessions or 2FA?</span>
+          <Link to="/student/security" className="text-indigo-600 font-semibold hover:underline flex items-center gap-1">
+            <span>Open Security Hub</span>
+            <ArrowRight className="h-3 w-3" />
+          </Link>
+        </div>
       </Card>
     </div>
   );

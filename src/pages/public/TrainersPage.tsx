@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Star, Award, ExternalLink, Users, CheckCircle2, ShieldCheck } from 'lucide-react';
+import { Star, Award, ExternalLink, Users, CheckCircle2, ShieldCheck, Sparkles } from 'lucide-react';
 import { Linkedin } from '../../components/common/SocialIcons';
 import { Badge } from '../../components/common/Badge';
 import { Card } from '../../components/common/Card';
@@ -7,115 +7,140 @@ import { Button } from '../../components/common/Button';
 import { Modal } from '../../components/feedback/Modal';
 import { SEO } from '../../components/common/SEO';
 import { cmsService, type TrainerProfile } from '../../services/cmsService';
+import { ScrollReveal } from '../../components/public/ScrollReveal';
+import { TrainerOrbitSection } from '../../components/public/TrainerOrbitSection';
 
 export const TrainersPage: React.FC = () => {
   const [trainers] = useState<TrainerProfile[]>(() => cmsService.getTrainers());
   const [selectedTrainer, setSelectedTrainer] = useState<TrainerProfile | null>(null);
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-14 space-y-16">
+    <div className="space-y-16 pb-16">
       <SEO
         title="Distinguished Industry Mentors & Faculty"
         description="Learn from top technology leads and former architects from Oracle, Microsoft, AWS, and tier-1 tech consulting enterprises."
         keywords={['Software Trainers', 'Tech Mentors', 'Java Instructors', 'DevOps Faculty', 'Nexelvoria Trainers']}
       />
 
-      {/* Header */}
-      <div className="text-center max-w-3xl mx-auto space-y-4">
-        <Badge variant="purple" size="md">Our Faculty & Mentorship Lead</Badge>
-        <h1 className="text-4xl sm:text-5xl font-extrabold text-slate-900 tracking-tight">
-          Learn Directly from Practicing Architects & Senior Engineers
-        </h1>
-        <p className="text-slate-500 text-sm sm:text-base leading-relaxed">
-          At Nexelvoria Academy, our faculty members are not academic lecturers—they are seasoned engineering leaders who have built high-scale systems at Fortune 500 tech companies.
-        </p>
-      </div>
+      {/* Interactive 3D Cover-Flow Hero Showcase */}
+      <TrainerOrbitSection
+        trainers={trainers}
+        title="Interactive Faculty & Mentor 3D Showcase"
+        subtitle="Scroll down to traverse our practicing engineering architects. Every mentor brings hands-on production leadership from Fortune 500 tech companies."
+        badgeText="Faculty 3D Showcase"
+        showExploreButton={false}
+      />
 
-      {/* Faculty Quality Badges */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 text-center">
-        <Card className="p-6 space-y-2 bg-white">
-          <Award className="h-8 w-8 text-indigo-600 mx-auto" />
-          <h3 className="text-sm font-bold text-slate-900">10+ Years Avg. Industry Experience</h3>
-          <p className="text-xs text-slate-500">Every mentor has architected real-world enterprise production codebases.</p>
-        </Card>
-        <Card className="p-6 space-y-2 bg-white">
-          <Users className="h-8 w-8 text-emerald-600 mx-auto" />
-          <h3 className="text-sm font-bold text-slate-900">1:1 Architectural Code Reviews</h3>
-          <p className="text-xs text-slate-500">Mentors personally inspect student GitHub PRs and suggest design refactorings.</p>
-        </Card>
-        <Card className="p-6 space-y-2 bg-white">
-          <ShieldCheck className="h-8 w-8 text-sky-600 mx-auto" />
-          <h3 className="text-sm font-bold text-slate-900">4.9+ Out of 5.0 Student Rating</h3>
-          <p className="text-xs text-slate-500">Consistently rated as top tier for clarity, patience, and rigorous evaluations.</p>
-        </Card>
-      </div>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-16">
+        {/* Header */}
+        <ScrollReveal animation="fade-up">
+          <div className="text-center max-w-3xl mx-auto space-y-4">
+            <Badge variant="purple" size="md">Complete Faculty Directory</Badge>
+            <h1 className="text-3xl sm:text-5xl font-extrabold text-slate-900 tracking-tight">
+              Detailed Mentor Profiles & Industry Backgrounds
+            </h1>
+            <p className="text-slate-500 text-sm sm:text-base leading-relaxed">
+              At Nexelvoria Academy, our faculty members are not academic lecturers—they are seasoned engineering leaders who have built high-scale systems at Fortune 500 tech companies.
+            </p>
+          </div>
+        </ScrollReveal>
 
-      {/* Trainers Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-        {trainers.map((tr) => (
-          <Card key={tr.id} className="p-6 flex flex-col justify-between space-y-6 hover:shadow-xl transition-all duration-200 bg-white">
-            <div className="space-y-4">
-              <div className="flex items-center gap-4">
-                <img
-                  src={tr.avatarUrl}
-                  alt={tr.name}
-                  className="h-20 w-20 rounded-2xl object-cover border-2 border-indigo-100 shadow-md shrink-0"
-                />
-                <div>
-                  <h3 className="text-lg font-bold text-slate-900">{tr.name}</h3>
-                  <p className="text-xs text-indigo-600 font-semibold">{tr.role}</p>
-                  <p className="text-[11px] text-slate-400 mt-0.5">{tr.qualifications}</p>
-                  <div className="flex items-center gap-1 text-xs text-amber-500 font-bold mt-1">
-                    <Star className="h-3.5 w-3.5 fill-current" />
-                    <span>{tr.rating.toFixed(2)}</span>
-                    <span className="text-slate-400 font-normal ml-1">({tr.experienceYears}+ years exp)</span>
+        {/* Faculty Quality Badges */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 text-center">
+          <ScrollReveal animation="fade-up" delay={0}>
+            <Card className="p-6 space-y-2 bg-white h-full">
+              <Award className="h-8 w-8 text-indigo-600 mx-auto" />
+              <h3 className="text-sm font-bold text-slate-900">10+ Years Avg. Industry Experience</h3>
+              <p className="text-xs text-slate-500">Every mentor has architected real-world enterprise production codebases.</p>
+            </Card>
+          </ScrollReveal>
+
+          <ScrollReveal animation="fade-up" delay={120}>
+            <Card className="p-6 space-y-2 bg-white h-full">
+              <Users className="h-8 w-8 text-emerald-600 mx-auto" />
+              <h3 className="text-sm font-bold text-slate-900">1:1 Architectural Code Reviews</h3>
+              <p className="text-xs text-slate-500">Mentors personally inspect student GitHub PRs and suggest design refactorings.</p>
+            </Card>
+          </ScrollReveal>
+
+          <ScrollReveal animation="fade-up" delay={240}>
+            <Card className="p-6 space-y-2 bg-white h-full">
+              <ShieldCheck className="h-8 w-8 text-sky-600 mx-auto" />
+              <h3 className="text-sm font-bold text-slate-900">4.9+ Out of 5.0 Student Rating</h3>
+              <p className="text-xs text-slate-500">Consistently rated as top tier for clarity, patience, and rigorous evaluations.</p>
+            </Card>
+          </ScrollReveal>
+        </div>
+
+        {/* Trainers Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          {trainers.map((tr, idx) => (
+            <ScrollReveal key={tr.id} animation="fade-up" delay={idx * 100} className="h-full">
+              <Card className="p-6 flex flex-col justify-between space-y-6 hover:shadow-xl transition-all duration-200 bg-white h-full">
+                <div className="space-y-4">
+                  <div className="flex items-center gap-4">
+                    <img
+                      src={tr.avatarUrl}
+                      alt={tr.name}
+                      className="h-20 w-20 rounded-2xl object-cover object-top border-2 border-indigo-100 shadow-md shrink-0"
+                    />
+                    <div>
+                      <h3 className="text-lg font-bold text-slate-900">{tr.name}</h3>
+                      <p className="text-xs text-indigo-600 font-semibold">{tr.role}</p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">{tr.qualifications}</p>
+                      <div className="flex items-center gap-1 text-xs text-amber-500 font-bold mt-1">
+                        <Star className="h-3.5 w-3.5 fill-current" />
+                        <span>{tr.rating.toFixed(2)}</span>
+                        <span className="text-slate-400 font-normal ml-1">({tr.experienceYears}+ years exp)</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Specialization</span>
+                    <p className="text-xs font-semibold text-slate-800 bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                      {tr.specialization}
+                    </p>
+                  </div>
+
+                  <p className="text-xs text-slate-600 leading-relaxed line-clamp-3">
+                    {tr.bio}
+                  </p>
+
+                  <div>
+                    <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5">
+                      Former Organizations
+                    </span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {tr.formerCompanies.map((comp) => (
+                        <span key={comp} className="text-[11px] bg-slate-100 text-slate-700 px-2.5 py-0.5 rounded font-medium">
+                          {comp}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="space-y-2">
-                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Specialization</span>
-                <p className="text-xs font-semibold text-slate-800 bg-slate-50 p-2.5 rounded-lg border border-slate-100">
-                  {tr.specialization}
-                </p>
-              </div>
+                <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
+                  <a
+                    href={tr.linkedinUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-indigo-600 transition-colors"
+                  >
+                    <Linkedin size={14} />
+                    <span>LinkedIn</span>
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
 
-              <p className="text-xs text-slate-600 leading-relaxed line-clamp-3">
-                {tr.bio}
-              </p>
-
-              <div>
-                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5">
-                  Former Organizations
-                </span>
-                <div className="flex flex-wrap gap-1.5">
-                  {tr.formerCompanies.map((comp) => (
-                    <span key={comp} className="text-[11px] bg-slate-100 text-slate-700 px-2.5 py-0.5 rounded font-medium">
-                      {comp}
-                    </span>
-                  ))}
+                  <Button variant="outline" size="sm" onClick={() => setSelectedTrainer(tr)}>
+                    View Full Profile
+                  </Button>
                 </div>
-              </div>
-            </div>
-
-            <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
-              <a
-                href={tr.linkedinUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-indigo-600 transition-colors"
-              >
-                <Linkedin size={14} />
-                <span>LinkedIn</span>
-                <ExternalLink className="h-3 w-3" />
-              </a>
-
-              <Button variant="outline" size="sm" onClick={() => setSelectedTrainer(tr)}>
-                View Full Profile
-              </Button>
-            </div>
-          </Card>
-        ))}
+              </Card>
+            </ScrollReveal>
+          ))}
+        </div>
       </div>
 
       {/* Trainer Profile Details Modal */}

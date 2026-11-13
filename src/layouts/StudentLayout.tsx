@@ -26,6 +26,7 @@ import {
   PlayCircle,
   Receipt,
   User,
+  ShieldCheck,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/common/Button';
@@ -56,6 +57,7 @@ export const StudentLayout: React.FC = () => {
     { label: 'Placement Portal', path: '/student/placements', icon: <Briefcase className="h-4 w-4" /> },
     { label: 'Mock Interviews', path: '/student/mock-interviews', icon: <UserCheck className="h-4 w-4" /> },
     { label: 'Notifications', path: '/student/notifications', icon: <Bell className="h-4 w-4" /> },
+    { label: 'Account Security', path: '/student/security', icon: <ShieldCheck className="h-4 w-4" /> },
     { label: 'Support Tickets', path: '/student/support', icon: <HelpCircle className="h-4 w-4" /> },
     { label: 'Change Password', path: '/student/change-password', icon: <KeyRound className="h-4 w-4" /> },
   ];
@@ -115,7 +117,51 @@ export const StudentLayout: React.FC = () => {
           <div className="min-w-0 flex-1">
             <p className="text-xs font-semibold text-white truncate">{user?.name || 'Student'}</p>
             <div className="flex items-center gap-1.5 mt-0.5">
-              <Badge variant="success" size="sm" dot>Active</Badge>
+              {(() => {
+                const s = user as any;
+                const state = s?.accountState || (s?.status === 'active' ? 'approved' : 'pending_approval');
+                if (state === 'approved') {
+                  const hasCourses = (s?.enrolledCourseIds || []).length > 0;
+                  return (
+                    <Badge variant={hasCourses ? 'success' : 'info'} size="sm" dot>
+                      {hasCourses ? 'Approved & Enrolled' : 'Approved (Fee Due)'}
+                    </Badge>
+                  );
+                }
+                if (state === 'pending_approval') {
+                  return (
+                    <Badge variant="warning" size="sm" dot>
+                      Pending Approval
+                    </Badge>
+                  );
+                }
+                if (state === 'pending_verification') {
+                  return (
+                    <Badge variant="warning" size="sm" dot>
+                      Unverified OTP
+                    </Badge>
+                  );
+                }
+                if (state === 'locked') {
+                  return (
+                    <Badge variant="danger" size="sm" dot>
+                      Account Locked
+                    </Badge>
+                  );
+                }
+                if (state === 'suspended') {
+                  return (
+                    <Badge variant="danger" size="sm" dot>
+                      Suspended
+                    </Badge>
+                  );
+                }
+                return (
+                  <Badge variant="neutral" size="sm" dot>
+                    Candidate
+                  </Badge>
+                );
+              })()}
             </div>
           </div>
         </div>
