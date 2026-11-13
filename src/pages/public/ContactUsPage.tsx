@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Mail, Phone, MapPin, Send, MessageCircle, Clock, CheckCircle2, AlertCircle, PhoneCall, Share2 } from 'lucide-react';
 import { APP_CONFIG } from '../../constants/appConfig';
 import { Button } from '../../components/common/Button';
-import { Badge } from '../../components/common/Badge';
+import { PageLabel } from '../../components/common/PageLabel';
 import { Card } from '../../components/common/Card';
 import { SEO } from '../../components/common/SEO';
 import { SEED_COURSES } from '../../mocks/seedData';
@@ -107,8 +107,8 @@ export const ContactUsPage: React.FC = () => {
         keywords={['Contact Nexelvoria', 'Admissions Phone', 'Course Enquiry', 'Callback Request', 'Campus Address']}
       />
 
-      <div className="text-center max-w-3xl mx-auto space-y-4">
-        <Badge variant="purple" size="md">Admissions & Inquiries</Badge>
+      <div className="text-center max-w-3xl mx-auto space-y-3">
+        <PageLabel>Admissions & Inquiries</PageLabel>
         <h1 className="text-4xl font-extrabold text-slate-900 tracking-tight">
           We Are Here to Assist Your Career Journey
         </h1>

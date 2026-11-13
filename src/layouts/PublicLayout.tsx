@@ -12,13 +12,12 @@ import {
   ShieldCheck,
   LogOut,
   Sparkles,
-  ExternalLink,
-  ChevronDown,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { APP_CONFIG } from '../constants/appConfig';
 import { Button } from '../components/common/Button';
 import { SocialIcon } from '../components/common/SocialIcons';
+import { AnimatedBackgroundLayer } from '../components/public/AnimatedBackgroundLayer';
 import {
   cmsService,
   type WebsiteBanner,
@@ -111,10 +110,13 @@ export const PublicLayout: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 text-slate-800 antialiased">
+    <div className="min-h-screen flex flex-col bg-slate-50 text-slate-800 antialiased relative isolate">
+      {/* Subtle Premium Animated Background Layer (PUB-ANIM-BG) */}
+      <AnimatedBackgroundLayer />
+
       {/* Dynamic CMS Top Announcement Banner (PUB-022) */}
       {activeBanner && activeBanner.isActive && !bannerDismissed && (
-        <div className="bg-slate-900 text-white text-xs py-2 px-4 border-b border-slate-800 shadow-xs transition-all">
+        <div className="relative z-30 bg-slate-900 text-white text-xs py-2 px-4 border-b border-slate-800 shadow-xs transition-all">
           <div className="max-w-7xl mx-auto flex items-center justify-between gap-3">
             <div className="flex-1 flex items-center justify-center sm:justify-start gap-2.5 overflow-hidden">
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-800 text-indigo-300 text-[10px] font-bold uppercase tracking-wider shrink-0 border border-slate-700">
@@ -146,7 +148,7 @@ export const PublicLayout: React.FC = () => {
       )}
 
       {/* Top Utility Header & Socials (PUB-025) */}
-      <div className="bg-slate-900 text-slate-300 text-xs py-1.5 px-4 border-b border-slate-800">
+      <div className="relative z-30 bg-slate-900 text-slate-300 text-xs py-1.5 px-4 border-b border-slate-800">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
           <div className="flex items-center gap-4 text-center sm:text-left">
             <span className="flex items-center gap-1.5 text-indigo-400 font-medium">
@@ -165,7 +167,7 @@ export const PublicLayout: React.FC = () => {
           <div className="flex items-center gap-4">
             <Link
               to="/verify-certificate"
-              className="text-slate-300 hover:text-white flex items-center gap-1 transition-colors"
+              className="text-slate-200 hover:text-white flex items-center gap-1.5 font-medium transition-colors"
             >
               <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
               <span>Verify Certificate</span>
@@ -345,7 +347,7 @@ export const PublicLayout: React.FC = () => {
       </header>
 
       {/* Main Page Content */}
-      <main className="flex-1">
+      <main className="flex-1 relative z-10">
         <Outlet />
       </main>
 
@@ -364,7 +366,7 @@ export const PublicLayout: React.FC = () => {
       </a>
 
       {/* Comprehensive Footer */}
-      <footer className="bg-slate-900 text-slate-300 border-t border-slate-800">
+      <footer className="relative z-20 bg-slate-900 text-slate-300 border-t border-slate-800">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-14">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-10">
             {/* Institute Overview */}

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { MapPin, Clock, CheckCircle2, Award, Users, HeartHandshake } from 'lucide-react';
 import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
+import { PageLabel } from '../../components/common/PageLabel';
 import { Card } from '../../components/common/Card';
 import { Modal } from '../../components/feedback/Modal';
 import { SEO } from '../../components/common/SEO';
@@ -57,7 +58,7 @@ export const CareersPage: React.FC = () => {
 
       {/* Header */}
       <div className="text-center max-w-3xl mx-auto space-y-3">
-        <Badge variant="purple" size="md">Join Our Mission</Badge>
+        <PageLabel>Join Our Mission</PageLabel>
         <h1 className="text-4xl font-extrabold text-slate-900 tracking-tight">
           Shape the Future of Technology Education
         </h1>

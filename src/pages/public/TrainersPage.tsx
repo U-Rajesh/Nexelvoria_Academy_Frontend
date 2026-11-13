@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Star, Award, ExternalLink, Users, CheckCircle2, ShieldCheck, Sparkles } from 'lucide-react';
 import { Linkedin } from '../../components/common/SocialIcons';
-import { Badge } from '../../components/common/Badge';
+import { PageLabel } from '../../components/common/PageLabel';
 import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
 import { Modal } from '../../components/feedback/Modal';
@@ -34,8 +34,8 @@ export const TrainersPage: React.FC = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-16">
         {/* Header */}
         <ScrollReveal animation="fade-up">
-          <div className="text-center max-w-3xl mx-auto space-y-4">
-            <Badge variant="purple" size="md">Complete Faculty Directory</Badge>
+          <div className="text-center max-w-3xl mx-auto space-y-3">
+            <PageLabel>Complete Faculty Directory</PageLabel>
             <h1 className="text-3xl sm:text-5xl font-extrabold text-slate-900 tracking-tight">
               Detailed Mentor Profiles & Industry Backgrounds
             </h1>

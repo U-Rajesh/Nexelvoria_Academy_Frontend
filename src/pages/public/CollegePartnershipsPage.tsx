@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { School, Handshake, CheckCircle2, Send, Building2, Users } from 'lucide-react';
 import { Button } from '../../components/common/Button';
-import { Badge } from '../../components/common/Badge';
+import { PageLabel } from '../../components/common/PageLabel';
 import { Card } from '../../components/common/Card';
 import { useNotification } from '../../context/NotificationContext';
 import { cmsService, type CollegePartnershipConfig } from '../../services/cmsService';
@@ -34,8 +34,8 @@ export const CollegePartnershipsPage: React.FC = () => {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-14 space-y-16">
       {config.sectionVisibility.header && (
         <ScrollReveal animation="fade-up">
-          <div className="text-center max-w-3xl mx-auto space-y-4">
-            <Badge variant="purple" size="md">Institutional Alliances</Badge>
+          <div className="text-center max-w-3xl mx-auto space-y-3">
+            <PageLabel>Institutional Alliances</PageLabel>
             <h1 className="text-4xl font-extrabold text-slate-900 tracking-tight">
               {config.header.title}
             </h1>
