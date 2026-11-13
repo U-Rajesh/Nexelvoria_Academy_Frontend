@@ -18,16 +18,23 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { APP_CONFIG } from '../constants/appConfig';
 import { Button } from '../components/common/Button';
-import { Linkedin, Github } from '../components/common/SocialIcons';
-import { cmsService, type WebsiteBanner, type HeaderFooterConfig, type ContactInfoConfig } from '../services/cmsService';
+import { SocialIcon } from '../components/common/SocialIcons';
+import {
+  cmsService,
+  type WebsiteBanner,
+  type HeaderFooterConfig,
+  type ContactInfoConfig,
+  type SocialMediaLink,
+} from '../services/cmsService';
 import { analytics } from '../utils/analytics';
 
 export const PublicLayout: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [activeBanner, setActiveBanner] = useState<WebsiteBanner | null>(null);
-  const [headerFooterConfig] = useState<HeaderFooterConfig>(() => cmsService.getHeaderFooterConfig());
-  const [contactConfig] = useState<ContactInfoConfig>(() => cmsService.getContactInfo());
+  const [headerFooterConfig, setHeaderFooterConfig] = useState<HeaderFooterConfig>(() => cmsService.getHeaderFooterConfig());
+  const [contactConfig, setContactConfig] = useState<ContactInfoConfig>(() => cmsService.getContactInfo());
+  const [socialLinks, setSocialLinks] = useState<SocialMediaLink[]>(() => cmsService.getSocialMediaLinks());
   const { user, isAuthenticated, logout } = useAuth();
   const location = useLocation();
 
@@ -45,6 +52,26 @@ export const PublicLayout: React.FC = () => {
     // Scroll to top on navigation
     window.scrollTo({ top: 0, behavior: 'smooth' });
     setMobileMenuOpen(false);
+
+    // Sync CMS data on route change or storage/custom event
+    const handleCmsUpdate = () => {
+      setHeaderFooterConfig(cmsService.getHeaderFooterConfig());
+      setContactConfig(cmsService.getContactInfo());
+      setSocialLinks(cmsService.getSocialMediaLinks());
+      setActiveBanner(cmsService.getActiveBanner());
+    };
+
+    window.addEventListener('cms-update', handleCmsUpdate);
+    window.addEventListener('cms-social-update', handleCmsUpdate);
+    window.addEventListener('storage', handleCmsUpdate);
+
+    handleCmsUpdate();
+
+    return () => {
+      window.removeEventListener('cms-update', handleCmsUpdate);
+      window.removeEventListener('cms-social-update', handleCmsUpdate);
+      window.removeEventListener('storage', handleCmsUpdate);
+    };
   }, [location.pathname]);
 
   const navLinks = (headerFooterConfig.navLinks && headerFooterConfig.navLinks.length > 0)
@@ -65,8 +92,8 @@ export const PublicLayout: React.FC = () => {
   const supportPhone = contactConfig.supportPhone || APP_CONFIG.supportPhone;
   const supportEmail = contactConfig.supportEmail || APP_CONFIG.supportEmail;
   const whatsappNumber = contactConfig.whatsappNumber || APP_CONFIG.whatsappNumber;
-  const linkedinUrl = contactConfig.socialLinks?.linkedin || APP_CONFIG.socialLinks.linkedin;
-  const githubUrl = contactConfig.socialLinks?.github || APP_CONFIG.socialLinks.github;
+  const headerSocials = socialLinks.filter((s) => s.isEnabled && s.showInHeader && s.url?.trim());
+  const footerSocials = socialLinks.filter((s) => s.isEnabled && s.showInFooter && s.url?.trim());
   const logoTitle = headerFooterConfig.logoTitle || 'Nexelvoria';
   const logoSubtitle = headerFooterConfig.logoSubtitle || 'Online Training & LMS';
   const footerDescription = headerFooterConfig.footerDescription ||
@@ -147,34 +174,27 @@ export const PublicLayout: React.FC = () => {
             <Link to="/faqs" className="text-slate-400 hover:text-white transition-colors">
               FAQs
             </Link>
-            <span className="text-slate-600">|</span>
             {/* Social Links (PUB-025) */}
-            <div className="flex items-center gap-2.5 text-slate-400">
-              {linkedinUrl && (
-                <a
-                  href={linkedinUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title="LinkedIn"
-                  aria-label="LinkedIn Profile"
-                  className="hover:text-indigo-400 transition-colors"
-                >
-                  <Linkedin size={13} />
-                </a>
-              )}
-              {githubUrl && (
-                <a
-                  href={githubUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title="GitHub"
-                  aria-label="GitHub Profile"
-                  className="hover:text-white transition-colors"
-                >
-                  <Github size={13} />
-                </a>
-              )}
-            </div>
+            {headerSocials.length > 0 && (
+              <>
+                <span className="text-slate-600">|</span>
+                <div className="flex items-center gap-2.5 text-slate-400">
+                  {headerSocials.map((social) => (
+                    <a
+                      key={social.id}
+                      href={social.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title={social.platformName || social.platform}
+                      aria-label={`${social.platformName || social.platform} Profile`}
+                      className="hover:text-indigo-400 transition-colors"
+                    >
+                      <SocialIcon platform={social.platform} size={13} />
+                    </a>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -370,30 +390,23 @@ export const PublicLayout: React.FC = () => {
               </div>
 
               {/* Social Media Links (PUB-025) */}
-              <div className="pt-2 flex items-center gap-3 text-slate-400">
-                {linkedinUrl && (
-                  <a
-                    href={linkedinUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="p-2 rounded-lg bg-slate-800 hover:bg-indigo-600 hover:text-white transition-colors"
-                    aria-label="Follow Nexelvoria on LinkedIn"
-                  >
-                    <Linkedin size={16} />
-                  </a>
-                )}
-                {githubUrl && (
-                  <a
-                    href={githubUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 hover:text-white transition-colors"
-                    aria-label="Nexelvoria GitHub"
-                  >
-                    <Github size={16} />
-                  </a>
-                )}
-              </div>
+              {footerSocials.length > 0 && (
+                <div className="pt-2 flex flex-wrap items-center gap-2.5 text-slate-400">
+                  {footerSocials.map((social) => (
+                    <a
+                      key={social.id}
+                      href={social.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="p-2 rounded-lg bg-slate-800 hover:bg-indigo-600 hover:text-white transition-colors"
+                      title={social.platformName || social.platform}
+                      aria-label={`Follow Nexelvoria on ${social.platformName || social.platform}`}
+                    >
+                      <SocialIcon platform={social.platform} size={16} />
+                    </a>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Quick Links */}

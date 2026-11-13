@@ -1,26 +1,22 @@
 import React, { useState } from 'react';
 import {
   Phone,
-  Mail,
-  MapPin,
-  MessageCircle,
   Globe,
   Plus,
   Trash2,
   Save,
   RotateCcw,
   Sliders,
-  Share2,
 } from 'lucide-react';
 import { Button } from '../../common/Button';
 import { Card } from '../../common/Card';
-import { Badge } from '../../common/Badge';
 import { useNotification } from '../../../context/NotificationContext';
 import {
   cmsService,
   type ContactInfoConfig,
   type HeaderFooterConfig,
 } from '../../../services/cmsService';
+import { SocialMediaManager } from './SocialMediaManager';
 
 export const CMSContactHeaderFooterTab: React.FC = () => {
   const [contactConfig, setContactConfig] = useState<ContactInfoConfig>(() => cmsService.getContactInfo());
@@ -128,7 +124,7 @@ export const CMSContactHeaderFooterTab: React.FC = () => {
           }`}
         >
           <Phone className="h-3.5 w-3.5" />
-          Contact Info & Campus Hub
+          Contact Info & Campus Hub (Contact Management)
         </button>
         <button
           onClick={() => setActiveSection('header-footer')}
@@ -137,12 +133,13 @@ export const CMSContactHeaderFooterTab: React.FC = () => {
           }`}
         >
           <Sliders className="h-3.5 w-3.5" />
-          Navbar Links & Global Footer
+          Navbar Links & Global Footer (Header/Footer Management)
         </button>
       </div>
 
       {/* 1. Contact Info Form */}
       {activeSection === 'contact' && (
+        <>
         <Card className="p-6 space-y-6">
           <div className="border-b border-slate-100 pb-3">
             <h3 className="text-sm font-bold text-slate-900">Admissions Helplines & Physical Address</h3>
@@ -236,53 +233,21 @@ export const CMSContactHeaderFooterTab: React.FC = () => {
                 />
               </div>
             </div>
-
-            {/* Social Links */}
-            <div className="pt-3 border-t border-slate-100 space-y-3">
-              <h4 className="font-bold text-slate-900 flex items-center gap-1.5">
-                <Share2 className="h-4 w-4 text-indigo-600" /> Social Media Profiles
-              </h4>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">LinkedIn URL</label>
-                  <input
-                    type="url"
-                    value={contactConfig.socialLinks.linkedin || ''}
-                    onChange={(e) =>
-                      setContactConfig({
-                        ...contactConfig,
-                        socialLinks: { ...contactConfig.socialLinks, linkedin: e.target.value },
-                      })
-                    }
-                    placeholder="https://linkedin.com/company/..."
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none font-mono"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">GitHub Organization URL</label>
-                  <input
-                    type="url"
-                    value={contactConfig.socialLinks.github || ''}
-                    onChange={(e) =>
-                      setContactConfig({
-                        ...contactConfig,
-                        socialLinks: { ...contactConfig.socialLinks, github: e.target.value },
-                      })
-                    }
-                    placeholder="https://github.com/..."
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none font-mono"
-                  />
-                </div>
-              </div>
-            </div>
           </div>
         </Card>
+
+        {/* Social Media Manager for Contact Section */}
+        <SocialMediaManager
+          title="Social Media Channels & Profiles"
+          description="Manage official social media platforms, URLs, and display locations across Header, Footer, and Contact page."
+          highlightSection="contact"
+        />
+        </>
       )}
 
       {/* 2. Header & Footer Form */}
       {activeSection === 'header-footer' && (
+        <>
         <Card className="p-6 space-y-6">
           <div className="border-b border-slate-100 pb-3">
             <h3 className="text-sm font-bold text-slate-900">Header Branding & Global Navigation Links</h3>
@@ -377,6 +342,14 @@ export const CMSContactHeaderFooterTab: React.FC = () => {
             </div>
           </div>
         </Card>
+
+        {/* Social Media Manager for Header & Footer */}
+        <SocialMediaManager
+          title="Header & Footer Social Media Channels"
+          description="Configure which social channels are surfaced in the top Header utility bar and bottom Website Footer."
+          highlightSection="header-footer"
+        />
+        </>
       )}
     </div>
   );

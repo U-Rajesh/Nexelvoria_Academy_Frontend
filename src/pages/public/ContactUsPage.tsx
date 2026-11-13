@@ -1,18 +1,37 @@
-import React, { useState } from 'react';
-import { Mail, Phone, MapPin, Send, MessageCircle, Clock, CheckCircle2, AlertCircle, PhoneCall } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Mail, Phone, MapPin, Send, MessageCircle, Clock, CheckCircle2, AlertCircle, PhoneCall, Share2 } from 'lucide-react';
 import { APP_CONFIG } from '../../constants/appConfig';
 import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
 import { Card } from '../../components/common/Card';
 import { SEO } from '../../components/common/SEO';
 import { SEED_COURSES } from '../../mocks/seedData';
-import { cmsService, type ContactInfoConfig } from '../../services/cmsService';
+import { cmsService, type ContactInfoConfig, type SocialMediaLink } from '../../services/cmsService';
+import { SocialIcon } from '../../components/common/SocialIcons';
 import { useNotification } from '../../context/NotificationContext';
 import { analytics } from '../../utils/analytics';
 
 export const ContactUsPage: React.FC = () => {
-  const [contactConfig] = useState<ContactInfoConfig>(() => cmsService.getContactInfo());
+  const [contactConfig, setContactConfig] = useState<ContactInfoConfig>(() => cmsService.getContactInfo());
+  const [socialLinks, setSocialLinks] = useState<SocialMediaLink[]>(() => cmsService.getSocialMediaLinks());
   const [activeTab, setActiveTab] = useState<'general' | 'admission' | 'callback'>('admission');
+
+  useEffect(() => {
+    const handleSync = () => {
+      setContactConfig(cmsService.getContactInfo());
+      setSocialLinks(cmsService.getSocialMediaLinks());
+    };
+    window.addEventListener('cms-update', handleSync);
+    window.addEventListener('cms-social-update', handleSync);
+    window.addEventListener('storage', handleSync);
+    return () => {
+      window.removeEventListener('cms-update', handleSync);
+      window.removeEventListener('cms-social-update', handleSync);
+      window.removeEventListener('storage', handleSync);
+    };
+  }, []);
+
+  const contactSocials = socialLinks.filter((s) => s.isEnabled && s.showInContact && s.url?.trim());
 
   // Forms states
   const [generalForm, setGeneralForm] = useState({ name: '', email: '', subject: '', message: '' });
@@ -146,6 +165,35 @@ export const ContactUsPage: React.FC = () => {
               Start WhatsApp Chat →
             </a>
           </div>
+
+          {/* Social Channels (PUB CMS) */}
+          {contactSocials.length > 0 && (
+            <Card className="p-6 space-y-3 bg-white">
+              <div className="h-10 w-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
+                <Share2 className="h-5 w-5" />
+              </div>
+              <h3 className="text-sm font-bold text-slate-900">Connect On Social Media</h3>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                Follow our official channels for campus news, hackathons, and placement updates.
+              </p>
+              <div className="pt-1 flex flex-wrap items-center gap-2">
+                {contactSocials.map((social) => (
+                  <a
+                    key={social.id}
+                    href={social.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-600 text-xs font-semibold text-slate-700 transition-colors"
+                    title={social.platformName || social.platform}
+                    aria-label={`Visit Nexelvoria on ${social.platformName || social.platform}`}
+                  >
+                    <SocialIcon platform={social.platform} size={14} />
+                    <span>{social.platformName || social.platform}</span>
+                  </a>
+                ))}
+              </div>
+            </Card>
+          )}
         </div>
 
         {/* Tabbed Interactive Contact & Lead Forms */}
