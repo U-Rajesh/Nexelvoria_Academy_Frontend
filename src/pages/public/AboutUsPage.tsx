@@ -12,9 +12,11 @@ import {
 import { Badge } from '../../components/common/Badge';
 import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
+import { PageLabel } from '../../components/common/PageLabel';
 import { SEO } from '../../components/common/SEO';
 import { APP_CONFIG } from '../../constants/appConfig';
 import { ScrollReveal } from '../../components/public/ScrollReveal';
+import { AmbientDarkGlow } from '../../components/public/AnimatedBackgroundLayer';
 import { cmsService, type AboutUsConfig } from '../../services/cmsService';
 
 export const AboutUsPage: React.FC = () => {
@@ -45,8 +47,8 @@ export const AboutUsPage: React.FC = () => {
       {/* Header */}
       {aboutConfig.sectionVisibility.header && (
         <ScrollReveal animation="fade-up">
-          <div className="text-center max-w-3xl mx-auto space-y-4">
-            <Badge variant="purple" size="md">{aboutConfig.header.badgeText}</Badge>
+          <div className="text-center max-w-3xl mx-auto space-y-3">
+            <PageLabel>{aboutConfig.header.badgeText}</PageLabel>
             <h1 className="text-4xl sm:text-5xl font-extrabold text-slate-900 tracking-tight">
               {aboutConfig.header.title}
             </h1>
@@ -90,8 +92,8 @@ export const AboutUsPage: React.FC = () => {
       {aboutConfig.sectionVisibility.objectives && (
         <div className="space-y-10">
           <ScrollReveal animation="fade-up">
-            <div className="text-center max-w-2xl mx-auto space-y-2">
-              <Badge variant="info" size="md">Strategic Goals</Badge>
+            <div className="text-center max-w-2xl mx-auto space-y-3">
+              <PageLabel>Strategic Goals</PageLabel>
               <h2 className="text-3xl font-bold text-slate-900">Institutional Objectives</h2>
               <p className="text-xs sm:text-sm text-slate-500">The six fundamental commitments that guide our curriculum, mentorship, and operational standards.</p>
             </div>
@@ -116,19 +118,20 @@ export const AboutUsPage: React.FC = () => {
       {/* Training Approach & Pedagogy */}
       {aboutConfig.sectionVisibility.pedagogy && (
         <ScrollReveal animation="fade-up">
-          <div className="bg-slate-900 text-white rounded-2xl p-8 sm:p-12 space-y-8 border border-slate-800 shadow-lg">
-            <div className="max-w-2xl space-y-3">
-              <Badge variant="purple" size="md" className="bg-slate-800 text-indigo-300 border-slate-700">The Nexelvoria Way</Badge>
+          <div className="relative overflow-hidden bg-slate-900 text-white rounded-2xl p-8 sm:p-12 space-y-8 border border-slate-800/80 shadow-xl">
+            <AmbientDarkGlow variant="cyan-indigo" />
+            <div className="max-w-2xl space-y-3 relative z-10">
+              <PageLabel theme="dark">The Nexelvoria Way</PageLabel>
               <h2 className="text-3xl font-extrabold tracking-tight">Our Training Approach</h2>
               <p className="text-slate-300 text-xs sm:text-sm leading-relaxed">
                 We believe that learning to build software cannot happen through passive video watching. Our proprietary pedagogical loop reinforces concepts through 4 mandatory stages:
               </p>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 relative z-10">
               {aboutConfig.pedagogy.map((p, idx) => (
                 <ScrollReveal key={p.stage || p.step || idx} animation="fade-up" delay={idx * 100}>
-                  <div className="h-full p-6 rounded-xl bg-slate-800/70 border border-slate-700/80 space-y-3">
+                  <div className="h-full p-6 rounded-xl bg-slate-800/60 backdrop-blur-xs border border-slate-700/60 space-y-3 hover:border-indigo-400/50 hover:bg-slate-800/80 transition-all duration-200">
                     {renderPedagogyIcon(p.icon || 'BookOpen')}
                     <h3 className="text-sm font-bold text-white">{p.stage || p.step || idx + 1}. {p.title}</h3>
                     <p className="text-xs text-slate-300 leading-relaxed">
@@ -146,8 +149,8 @@ export const AboutUsPage: React.FC = () => {
       {aboutConfig.sectionVisibility.comparison && (
         <ScrollReveal animation="fade-up">
           <div className="space-y-8">
-            <div className="text-center max-w-2xl mx-auto space-y-2">
-              <Badge variant="purple" size="md">Transparent Benchmarking</Badge>
+            <div className="text-center max-w-2xl mx-auto space-y-3">
+              <PageLabel>Transparent Benchmarking</PageLabel>
               <h2 className="text-3xl font-bold text-slate-900">Why Choose Nexelvoria Academy?</h2>
               <p className="text-xs sm:text-sm text-slate-500">See how our enterprise model compares to conventional colleges and generic video platforms.</p>
             </div>

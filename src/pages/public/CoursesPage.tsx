@@ -8,6 +8,7 @@ import type { Course } from '../../types';
 import { formatINR } from '../../utils/formatters';
 import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
+import { PageLabel } from '../../components/common/PageLabel';
 import { Card, CardContent } from '../../components/common/Card';
 import { Modal } from '../../components/feedback/Modal';
 import { SEO } from '../../components/common/SEO';
@@ -74,12 +75,12 @@ export const CoursesPage: React.FC = () => {
       />
 
       {/* Title */}
-      <div className="space-y-3">
-        <Badge variant="purple" size="md">Career Tracks & Curricula</Badge>
+      <div className="text-center max-w-3xl mx-auto space-y-3">
+        <PageLabel>Career Tracks & Curricula</PageLabel>
         <h1 className="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight">
           Explore Technical Training Programs
         </h1>
-        <p className="text-slate-500 text-sm max-w-2xl">
+        <p className="text-slate-500 text-sm max-w-2xl mx-auto">
           Structured curricula engineered with real-world architectural patterns, production deployment pipelines, and placement support.
         </p>
       </div>

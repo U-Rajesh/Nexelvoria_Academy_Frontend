@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Search, Calendar, User, ArrowRight, Tag, Clock } from 'lucide-react';
-import { Badge } from '../../components/common/Badge';
+import { PageLabel } from '../../components/common/PageLabel';
 import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
 import { SEO } from '../../components/common/SEO';
@@ -36,7 +36,7 @@ export const BlogPage: React.FC = () => {
 
       {/* Header */}
       <div className="text-center max-w-3xl mx-auto space-y-3">
-        <Badge variant="purple" size="md">Engineering Publications</Badge>
+        <PageLabel>Engineering Publications</PageLabel>
         <h1 className="text-4xl font-extrabold text-slate-900 tracking-tight">
           Technical Insights & Career Roadmaps
         </h1>

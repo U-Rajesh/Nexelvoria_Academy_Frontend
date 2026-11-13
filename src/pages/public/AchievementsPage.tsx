@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Trophy, Award } from 'lucide-react';
 import { Badge } from '../../components/common/Badge';
+import { PageLabel } from '../../components/common/PageLabel';
 import { Card } from '../../components/common/Card';
 import { SEO } from '../../components/common/SEO';
 import { cmsService, type AchievementItem } from '../../services/cmsService';
@@ -39,7 +40,7 @@ export const AchievementsPage: React.FC = () => {
 
       {/* Header */}
       <div className="text-center max-w-3xl mx-auto space-y-3">
-        <Badge variant="purple" size="md">Student & Institutional Milestones</Badge>
+        <PageLabel>Student & Institutional Milestones</PageLabel>
         <h1 className="text-4xl font-extrabold text-slate-900 tracking-tight">
           A Proven Track Record of Engineering Excellence
         </h1>

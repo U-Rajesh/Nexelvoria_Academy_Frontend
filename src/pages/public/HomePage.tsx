@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ArrowRight,
@@ -22,10 +22,11 @@ import {
   Send,
   Calendar,
 } from 'lucide-react';
-import { SEED_COURSES, SEED_COMPANIES } from '../../mocks/seedData';
+import { SEED_COURSES } from '../../mocks/seedData';
 import { formatINR, formatDate } from '../../utils/formatters';
 import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
+import { PageLabel } from '../../components/common/PageLabel';
 import { Card, CardContent } from '../../components/common/Card';
 import { Modal } from '../../components/feedback/Modal';
 import { SEO } from '../../components/common/SEO';
@@ -44,6 +45,7 @@ import { ScrollReveal } from '../../components/public/ScrollReveal';
 import { AnimatedStatistic } from '../../components/public/AnimatedStatistic';
 import { HiringPartnersMarquee } from '../../components/public/HiringPartnersMarquee';
 import { TrainerOrbitSection } from '../../components/public/TrainerOrbitSection';
+import { AmbientDarkGlow } from '../../components/public/AnimatedBackgroundLayer';
 
 export const HomePage: React.FC = () => {
   const [homeConfig] = useState<HomePageConfig>(() => cmsService.getHomePageConfig());
@@ -125,15 +127,13 @@ export const HomePage: React.FC = () => {
       {/* 1. Hero Section */}
       {homeConfig.sectionVisibility.hero && (
         <section className="relative overflow-hidden bg-slate-950 text-white pt-16 pb-28 lg:pt-20 lg:pb-32 px-4 sm:px-6 lg:px-8 border-b border-slate-800/80">
+          <AmbientDarkGlow variant="cyan-indigo" />
           <div className="max-w-7xl mx-auto relative z-10 text-center space-y-7">
-            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-900 border border-slate-800 text-slate-300 text-xs font-semibold shadow-xs">
-              <Award className="h-4 w-4 text-amber-400" />
-              <span>{homeConfig.hero.badgeText}</span>
-            </div>
+            <PageLabel theme="dark">{homeConfig.hero.badgeText}</PageLabel>
 
             <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight max-w-4xl mx-auto leading-tight sm:leading-tight text-white">
               {homeConfig.hero.titlePrefix}{' '}
-              <span className="text-indigo-400">
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 via-sky-300 to-indigo-300">
                 {homeConfig.hero.titleHighlight}
               </span>
             </h1>
@@ -151,7 +151,7 @@ export const HomePage: React.FC = () => {
               <Button
                 size="lg"
                 variant="outline"
-                className="bg-slate-900 border-slate-700 text-slate-200 hover:bg-slate-800 hover:text-white"
+                className="bg-slate-900/80 border-slate-700/80 text-slate-200 hover:bg-slate-800 hover:text-white backdrop-blur-xs"
                 onClick={() => setCallbackModalOpen(true)}
               >
                 {homeConfig.hero.ctaSecondaryText || 'Request Free Counseling'}
@@ -161,7 +161,7 @@ export const HomePage: React.FC = () => {
             {/* Key Value Badges */}
             <div className="pt-6 flex flex-wrap items-center justify-center gap-4 sm:gap-8 text-xs sm:text-sm text-slate-300">
               {homeConfig.hero.valueBadges.map((badge, idx) => (
-                <div key={idx} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900/80 border border-slate-800">
+                <div key={idx} className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-slate-900/80 border border-slate-800/90 backdrop-blur-xs">
                   <CheckCircle className="h-4 w-4 text-emerald-400" />
                   <span>{badge}</span>
                 </div>
@@ -174,7 +174,7 @@ export const HomePage: React.FC = () => {
       {/* 2. Key Metrics Bar (Scroll-Triggered Animated Statistics) */}
       {homeConfig.sectionVisibility.statistics && (
         <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 -mt-20 relative z-20">
-          <div className="bg-white rounded-xl shadow-lg border border-slate-200/90 p-6 sm:p-8 grid grid-cols-2 lg:grid-cols-5 gap-6 text-center divide-y sm:divide-y-0 sm:divide-x divide-slate-100">
+          <div className="bg-white rounded-xl shadow-[0_12px_32px_-8px_rgba(15,23,42,0.08),0_2px_4px_rgba(15,23,42,0.02)] border border-slate-200/90 p-6 sm:p-8 grid grid-cols-2 lg:grid-cols-5 gap-6 text-center divide-y sm:divide-y-0 sm:divide-x divide-slate-100">
             {homeConfig.statistics
               .filter((s) => s.isVisible !== false)
               .map((stat, idx) => (
@@ -196,7 +196,7 @@ export const HomePage: React.FC = () => {
         <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
           <ScrollReveal animation="slide-left" className="space-y-6">
-            <Badge variant="purple" size="md">About Nexelvoria Academy</Badge>
+            <PageLabel centered={false} className="mb-2">About Nexelvoria Academy</PageLabel>
             <h2 className="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight leading-tight">
               Bridging the Gap Between Academic Education and Production Engineering
             </h2>
@@ -256,7 +256,7 @@ export const HomePage: React.FC = () => {
         <ScrollReveal animation="fade-up">
           <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
             <div>
-              <Badge variant="purple" size="md" className="mb-2">Flagship Programs</Badge>
+              <PageLabel centered={false} className="mb-2">Flagship Programs</PageLabel>
               <h2 className="text-3xl font-bold text-slate-900 tracking-tight">
                 Industry-Aligned Training Courses
               </h2>
@@ -312,7 +312,7 @@ export const HomePage: React.FC = () => {
 
                   <div className="flex flex-wrap gap-1.5">
                     {course.technologies.slice(0, 4).map((tech) => (
-                      <span key={tech} className="text-[11px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-mono">
+                      <span key={tech} className="text-[11px] bg-slate-100/90 text-slate-700 border border-slate-200/70 px-2 py-0.5 rounded-md font-mono font-medium">
                         {tech}
                       </span>
                     ))}
@@ -345,11 +345,12 @@ export const HomePage: React.FC = () => {
 
       {/* 5. Why Choose Nexelvoria Section */}
       {homeConfig.sectionVisibility.advantage && (
-      <section className="bg-slate-900 text-white py-20 border-y border-slate-800">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
+      <section className="relative overflow-hidden bg-slate-900 text-white py-20 border-y border-slate-800/80">
+        <AmbientDarkGlow variant="indigo-violet" />
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12 relative z-10">
           <ScrollReveal animation="fade-up">
             <div className="text-center max-w-3xl mx-auto space-y-3">
-              <Badge variant="purple" size="md">The Nexelvoria Advantage</Badge>
+              <PageLabel theme="dark">The Nexelvoria Advantage</PageLabel>
               <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight">
                 Why Serious Engineers Choose Nexelvoria
               </h2>
@@ -362,7 +363,7 @@ export const HomePage: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {homeConfig.advantages.map((adv, idx) => (
               <ScrollReveal key={adv.title} animation="scale-in" delay={idx * 80}>
-                <div className="p-6 rounded-xl bg-slate-800/60 border border-slate-700/70 space-y-3.5 hover:border-slate-600 transition-all shadow-xs h-full">
+                <div className="p-6 rounded-xl bg-slate-800/60 backdrop-blur-xs border border-slate-700/60 space-y-3.5 hover:border-indigo-400/50 hover:bg-slate-800/80 transition-all duration-200 shadow-xs h-full">
                   <div className={`h-11 w-11 rounded-lg flex items-center justify-center ${adv.color}`}>
                     {renderAdvantageIcon(adv.iconName)}
                   </div>
@@ -383,7 +384,7 @@ export const HomePage: React.FC = () => {
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
         <ScrollReveal animation="fade-up">
           <div className="text-center max-w-3xl mx-auto space-y-3">
-            <Badge variant="info" size="md">Pedagogical Framework</Badge>
+            <PageLabel>Pedagogical Framework</PageLabel>
             <h2 className="text-3xl font-bold text-slate-900 tracking-tight">
               Our 5-Stage Engineering Methodology
             </h2>
@@ -396,7 +397,7 @@ export const HomePage: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
           {homeConfig.methodology.map((m, idx) => (
             <ScrollReveal key={m.step} animation="fade-up" delay={idx * 100}>
-              <div className="p-6 rounded-2xl bg-white border border-slate-200/90 shadow-xs flex flex-col justify-between space-y-4 hover:shadow-md transition-shadow h-full">
+              <div className="p-6 rounded-2xl bg-white border border-slate-200/90 shadow-xs flex flex-col justify-between space-y-4 hover:shadow-md hover:border-indigo-200/80 transition-all duration-200 h-full">
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="p-2 rounded-xl bg-slate-50 border border-slate-100">
@@ -424,7 +425,7 @@ export const HomePage: React.FC = () => {
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
         <ScrollReveal animation="fade-up">
           <div className="text-center max-w-3xl mx-auto space-y-3">
-            <Badge variant="success" size="md">Placement Network</Badge>
+            <PageLabel>Placement Network</PageLabel>
             <h2 className="text-3xl font-bold text-slate-900 tracking-tight">
               120+ Hiring Partners Actively Recruiting Our Alumni
             </h2>
@@ -450,11 +451,12 @@ export const HomePage: React.FC = () => {
 
       {/* 9. Student Achievements & Milestones */}
       {homeConfig.sectionVisibility.achievements && (
-      <section className="bg-slate-900 text-white py-16 border-y border-slate-800">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-10">
+      <section className="relative overflow-hidden bg-slate-900 text-white py-16 border-y border-slate-800/80">
+        <AmbientDarkGlow variant="cyan-indigo" />
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-10 relative z-10">
           <ScrollReveal animation="fade-up">
             <div className="text-center max-w-2xl mx-auto space-y-3">
-              <Badge variant="purple" size="md" className="bg-slate-800 text-indigo-300 border-slate-700">Student Milestones</Badge>
+              <PageLabel theme="dark">Student Milestones</PageLabel>
               <h2 className="text-3xl font-bold text-white tracking-tight">
                 Exceptional Student Achievements
               </h2>
@@ -467,7 +469,7 @@ export const HomePage: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {achievements.map((ach, idx) => (
               <ScrollReveal key={ach.id} animation="fade-up" delay={idx * 120} className="h-full">
-                <div className="p-6 rounded-xl bg-slate-800/60 border border-slate-700/70 space-y-3 flex flex-col justify-between hover:border-slate-600 transition-all shadow-xs h-full">
+                <div className="p-6 rounded-xl bg-slate-800/60 backdrop-blur-xs border border-slate-700/60 space-y-3 flex flex-col justify-between hover:border-indigo-400/50 hover:bg-slate-800/80 transition-all duration-200 shadow-xs h-full">
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-slate-700/60 text-indigo-300 border border-slate-600/50">
@@ -502,7 +504,7 @@ export const HomePage: React.FC = () => {
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <ScrollReveal animation="slide-left">
-            <Card className="p-8 space-y-4 border-slate-200/90 bg-white shadow-xs hover:shadow-md transition-shadow h-full">
+            <Card className="p-8 space-y-4 border-slate-200/90 bg-white shadow-xs hover:shadow-lg hover:border-indigo-200/80 transition-all duration-200 h-full">
               <div className="h-12 w-12 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center border border-indigo-100">
                 <School className="h-6 w-6" />
               </div>
@@ -521,7 +523,7 @@ export const HomePage: React.FC = () => {
           </ScrollReveal>
 
           <ScrollReveal animation="slide-right">
-            <Card className="p-8 space-y-4 border-slate-200/90 bg-white shadow-xs hover:shadow-md transition-shadow h-full">
+            <Card className="p-8 space-y-4 border-slate-200/90 bg-white shadow-xs hover:shadow-lg hover:border-emerald-200/80 transition-all duration-200 h-full">
               <div className="h-12 w-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center border border-emerald-100">
                 <Building2 className="h-6 w-6" />
               </div>
@@ -548,7 +550,7 @@ export const HomePage: React.FC = () => {
         <ScrollReveal animation="fade-up">
           <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
             <div>
-              <Badge variant="purple" size="md" className="mb-2">Alumni Reviews</Badge>
+              <PageLabel centered={false} className="mb-2">Alumni Reviews</PageLabel>
               <h2 className="text-3xl font-bold text-slate-900 tracking-tight">
                 Real Stories from Our Placed Engineers
               </h2>
@@ -617,7 +619,7 @@ export const HomePage: React.FC = () => {
         <ScrollReveal animation="fade-up">
           <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
             <div>
-              <Badge variant="info" size="md" className="mb-2">Technical Insights</Badge>
+              <PageLabel centered={false} className="mb-2">Technical Insights</PageLabel>
               <h2 className="text-3xl font-bold text-slate-900 tracking-tight">
                 Latest Engineering Articles & Guides
               </h2>
@@ -678,7 +680,7 @@ export const HomePage: React.FC = () => {
       <section className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
         <ScrollReveal animation="fade-up">
           <div className="text-center space-y-3">
-            <Badge variant="purple" size="md">Quick Answers</Badge>
+            <PageLabel>Quick Answers</PageLabel>
             <h2 className="text-3xl font-bold text-slate-900 tracking-tight">
               Frequently Asked Questions
             </h2>
@@ -693,7 +695,7 @@ export const HomePage: React.FC = () => {
             const isOpen = openFaqIdx === idx;
             return (
               <ScrollReveal key={faq.id} animation="fade-up" delay={idx * 60}>
-                <div className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-xs">
+                <div className="rounded-xl border border-slate-200/90 bg-white overflow-hidden shadow-xs hover:border-slate-300 transition-colors">
                   <button
                     onClick={() => setOpenFaqIdx(isOpen ? null : idx)}
                     className="w-full px-6 py-4 flex items-center justify-between text-left hover:bg-slate-50/80 transition-colors cursor-pointer"
@@ -726,9 +728,10 @@ export const HomePage: React.FC = () => {
       {homeConfig.sectionVisibility.leadForm && (
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <ScrollReveal animation="scale-in">
-          <div className="bg-slate-900 rounded-2xl p-8 sm:p-12 text-white shadow-xl border border-slate-800 grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
-            <div className="space-y-6">
-              <Badge variant="purple" size="md" className="bg-slate-800 text-indigo-300 border-slate-700">Free Career Counseling</Badge>
+          <div className="relative overflow-hidden bg-slate-900 rounded-2xl p-8 sm:p-12 text-white shadow-xl border border-slate-800/80 grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+            <AmbientDarkGlow variant="indigo-violet" />
+            <div className="space-y-6 relative z-10">
+              <PageLabel theme="dark" centered={false} className="mb-2">Free Career Counseling</PageLabel>
               <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight leading-tight">
                 Ready to Upgrade Your Software Career?
               </h2>
@@ -751,7 +754,7 @@ export const HomePage: React.FC = () => {
               </div>
             </div>
 
-            <div className="bg-white rounded-2xl p-6 sm:p-8 text-slate-900 shadow-xl">
+            <div className="bg-white rounded-2xl p-6 sm:p-8 text-slate-900 shadow-xl relative z-10">
               <h3 className="text-lg font-bold text-slate-900 mb-1">Send Admissions Enquiry</h3>
               <p className="text-xs text-slate-500 mb-5">We typically respond within 2 to 4 business hours.</p>
 

@@ -26,6 +26,7 @@ import { Badge } from '../../components/common/Badge';
 import { Card } from '../../components/common/Card';
 import { Modal } from '../../components/feedback/Modal';
 import { SEO } from '../../components/common/SEO';
+import { AmbientDarkGlow } from '../../components/public/AnimatedBackgroundLayer';
 import { useAuth } from '../../context/AuthContext';
 import { useNotification } from '../../context/NotificationContext';
 import { cmsService } from '../../services/cmsService';
@@ -103,8 +104,9 @@ export const CourseDetailPage: React.FC = () => {
       />
 
       {/* Course Header Banner */}
-      <section className="bg-slate-900 text-white py-14 px-4 sm:px-6 lg:px-8 border-b border-slate-800">
-        <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-10 items-center">
+      <section className="relative overflow-hidden bg-slate-900 text-white py-14 px-4 sm:px-6 lg:px-8 border-b border-slate-800/80">
+        <AmbientDarkGlow variant="cyan-indigo" />
+        <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-10 items-center relative z-10">
           <div className="lg:col-span-2 space-y-5">
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="purple" size="md">{course.category}</Badge>
@@ -136,7 +138,7 @@ export const CourseDetailPage: React.FC = () => {
           </div>
 
           {/* Pricing & Enrollment Box */}
-          <div className="bg-white rounded-xl p-6 text-slate-900 shadow-xl border border-slate-100 space-y-5">
+          <div className="bg-white rounded-xl p-6 text-slate-900 shadow-xl border border-slate-100 space-y-5 relative z-10">
             <div className="space-y-1">
               <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Total Program Fee</span>
               <div className="flex items-baseline gap-2">

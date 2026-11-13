@@ -336,6 +336,29 @@ export interface ContactInfoConfig {
   };
 }
 
+export type SocialPlatformType =
+  | 'facebook'
+  | 'instagram'
+  | 'linkedin'
+  | 'youtube'
+  | 'twitter'
+  | 'whatsapp'
+  | 'telegram'
+  | 'github'
+  | string;
+
+export interface SocialMediaLink {
+  id: string;
+  platform: SocialPlatformType;
+  platformName?: string;
+  url: string;
+  isEnabled: boolean;
+  showInHeader: boolean;
+  showInFooter: boolean;
+  showInContact: boolean;
+  order?: number;
+}
+
 export interface HeaderFooterConfig {
   logoTitle: string;
   logoSubtitle: string;
@@ -396,6 +419,7 @@ const STORAGE_KEYS = {
   HEADER_FOOTER_CONFIG: 'nexelvoria_cms_header_footer_config',
   SEO_CONFIG: 'nexelvoria_cms_seo_config',
   MEDIA_LIBRARY: 'nexelvoria_cms_media_library',
+  SOCIAL_LINKS: 'nexelvoria_cms_social_links',
 };
 
 // Seed Defaults
@@ -1044,6 +1068,97 @@ const INITIAL_HEADER_FOOTER_CONFIG: HeaderFooterConfig = {
   copyrightText: 'Nexelvoria Academy. All rights reserved. Timezone: Asia/Kolkata.',
 };
 
+export const INITIAL_SOCIAL_LINKS: SocialMediaLink[] = [
+  {
+    id: 'soc-linkedin',
+    platform: 'linkedin',
+    platformName: 'LinkedIn',
+    url: 'https://linkedin.com/company/nexelvoria-academy',
+    isEnabled: true,
+    showInHeader: true,
+    showInFooter: true,
+    showInContact: true,
+    order: 1,
+  },
+  {
+    id: 'soc-github',
+    platform: 'github',
+    platformName: 'GitHub',
+    url: 'https://github.com/nexelvoria-academy',
+    isEnabled: true,
+    showInHeader: true,
+    showInFooter: true,
+    showInContact: true,
+    order: 2,
+  },
+  {
+    id: 'soc-twitter',
+    platform: 'twitter',
+    platformName: 'X (Twitter)',
+    url: 'https://x.com/nexelvoria',
+    isEnabled: true,
+    showInHeader: true,
+    showInFooter: true,
+    showInContact: true,
+    order: 3,
+  },
+  {
+    id: 'soc-youtube',
+    platform: 'youtube',
+    platformName: 'YouTube',
+    url: 'https://youtube.com/@nexelvoria-academy',
+    isEnabled: true,
+    showInHeader: true,
+    showInFooter: true,
+    showInContact: true,
+    order: 4,
+  },
+  {
+    id: 'soc-instagram',
+    platform: 'instagram',
+    platformName: 'Instagram',
+    url: 'https://instagram.com/nexelvoria',
+    isEnabled: true,
+    showInHeader: false,
+    showInFooter: true,
+    showInContact: true,
+    order: 5,
+  },
+  {
+    id: 'soc-facebook',
+    platform: 'facebook',
+    platformName: 'Facebook',
+    url: 'https://facebook.com/nexelvoria',
+    isEnabled: true,
+    showInHeader: false,
+    showInFooter: true,
+    showInContact: true,
+    order: 6,
+  },
+  {
+    id: 'soc-whatsapp',
+    platform: 'whatsapp',
+    platformName: 'WhatsApp',
+    url: 'https://wa.me/919876543210',
+    isEnabled: true,
+    showInHeader: false,
+    showInFooter: true,
+    showInContact: true,
+    order: 7,
+  },
+  {
+    id: 'soc-telegram',
+    platform: 'telegram',
+    platformName: 'Telegram',
+    url: 'https://t.me/nexelvoria',
+    isEnabled: true,
+    showInHeader: false,
+    showInFooter: true,
+    showInContact: true,
+    order: 8,
+  },
+];
+
 const INITIAL_SEO_CONFIG: SEOConfig = {
   defaultTitleSuffix: 'Nexelvoria Academy',
   defaultOgImage: 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=1200&q=80',
@@ -1095,6 +1210,9 @@ class CMSService {
   private setStorageItem<T>(key: string, value: T): void {
     try {
       localStorage.setItem(key, JSON.stringify(value));
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('cms-update', { detail: { key } }));
+      }
     } catch (e) {
       console.warn(`Failed to save to localStorage key "${key}":`, e);
     }
@@ -1342,6 +1460,40 @@ class CMSService {
     this.setStorageItem(STORAGE_KEYS.CONTACT_CONFIG, config);
   }
 
+  // --- 14b. Social Media Channels Configuration ---
+  getSocialMediaLinks(): SocialMediaLink[] {
+    const stored = this.getStorageItem<SocialMediaLink[]>(STORAGE_KEYS.SOCIAL_LINKS, INITIAL_SOCIAL_LINKS);
+    if (!Array.isArray(stored) || stored.length === 0) {
+      return INITIAL_SOCIAL_LINKS;
+    }
+    return stored;
+  }
+
+  saveSocialMediaLinks(links: SocialMediaLink[]): void {
+    this.setStorageItem(STORAGE_KEYS.SOCIAL_LINKS, links);
+    // Backward compatibility: keep contactConfig.socialLinks updated
+    try {
+      const contact = this.getContactInfo();
+      const updatedSocial: Record<string, string> = { ...contact.socialLinks };
+      links.forEach((item) => {
+        if (item.isEnabled && item.url) {
+          if (item.platform === 'linkedin') updatedSocial.linkedin = item.url;
+          if (item.platform === 'github') updatedSocial.github = item.url;
+          if (item.platform === 'twitter' || item.platform === 'x') updatedSocial.twitter = item.url;
+          if (item.platform === 'youtube') updatedSocial.youtube = item.url;
+          if (item.platform === 'instagram') updatedSocial.instagram = item.url;
+        }
+      });
+      contact.socialLinks = updatedSocial;
+      this.setStorageItem(STORAGE_KEYS.CONTACT_CONFIG, contact);
+    } catch {
+      // ignore
+    }
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('cms-social-update', { detail: links }));
+    }
+  }
+
   // --- 15. Header and Footer Configuration ---
   getHeaderFooterConfig(): HeaderFooterConfig {
     return this.getStorageItem<HeaderFooterConfig>(STORAGE_KEYS.HEADER_FOOTER_CONFIG, INITIAL_HEADER_FOOTER_CONFIG);
@@ -1417,8 +1569,14 @@ class CMSService {
     return INITIAL_CORPORATE_TRAINING;
   }
 
+  resetSocialMediaLinks(): SocialMediaLink[] {
+    this.saveSocialMediaLinks(INITIAL_SOCIAL_LINKS);
+    return INITIAL_SOCIAL_LINKS;
+  }
+
   resetContactInfo(): ContactInfoConfig {
     this.saveContactInfo(INITIAL_CONTACT_CONFIG);
+    this.saveSocialMediaLinks(INITIAL_SOCIAL_LINKS);
     return INITIAL_CONTACT_CONFIG;
   }
 

@@ -5,13 +5,13 @@ import {
   Award,
   ArrowRight,
   ExternalLink,
-  Sparkles,
   Compass,
   CheckCircle,
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
 import { useScrollProgress } from '../../hooks/useScrollProgress';
+import { PageLabel } from '../common/PageLabel';
 import { Button } from '../../components/common/Button';
 import { Modal } from '../../components/feedback/Modal';
 import { Linkedin } from '../../components/common/SocialIcons';
@@ -143,17 +143,16 @@ export const TrainerOrbitSection: React.FC<TrainerOrbitSectionProps> = ({
       {/* Sticky Viewport Stage: Pinned while user scrolls through the 3D cover flow */}
       <div className="sticky top-0 h-screen w-full flex flex-col justify-between items-center overflow-hidden py-6 sm:py-8 px-4 sm:px-6 lg:px-8">
         {/* Subtle Ambient Background Gradients */}
-        <div className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center">
-          <div className="h-[480px] w-[480px] sm:h-[720px] sm:w-[720px] rounded-full bg-indigo-600/10 blur-3xl animate-pulse" />
-          <div className="h-[300px] w-[300px] sm:h-[480px] sm:w-[480px] rounded-full bg-emerald-500/10 blur-2xl" />
+        <div className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center overflow-hidden">
+          <div className="h-[480px] w-[480px] sm:h-[720px] sm:w-[720px] rounded-full bg-indigo-600/15 blur-3xl animate-aurora" />
+          <div className="h-[300px] w-[300px] sm:h-[480px] sm:w-[480px] rounded-full bg-cyan-500/10 blur-2xl animate-ambient-2" />
         </div>
 
         {/* Section Header */}
         <div className="relative z-10 text-center max-w-3xl mx-auto space-y-2 pt-2 sm:pt-4">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-900/90 border border-slate-800 text-indigo-400 text-xs font-semibold shadow-xs">
-            <Sparkles className="h-3.5 w-3.5 text-amber-400" />
-            <span>{badgeText}</span>
-          </div>
+          <PageLabel theme="dark">
+            {badgeText}
+          </PageLabel>
 
           <h2 className="text-2xl sm:text-4xl font-extrabold tracking-tight text-white leading-tight">
             {title}
