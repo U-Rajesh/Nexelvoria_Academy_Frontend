@@ -5,11 +5,13 @@ import {
   SEED_BATCHES,
   SEED_ENROLLMENTS,
   SEED_ATTENDANCE_SESSIONS,
+  SEED_ASSIGNMENTS,
   SEED_ASSIGNMENT_SUBMISSIONS,
   SEED_TESTS,
   SEED_TEST_ATTEMPTS,
   SEED_JOBS,
   SEED_APPLICATIONS,
+  SEED_TICKETS,
 } from '../mocks/seedData';
 import { BUSINESS_RULES } from '../constants/businessRules';
 import type {
@@ -18,12 +20,20 @@ import type {
   Enrollment,
   EnrollmentStatus,
   AttendanceSession,
+  Assignment,
   AssignmentSubmission,
   OnlineTest,
   TestAttempt,
+  StudyMaterial,
+  RecordedClassItem,
   CertificateEligibilityCheck,
   JobOpening,
   JobApplication,
+  SupportTicket,
+  TicketCategory,
+  TicketPriority,
+  StudentDoubt,
+  InAppNotification,
   ApiResponse,
   StudentProfile,
 } from '../types';
@@ -379,6 +389,339 @@ export const studentService = {
 
     setStorageItem(STORAGE_KEYS.APPLICATIONS, [newApp, ...applications]);
     return { success: true, data: newApp, message: 'Application submitted successfully.' };
+  },
+
+  /**
+   * Get study materials authorized for student (uploaded by teachers or part of enrolled courses)
+   */
+  async getStudyMaterialsForStudent(studentId: string): Promise<ApiResponse<StudyMaterial[]>> {
+    await sleep(150);
+    const enrollments = getStorageItem<Enrollment[]>(STORAGE_KEYS.ENROLLMENTS, SEED_ENROLLMENTS);
+    const studentEnrs = enrollments.filter((e) => e.studentId === studentId);
+    const enrolledCourseIds = studentEnrs.map((e) => e.courseId);
+    const enrolledBatchIds = studentEnrs.map((e) => e.batchId);
+
+    const uploaded = getStorageItem<StudyMaterial[]>(STORAGE_KEYS.TEACHER_MATERIALS, []);
+    const baseline: StudyMaterial[] = [
+      {
+        id: 'mat-1',
+        courseId: 'course-fsd-01',
+        batchId: 'batch-jfs-01',
+        title: 'Spring Cloud Gateway & Resilience4j Architecture Blueprint',
+        description: 'Comprehensive system diagrams and route configuration templates.',
+        fileType: 'pdf',
+        fileUrl: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
+        fileSizeBytes: 4200000,
+        uploadedByTeacherId: 'user-tch-001',
+        uploadedAt: '2026-10-18T10:00:00Z',
+        isDownloadRestricted: false,
+      },
+      {
+        id: 'mat-2',
+        courseId: 'course-fsd-01',
+        batchId: 'batch-jfs-01',
+        title: 'Kafka Distributed Event Streaming Cheatsheet',
+        description: 'Partition strategies, producer idempotency, and consumer group offset management.',
+        fileType: 'pdf',
+        fileUrl: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
+        fileSizeBytes: 2100000,
+        uploadedByTeacherId: 'user-tch-001',
+        uploadedAt: '2026-10-22T14:30:00Z',
+        isDownloadRestricted: false,
+      },
+    ];
+
+    const all = [...uploaded, ...baseline.filter((b) => !uploaded.some((u) => u.id === b.id))];
+    const filtered = all.filter(
+      (m) =>
+        enrolledCourseIds.includes(m.courseId) ||
+        (m.batchId && enrolledBatchIds.includes(m.batchId))
+    );
+    return { success: true, data: filtered };
+  },
+
+  /**
+   * Get recorded lecture sessions for enrolled student
+   */
+  async getStudentRecordedClasses(studentId: string): Promise<ApiResponse<RecordedClassItem[]>> {
+    await sleep(150);
+    const enrollments = getStorageItem<Enrollment[]>(STORAGE_KEYS.ENROLLMENTS, SEED_ENROLLMENTS);
+    const studentEnrs = enrollments.filter((e) => e.studentId === studentId);
+    const enrolledCourseIds = studentEnrs.map((e) => e.courseId);
+    const enrolledBatchIds = studentEnrs.map((e) => e.batchId);
+
+    const uploaded = getStorageItem<RecordedClassItem[]>(STORAGE_KEYS.TEACHER_RECORDINGS, []);
+    const baseline: RecordedClassItem[] = [
+      {
+        id: 'rec-01',
+        courseId: 'course-fsd-01',
+        batchId: 'batch-jfs-01',
+        title: 'Kafka Event-Driven Architecture Deep Dive',
+        description: 'Live coding producer acknowledgements, consumer groups, and idempotency.',
+        moduleName: 'Module 1: Advanced Java & Microservices',
+        sessionDate: '2026-11-09',
+        durationMinutes: 90,
+        videoUrl: 'https://www.youtube.com/embed/dQw4w9WgXcQ',
+        uploadedByTeacherId: 'user-tch-001',
+        uploadedByTeacherName: 'Dr. Vikram Rao',
+        createdAt: '2026-11-09T10:00:00Z',
+        isAvailableToStudents: true,
+      },
+    ];
+
+    const all = [...uploaded, ...baseline.filter((b) => !uploaded.some((u) => u.id === b.id))];
+    const filtered = all.filter(
+      (r) =>
+        enrolledCourseIds.includes(r.courseId) ||
+        (r.batchId && enrolledBatchIds.includes(r.batchId))
+    );
+    return { success: true, data: filtered };
+  },
+
+  /**
+   * Get assignments and submissions for enrolled student
+   */
+  async getStudentAssignments(studentId: string): Promise<ApiResponse<{ assignments: Assignment[]; submissions: AssignmentSubmission[] }>> {
+    await sleep(150);
+    const enrollments = getStorageItem<Enrollment[]>(STORAGE_KEYS.ENROLLMENTS, SEED_ENROLLMENTS);
+    const studentEnrs = enrollments.filter((e) => e.studentId === studentId);
+    const enrolledCourseIds = studentEnrs.map((e) => e.courseId);
+    const enrolledBatchIds = studentEnrs.map((e) => e.batchId);
+
+    const allAssignments = getStorageItem<Assignment[]>(STORAGE_KEYS.ASSIGNMENTS, SEED_ASSIGNMENTS);
+    const allSubmissions = getStorageItem<AssignmentSubmission[]>(STORAGE_KEYS.SUBMISSIONS, SEED_ASSIGNMENT_SUBMISSIONS);
+
+    const filteredAssignments = allAssignments.filter(
+      (a) =>
+        enrolledCourseIds.includes(a.courseId) ||
+        (a.batchId && enrolledBatchIds.includes(a.batchId))
+    );
+    const mySubmissions = allSubmissions.filter((s) => s.studentId === studentId);
+
+    return { success: true, data: { assignments: filteredAssignments, submissions: mySubmissions } };
+  },
+
+  /**
+   * Get tests and attempts for enrolled student
+   */
+  async getStudentOnlineTests(studentId: string): Promise<ApiResponse<{ tests: OnlineTest[]; attempts: TestAttempt[] }>> {
+    await sleep(150);
+    const enrollments = getStorageItem<Enrollment[]>(STORAGE_KEYS.ENROLLMENTS, SEED_ENROLLMENTS);
+    const studentEnrs = enrollments.filter((e) => e.studentId === studentId);
+    const enrolledCourseIds = studentEnrs.map((e) => e.courseId);
+    const enrolledBatchIds = studentEnrs.map((e) => e.batchId);
+
+    const allTests = getStorageItem<OnlineTest[]>(STORAGE_KEYS.TESTS, SEED_TESTS);
+    const allAttempts = getStorageItem<TestAttempt[]>(STORAGE_KEYS.TEST_ATTEMPTS, SEED_TEST_ATTEMPTS);
+
+    const filteredTests = allTests.filter(
+      (t) =>
+        enrolledCourseIds.includes(t.courseId) ||
+        (t.batchId && enrolledBatchIds.includes(t.batchId))
+    );
+    const myAttempts = allAttempts.filter((a) => a.studentId === studentId);
+
+    return { success: true, data: { tests: filteredTests, attempts: myAttempts } };
+  },
+
+  /**
+   * Support Tickets for Student (CRD 3.14: SUP-001 to SUP-006)
+   */
+  async getStudentTickets(studentId: string): Promise<ApiResponse<SupportTicket[]>> {
+    await sleep(150);
+    const tickets = getStorageItem<SupportTicket[]>(STORAGE_KEYS.TICKETS, SEED_TICKETS);
+    const filtered = tickets.filter((t) => t.studentId === studentId);
+    return { success: true, data: filtered };
+  },
+
+  /**
+   * Create a new Support Ticket (CRD 3.14: SUP-001)
+   */
+  async createTicket(
+    student: { id: string; name: string; email: string },
+    data: { category: TicketCategory; subject: string; message: string; priority?: TicketPriority }
+  ): Promise<ApiResponse<SupportTicket>> {
+    await sleep(250);
+    const tickets = getStorageItem<SupportTicket[]>(STORAGE_KEYS.TICKETS, SEED_TICKETS);
+    const now = new Date().toISOString();
+    const newTicket: SupportTicket = {
+      id: `tkt-${Date.now()}`,
+      ticketNumber: `TKT-${Math.floor(1000 + Math.random() * 9000)}`,
+      studentId: student.id,
+      studentName: student.name,
+      studentEmail: student.email,
+      category: data.category,
+      subject: data.subject,
+      status: 'open',
+      priority: data.priority || 'medium',
+      createdAt: now,
+      updatedAt: now,
+      messages: [
+        {
+          id: `msg-${Date.now()}`,
+          senderId: student.id,
+          senderName: student.name,
+          senderRole: 'student',
+          message: data.message,
+          sentAt: now,
+        },
+      ],
+    };
+
+    const updated = [newTicket, ...tickets];
+    setStorageItem(STORAGE_KEYS.TICKETS, updated);
+    return { success: true, data: newTicket, message: 'Support ticket created successfully.' };
+  },
+
+  /**
+   * Student reply to existing Support Ticket (CRD 3.14: SUP-004)
+   */
+  async replyTicket(
+    student: { id: string; name: string },
+    ticketId: string,
+    message: string
+  ): Promise<ApiResponse<SupportTicket>> {
+    await sleep(200);
+    const tickets = getStorageItem<SupportTicket[]>(STORAGE_KEYS.TICKETS, SEED_TICKETS);
+    const idx = tickets.findIndex((t) => t.id === ticketId);
+    if (idx === -1) return { success: false, data: null as any, error: 'Ticket not found.' };
+
+    const now = new Date().toISOString();
+    const newMsg = {
+      id: `msg-${Date.now()}`,
+      senderId: student.id,
+      senderName: student.name,
+      senderRole: 'student' as const,
+      message,
+      sentAt: now,
+    };
+
+    tickets[idx].messages = [...tickets[idx].messages, newMsg];
+    tickets[idx].updatedAt = now;
+    if (tickets[idx].status === 'resolved' || tickets[idx].status === 'closed') {
+      tickets[idx].status = 'open';
+    }
+
+    setStorageItem(STORAGE_KEYS.TICKETS, tickets);
+    return { success: true, data: tickets[idx], message: 'Reply sent.' };
+  },
+
+  /**
+   * Placement Job Openings (CRD 3.12: PLC-001, BR-013)
+   */
+  async getJobOpenings(): Promise<ApiResponse<JobOpening[]>> {
+    await sleep(150);
+    const jobs = getStorageItem<JobOpening[]>(STORAGE_KEYS.JOBS, SEED_JOBS);
+    return { success: true, data: jobs.filter((j) => j.isActive) };
+  },
+
+  /**
+   * Student Job Applications (CRD 3.12: PLC-007, BR-013)
+   */
+  async getJobApplicationsForStudent(studentId: string): Promise<ApiResponse<JobApplication[]>> {
+    await sleep(150);
+    const applications = getStorageItem<JobApplication[]>(STORAGE_KEYS.APPLICATIONS, SEED_APPLICATIONS);
+    const studentApps = applications.filter((a) => a.studentId === studentId);
+    return { success: true, data: studentApps };
+  },
+
+  /**
+   * Course Doubts for LMS Viewer (CRD 3.7: LMS-008, 3.5: TCH area 16)
+   */
+  async getCourseDoubts(courseId: string): Promise<ApiResponse<StudentDoubt[]>> {
+    await sleep(150);
+    const defaultDoubts: StudentDoubt[] = [
+      {
+        id: 'dbt-1',
+        studentId: 'user-stu-001',
+        studentName: 'Rohan Sharma',
+        studentAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80',
+        courseId: 'course-fsd-01',
+        batchId: 'batch-jfs-01',
+        batchName: 'Oct 2026 Morning Cohort',
+        title: 'How does Resilience4j RateLimiter behave under high thread contention?',
+        description: 'When testing with JMeter at 500 concurrent users, I noticed RequestNotPermitted exceptions even before limitForPeriod was hit. Could this be related to timeoutDuration?',
+        codeSnippet: '@RateLimiter(name = "backendA", fallbackMethod = "fallback")\npublic String doSomething() {\n    return restTemplate.getForObject(...);\n}',
+        status: 'open',
+        createdAt: '2026-11-09T14:20:00Z',
+        replies: [],
+      },
+    ];
+    const doubts = getStorageItem<StudentDoubt[]>(STORAGE_KEYS.TEACHER_DOUBTS, defaultDoubts);
+    const filtered = doubts.filter((d) => !d.courseId || d.courseId === courseId);
+    return { success: true, data: filtered };
+  },
+
+  /**
+   * Post a new Doubt during Lesson (CRD 3.7: LMS-008)
+   */
+  async postLessonDoubt(
+    student: { id: string; name: string; avatar?: string },
+    data: {
+      courseId: string;
+      batchId?: string;
+      batchName?: string;
+      title: string;
+      description: string;
+      codeSnippet?: string;
+    }
+  ): Promise<ApiResponse<StudentDoubt>> {
+    await sleep(250);
+    const defaultDoubts: StudentDoubt[] = [
+      {
+        id: 'dbt-1',
+        studentId: 'user-stu-001',
+        studentName: 'Rohan Sharma',
+        studentAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80',
+        courseId: 'course-fsd-01',
+        batchId: 'batch-jfs-01',
+        batchName: 'Oct 2026 Morning Cohort',
+        title: 'How does Resilience4j RateLimiter behave under high thread contention?',
+        description: 'When testing with JMeter at 500 concurrent users, I noticed RequestNotPermitted exceptions even before limitForPeriod was hit. Could this be related to timeoutDuration?',
+        codeSnippet: '@RateLimiter(name = "backendA", fallbackMethod = "fallback")\npublic String doSomething() {\n    return restTemplate.getForObject(...);\n}',
+        status: 'open',
+        createdAt: '2026-11-09T14:20:00Z',
+        replies: [],
+      },
+    ];
+    const doubts = getStorageItem<StudentDoubt[]>(STORAGE_KEYS.TEACHER_DOUBTS, defaultDoubts);
+    const newDoubt: StudentDoubt = {
+      id: `dbt-${Date.now()}`,
+      studentId: student.id,
+      studentName: student.name,
+      studentAvatar: student.avatar,
+      courseId: data.courseId,
+      batchId: data.batchId || 'batch-all',
+      batchName: data.batchName || 'General',
+      title: data.title,
+      description: data.description,
+      codeSnippet: data.codeSnippet,
+      status: 'open',
+      createdAt: new Date().toISOString(),
+      replies: [],
+    };
+
+    const updated = [newDoubt, ...doubts];
+    setStorageItem(STORAGE_KEYS.TEACHER_DOUBTS, updated);
+    return { success: true, data: newDoubt, message: 'Doubt submitted successfully.' };
+  },
+
+  /**
+   * Get In-App Notifications for Student (CRD 3.13: COM-001 to COM-010)
+   * Merges personal notifications with institutional broadcasts from Admin
+   */
+  async getNotificationsForStudent(studentId: string): Promise<ApiResponse<InAppNotification[]>> {
+    await sleep(150);
+    const broadcasts = getStorageItem<InAppNotification[]>(STORAGE_KEYS.NOTIFICATIONS, []);
+    const studentBroadcasts = broadcasts.filter(
+      (n) =>
+        n.userId === 'all' ||
+        n.userId === studentId ||
+        n.userId === 'students' ||
+        n.targetRole === 'all' ||
+        n.targetRole === 'student'
+    );
+    return { success: true, data: studentBroadcasts };
   },
 };
 

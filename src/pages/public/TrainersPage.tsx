@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Star, Award, ExternalLink, Users, CheckCircle2, ShieldCheck, Sparkles } from 'lucide-react';
 import { Linkedin } from '../../components/common/SocialIcons';
 import { PageLabel } from '../../components/common/PageLabel';
@@ -11,8 +11,22 @@ import { ScrollReveal } from '../../components/public/ScrollReveal';
 import { TrainerOrbitSection } from '../../components/public/TrainerOrbitSection';
 
 export const TrainersPage: React.FC = () => {
-  const [trainers] = useState<TrainerProfile[]>(() => cmsService.getTrainers());
+  const [trainers, setTrainers] = useState<TrainerProfile[]>(() =>
+    cmsService.getTrainers().filter((t) => t.isActive !== false)
+  );
   const [selectedTrainer, setSelectedTrainer] = useState<TrainerProfile | null>(null);
+
+  useEffect(() => {
+    const syncTrainers = () => {
+      setTrainers(cmsService.getTrainers().filter((t) => t.isActive !== false));
+    };
+    window.addEventListener('cms-update', syncTrainers);
+    window.addEventListener('storage', syncTrainers);
+    return () => {
+      window.removeEventListener('cms-update', syncTrainers);
+      window.removeEventListener('storage', syncTrainers);
+    };
+  }, []);
 
   return (
     <div className="space-y-16 pb-16">

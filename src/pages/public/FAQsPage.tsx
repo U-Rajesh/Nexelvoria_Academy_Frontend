@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { ChevronDown, Search, HelpCircle, ArrowRight, MessageCircle } from 'lucide-react';
 import { PageLabel } from '../../components/common/PageLabel';
@@ -7,10 +7,24 @@ import { SEO } from '../../components/common/SEO';
 import { cmsService, type FAQItem } from '../../services/cmsService';
 
 export const FAQsPage: React.FC = () => {
-  const [faqs] = useState<FAQItem[]>(() => cmsService.getFAQs());
+  const [faqs, setFaqs] = useState<FAQItem[]>(() =>
+    cmsService.getFAQs().filter((f) => f.isActive !== false)
+  );
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [openIds, setOpenIds] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    const syncFaqs = () => {
+      setFaqs(cmsService.getFAQs().filter((f) => f.isActive !== false));
+    };
+    window.addEventListener('cms-update', syncFaqs);
+    window.addEventListener('storage', syncFaqs);
+    return () => {
+      window.removeEventListener('cms-update', syncFaqs);
+      window.removeEventListener('storage', syncFaqs);
+    };
+  }, []);
 
   const categories = ['All', 'Admissions', 'Fees & Payments', 'LMS & Attendance', 'Certificates', 'Placements'];
 

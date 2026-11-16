@@ -7,9 +7,21 @@ interface HiringPartnersMarqueeProps {
   theme?: 'light' | 'dark';
 }
 
-const speedToDuration = (speed: 'slow' | 'normal' | 'fast'): string => {
-  if (speed === 'slow') return '45s';
-  if (speed === 'fast') return '18s';
+const speedToDuration = (
+  speed?: 'slow' | 'normal' | 'fast' | string,
+  durationSeconds?: number
+): string => {
+  if (typeof durationSeconds === 'number' && durationSeconds > 0) {
+    return `${durationSeconds}s`;
+  }
+  if (typeof speed === 'number') return `${speed}s`;
+  if (typeof speed === 'string') {
+    if (speed.endsWith('s')) return speed;
+    if (!isNaN(Number(speed)) && speed.trim() !== '') return `${speed}s`;
+    if (speed === 'slow') return '45s';
+    if (speed === 'fast') return '18s';
+    if (speed === 'normal') return '30s';
+  }
   return '30s';
 };
 
@@ -37,7 +49,13 @@ const MarqueeRow: React.FC<MarqueeRowProps> = ({
   const items = [...companies, ...companies, ...companies];
 
   return (
-    <div className={`flex w-fit ${animationClass} ${pauseClass}`} style={{ animationDuration: duration }}>
+    <div
+      className={`flex w-fit ${animationClass} ${pauseClass}`}
+      style={{
+        animationDuration: duration,
+        WebkitAnimationDuration: duration,
+      }}
+    >
       {items.map((comp, idx) => {
         const showLogo = !!comp.logoUrl && !failedLogos.has(comp.id);
         return (
@@ -77,9 +95,16 @@ export const HiringPartnersMarquee: React.FC<HiringPartnersMarqueeProps> = ({
   className = '',
   theme = 'light',
 }) => {
+  const getSortedVisiblePartners = () => {
+    return cmsService
+      .getHiringPartners()
+      .filter((c) => c.isActive !== false && c.isVisible !== false)
+      .sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
+  };
+
   const [partnerCompanies, setPartnerCompanies] = useState<HiringPartnerCompany[]>(() => {
     if (initialCompanies && initialCompanies.length > 0) return initialCompanies;
-    return cmsService.getHiringPartners().filter((c) => c.isVisible !== false);
+    return getSortedVisiblePartners();
   });
 
   const [marqueeConfig, setMarqueeConfig] = useState<MarqueeAnimationConfig>(() =>
@@ -87,10 +112,22 @@ export const HiringPartnersMarquee: React.FC<HiringPartnersMarqueeProps> = ({
   );
 
   useEffect(() => {
-    if (!initialCompanies) {
-      setPartnerCompanies(cmsService.getHiringPartners().filter((c) => c.isVisible !== false));
+    const syncMarquee = () => {
+      if (!initialCompanies) {
+        setPartnerCompanies(getSortedVisiblePartners());
+      }
       setMarqueeConfig(cmsService.getMarqueeConfig());
-    }
+    };
+
+    syncMarquee();
+
+    window.addEventListener('cms-update', syncMarquee);
+    window.addEventListener('storage', syncMarquee);
+
+    return () => {
+      window.removeEventListener('cms-update', syncMarquee);
+      window.removeEventListener('storage', syncMarquee);
+    };
   }, [initialCompanies]);
 
   if (!marqueeConfig.isEnabled || partnerCompanies.length === 0) {
@@ -120,11 +157,19 @@ export const HiringPartnersMarquee: React.FC<HiringPartnersMarqueeProps> = ({
       ? 'from-transparent to-slate-900'
       : 'from-transparent via-slate-50/80 to-slate-50';
 
+  const effectiveSpeedRow1 = marqueeConfig.row1Speed || marqueeConfig.speed || 'normal';
+  const effectiveSpeedRow2 = marqueeConfig.row2Speed || marqueeConfig.speed || 'normal';
+  const effectiveDirRow1 = marqueeConfig.row1Direction || marqueeConfig.directionRow1 || 'left';
+  const effectiveDirRow2 = marqueeConfig.row2Direction || marqueeConfig.directionRow2 || 'right';
+
   const row1AnimationClass =
-    marqueeConfig.row1Direction === 'right' ? 'animate-marquee-right' : 'animate-marquee-left';
+    effectiveDirRow1 === 'right' ? 'animate-marquee-right' : 'animate-marquee-left';
 
   const row2AnimationClass =
-    marqueeConfig.row2Direction === 'left' ? 'animate-marquee-left' : 'animate-marquee-right';
+    effectiveDirRow2 === 'left' ? 'animate-marquee-left' : 'animate-marquee-right';
+
+  const row1Duration = speedToDuration(effectiveSpeedRow1, marqueeConfig.durationSeconds);
+  const row2Duration = speedToDuration(effectiveSpeedRow2, marqueeConfig.durationSeconds);
 
   // Hovering anywhere over the marquee pauses both rows.
   const pauseClass = marqueeConfig.pauseOnHover ? 'group-hover:[animation-play-state:paused]' : '';
@@ -143,7 +188,7 @@ export const HiringPartnersMarquee: React.FC<HiringPartnersMarqueeProps> = ({
         companies={row1Companies}
         rowKey="r1"
         animationClass={row1AnimationClass}
-        duration={speedToDuration(marqueeConfig.row1Speed || 'normal')}
+        duration={row1Duration}
         pauseClass={pauseClass}
         cardBorder={cardBorder}
       />
@@ -153,7 +198,7 @@ export const HiringPartnersMarquee: React.FC<HiringPartnersMarqueeProps> = ({
           companies={row2Companies}
           rowKey="r2"
           animationClass={row2AnimationClass}
-          duration={speedToDuration(marqueeConfig.row2Speed || 'normal')}
+          duration={row2Duration}
           pauseClass={pauseClass}
           cardBorder={cardBorder}
         />

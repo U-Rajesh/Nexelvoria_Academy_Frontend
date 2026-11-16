@@ -12,6 +12,8 @@ import {
   Calendar,
 } from 'lucide-react';
 import { adminService } from '../../services/adminService';
+import { STORAGE_KEYS } from '../../constants/appConfig';
+import { useStorageSync } from '../../hooks/useStorageSync';
 import { formatDate } from '../../utils/formatters';
 import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
@@ -45,6 +47,8 @@ export const AdminAssignmentPage: React.FC = () => {
   useEffect(() => {
     loadData();
   }, []);
+
+  useStorageSync([STORAGE_KEYS.ASSIGNMENTS, STORAGE_KEYS.SUBMISSIONS], loadData);
 
   const columns: Column<Assignment>[] = [
     {

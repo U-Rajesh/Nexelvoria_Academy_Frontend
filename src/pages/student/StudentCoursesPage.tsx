@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import {
   BookOpen,
@@ -16,6 +16,8 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { studentService } from '../../services/studentService';
+import { STORAGE_KEYS } from '../../constants/appConfig';
+import { useStorageSync } from '../../hooks/useStorageSync';
 import type { Course, Enrollment, Batch } from '../../types';
 import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
@@ -30,7 +32,7 @@ export const StudentCoursesPage: React.FC = () => {
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
+  const loadEnrollments = useCallback(() => {
     if (!user) return;
     studentService.getStudentEnrollments(user.id).then((res) => {
       if (res.success) {
@@ -39,6 +41,12 @@ export const StudentCoursesPage: React.FC = () => {
       setIsLoading(false);
     });
   }, [user]);
+
+  useEffect(() => {
+    loadEnrollments();
+  }, [loadEnrollments]);
+
+  useStorageSync([STORAGE_KEYS.COURSES, STORAGE_KEYS.ENROLLMENTS, STORAGE_KEYS.BATCHES], loadEnrollments);
 
   const handleOpenCourseDetail = (item: { enrollment: Enrollment; course: Course; batch?: Batch }) => {
     setSelectedCourseDetail(item);

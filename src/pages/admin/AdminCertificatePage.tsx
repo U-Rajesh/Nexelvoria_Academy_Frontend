@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { Award, ShieldCheck, XCircle, Search, ExternalLink, Plus, CheckCircle, FileText } from 'lucide-react';
 import { getStorageItem, setStorageItem } from '../../utils/storage';
 import { STORAGE_KEYS } from '../../constants/appConfig';
+import { useStorageSync } from '../../hooks/useStorageSync';
 import { SEED_COURSES, SEED_USERS } from '../../mocks/seedData';
 import { adminService } from '../../services/adminService';
 import { useAuth } from '../../context/AuthContext';
@@ -12,14 +13,20 @@ import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
 import { DataTable, type Column } from '../../components/tables/DataTable';
 import { Modal } from '../../components/feedback/Modal';
-import type { CertificateRecord } from '../../types';
+import type { CertificateRecord, Course } from '../../types';
 
 export const AdminCertificatePage: React.FC = () => {
   const { user } = useAuth();
   const { showToast } = useNotification();
-  const [certificates, setCertificates] = useState<CertificateRecord[]>(
+  const [certificates, setCertificates] = useState<CertificateRecord[]>(() =>
     getStorageItem<CertificateRecord[]>(STORAGE_KEYS.CERTIFICATES, [])
   );
+
+  const loadCertificates = useCallback(() => {
+    setCertificates(getStorageItem<CertificateRecord[]>(STORAGE_KEYS.CERTIFICATES, []));
+  }, []);
+
+  useStorageSync([STORAGE_KEYS.CERTIFICATES, STORAGE_KEYS.STUDENTS], loadCertificates);
 
   const [revokingCert, setRevokingCert] = useState<CertificateRecord | null>(null);
   const [revokeReason, setRevokeReason] = useState('');
@@ -39,7 +46,8 @@ export const AdminCertificatePage: React.FC = () => {
   });
 
   const handleCourseChange = (courseId: string) => {
-    const selectedCourse = SEED_COURSES.find((c) => c.id === courseId);
+    const allCourses = getStorageItem<Course[]>(STORAGE_KEYS.COURSES, SEED_COURSES);
+    const selectedCourse = allCourses.find((c) => c.id === courseId);
     setIssueForm((prev) => ({
       ...prev,
       courseId,

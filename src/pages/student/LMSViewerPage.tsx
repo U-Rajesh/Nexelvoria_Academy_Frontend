@@ -20,21 +20,34 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { SEED_COURSES } from '../../mocks/seedData';
+import { STORAGE_KEYS } from '../../constants/appConfig';
+import { getStorageItem } from '../../utils/storage';
+import { useStorageSync } from '../../hooks/useStorageSync';
 import { studentService } from '../../services/studentService';
 import { useAuth } from '../../context/AuthContext';
 import { useNotification } from '../../context/NotificationContext';
 import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
 import { Card } from '../../components/common/Card';
-import { formatINR } from '../../utils/formatters';
-import type { Lesson, CourseModule, Chapter, StudentProfile } from '../../types';
+import { formatINR, formatDate } from '../../utils/formatters';
+import type { Course, Lesson, CourseModule, Chapter, StudentProfile, StudentDoubt } from '../../types';
 
 export const LMSViewerPage: React.FC = () => {
   const { courseId } = useParams<{ courseId: string }>();
   const { user } = useAuth();
   const { showToast } = useNotification();
 
-  const course = SEED_COURSES.find((c) => c.id === courseId || c.slug === courseId) || SEED_COURSES[0];
+  const [courses, setCourses] = useState<Course[]>(() =>
+    getStorageItem<Course[]>(STORAGE_KEYS.COURSES, SEED_COURSES)
+  );
+
+  const loadCourses = React.useCallback(() => {
+    setCourses(getStorageItem<Course[]>(STORAGE_KEYS.COURSES, SEED_COURSES));
+  }, []);
+
+  useStorageSync(STORAGE_KEYS.COURSES, loadCourses);
+
+  const course = courses.find((c) => c.id === courseId || c.slug === courseId) || courses[0] || SEED_COURSES[0];
 
   const student = user as (StudentProfile | null);
   const isApproved = student?.adminApprovalStatus === 'approved';
@@ -51,11 +64,22 @@ export const LMSViewerPage: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [openModuleIds, setOpenModuleIds] = useState<string[]>([course.modules[0]?.id]);
 
-  // Doubt submission state
+  // Doubt submission and forum state (LMS-008)
   const [doubtText, setDoubtText] = useState('');
-  const [doubts, setDoubts] = useState<string[]>([
-    'Dr. Vikram: Remember to run Java 21 with preview flags if you are experimenting with scoped values on earlier builds.',
-  ]);
+  const [courseDoubts, setCourseDoubts] = useState<StudentDoubt[]>([]);
+  const [isSubmittingDoubt, setIsSubmittingDoubt] = useState(false);
+
+  const loadCourseDoubts = React.useCallback(async () => {
+    if (!course) return;
+    const res = await studentService.getCourseDoubts(course.id);
+    if (res.success) setCourseDoubts(res.data);
+  }, [course]);
+
+  useEffect(() => {
+    loadCourseDoubts();
+  }, [loadCourseDoubts]);
+
+  useStorageSync(STORAGE_KEYS.TEACHER_DOUBTS, loadCourseDoubts);
 
   // Flatten all lessons in sequential order for LMS-004 progression enforcement
   const allCourseLessons: Lesson[] = course.modules.flatMap((m) =>
@@ -149,16 +173,28 @@ export const LMSViewerPage: React.FC = () => {
     }
   };
 
-  const handlePostDoubt = (e: React.FormEvent) => {
+  const handlePostDoubt = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!doubtText.trim() || !isEnrolled) return;
-    setDoubts((prev) => [...prev, `${user?.name || 'Student'}: ${doubtText}`]);
-    setDoubtText('');
-    showToast({
-      type: 'success',
-      title: 'Question Submitted',
-      message: 'Your doubt has been forwarded to Dr. Vikram Rao for review.',
-    });
+    if (!doubtText.trim() || !isEnrolled || !user) return;
+    setIsSubmittingDoubt(true);
+    const res = await studentService.postLessonDoubt(
+      { id: user.id, name: user.name, avatar: (user as any)?.avatarUrl },
+      {
+        courseId: course.id,
+        title: `Question on Lesson: ${currentLesson.title}`,
+        description: doubtText.trim(),
+      }
+    );
+    setIsSubmittingDoubt(false);
+    if (res.success && res.data) {
+      setDoubtText('');
+      setCourseDoubts((prev) => [res.data, ...prev.filter((d) => d.id !== res.data.id)]);
+      showToast({
+        type: 'success',
+        title: 'Question Submitted (LMS-008)',
+        message: 'Your doubt has been forwarded to faculty for review.',
+      });
+    }
   };
 
   return (
@@ -454,7 +490,7 @@ export const LMSViewerPage: React.FC = () => {
               <div className="max-w-3xl mx-auto space-y-4">
                 <div className="p-4 bg-slate-950 rounded-2xl border border-slate-800 space-y-3">
                   <h4 className="text-xs font-bold text-white uppercase tracking-wider">
-                    Ask a Question for this Lesson
+                    Ask a Question for this Lesson (LMS-008)
                   </h4>
                   <form onSubmit={handlePostDoubt} className="space-y-3">
                     <textarea
@@ -464,19 +500,75 @@ export const LMSViewerPage: React.FC = () => {
                       placeholder="Type your technical query or code doubt here..."
                       className="w-full p-3 text-xs bg-slate-900 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     />
-                    <Button variant="primary" size="sm" type="submit" rightIcon={<MessageSquare className="h-4 w-4" />}>
-                      Post Doubt
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      type="submit"
+                      isLoading={isSubmittingDoubt}
+                      rightIcon={<MessageSquare className="h-4 w-4" />}
+                    >
+                      Post Doubt to Faculty
                     </Button>
                   </form>
                 </div>
 
                 {/* Doubt Thread */}
-                <div className="space-y-2">
-                  {doubts.map((d, i) => (
-                    <div key={i} className="p-3 bg-slate-950 rounded-xl border border-slate-800 text-xs text-slate-300">
-                      {d}
+                <div className="space-y-3">
+                  {courseDoubts.length === 0 ? (
+                    <div className="text-center py-8 text-xs text-slate-500">
+                      No doubts posted for this course yet. Use the form above to ask faculty a question.
                     </div>
-                  ))}
+                  ) : (
+                    courseDoubts.map((d) => (
+                      <div key={d.id} className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-3">
+                        <div className="flex items-center justify-between text-xs">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-white">{d.studentName}</span>
+                            <span className="text-[11px] text-slate-500">• {formatDate(d.createdAt)}</span>
+                          </div>
+                          <Badge
+                            variant={d.status === 'resolved' ? 'success' : d.status === 'answered' ? 'info' : 'warning'}
+                            size="sm"
+                          >
+                            {d.status.toUpperCase()}
+                          </Badge>
+                        </div>
+
+                        <div className="space-y-1">
+                          <h5 className="text-xs font-bold text-indigo-300">{d.title}</h5>
+                          <p className="text-xs text-slate-300 leading-relaxed">{d.description}</p>
+                          {d.codeSnippet && (
+                            <pre className="p-2.5 bg-slate-900 rounded-lg text-[11px] font-mono text-emerald-400 overflow-x-auto border border-slate-800">
+                              {d.codeSnippet}
+                            </pre>
+                          )}
+                        </div>
+
+                        {/* Faculty Replies */}
+                        {d.replies && d.replies.length > 0 && (
+                          <div className="pt-2 border-t border-slate-800/80 space-y-2">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-teal-400 block">
+                              Faculty Answers ({d.replies.length})
+                            </span>
+                            {d.replies.map((rep) => (
+                              <div key={rep.id} className="p-3 bg-teal-950/40 border border-teal-900/40 rounded-lg text-xs space-y-1">
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-bold text-teal-300">{rep.authorName}</span>
+                                    <span className="text-[10px] uppercase font-bold px-1.5 py-0.2 bg-teal-900/60 text-teal-300 rounded">
+                                      Instructor
+                                    </span>
+                                  </div>
+                                  <span className="text-[10px] text-teal-400/70">{formatDate(rep.createdAt)}</span>
+                                </div>
+                                <p className="text-slate-200 leading-relaxed text-[11px]">{rep.message}</p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             )}

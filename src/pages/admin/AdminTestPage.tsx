@@ -13,6 +13,8 @@ import {
   Award,
 } from 'lucide-react';
 import { adminService } from '../../services/adminService';
+import { STORAGE_KEYS } from '../../constants/appConfig';
+import { useStorageSync } from '../../hooks/useStorageSync';
 import { useAuth } from '../../context/AuthContext';
 import { useNotification } from '../../context/NotificationContext';
 import { formatDate } from '../../utils/formatters';
@@ -54,6 +56,8 @@ export const AdminTestPage: React.FC = () => {
   useEffect(() => {
     loadData();
   }, []);
+
+  useStorageSync([STORAGE_KEYS.TESTS, STORAGE_KEYS.TEST_ATTEMPTS], loadData);
 
   const handleAuthorizeRetake = async (e: React.FormEvent) => {
     e.preventDefault();

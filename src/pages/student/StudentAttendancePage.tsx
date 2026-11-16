@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { CheckSquare, Calendar, AlertTriangle, CheckCircle2, XCircle, Clock } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { studentService } from '../../services/studentService';
+import { STORAGE_KEYS } from '../../constants/appConfig';
+import { useStorageSync } from '../../hooks/useStorageSync';
 import { BUSINESS_RULES } from '../../constants/businessRules';
 import { formatDate } from '../../utils/formatters';
 import { Badge } from '../../components/common/Badge';
@@ -26,12 +28,18 @@ export const StudentAttendancePage: React.FC = () => {
     sessions: AttendanceRow[];
   } | null>(null);
 
-  useEffect(() => {
+  const loadAttendance = useCallback(() => {
     if (!user) return;
     studentService.getStudentAttendance(user.id).then((res) => {
       if (res.success) setData(res.data);
     });
   }, [user]);
+
+  useEffect(() => {
+    loadAttendance();
+  }, [loadAttendance]);
+
+  useStorageSync(STORAGE_KEYS.ATTENDANCE, loadAttendance);
 
   const percentage = data ? data.percentage : 84;
   const isEligible = percentage >= BUSINESS_RULES.MIN_ATTENDANCE_FOR_CERTIFICATE;

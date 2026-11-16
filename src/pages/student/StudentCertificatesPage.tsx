@@ -19,18 +19,22 @@ import { formatDate } from '../../utils/formatters';
 import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
 import { Card, CardContent } from '../../components/common/Card';
-import type { CertificateRecord, CertificateEligibilityCheck } from '../../types';
+import { STORAGE_KEYS } from '../../constants/appConfig';
+import { getStorageItem } from '../../utils/storage';
+import { useStorageSync } from '../../hooks/useStorageSync';
+import type { Course, CertificateRecord, CertificateEligibilityCheck } from '../../types';
 
 export const StudentCertificatesPage: React.FC = () => {
   const { user } = useAuth();
   const { showToast } = useNotification();
-  const course = SEED_COURSES[0];
+  const courses = getStorageItem<Course[]>(STORAGE_KEYS.COURSES, SEED_COURSES);
+  const course = courses[0] || SEED_COURSES[0];
 
   const [eligibility, setEligibility] = useState<CertificateEligibilityCheck | null>(null);
   const [certificates, setCertificates] = useState<CertificateRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
+  const loadCertificateData = React.useCallback(() => {
     if (!user) return;
     Promise.all([
       studentService.checkCertificateEligibility(user.id, course.id),
@@ -40,7 +44,13 @@ export const StudentCertificatesPage: React.FC = () => {
       if (certRes.success) setCertificates(certRes.data);
       setIsLoading(false);
     });
-  }, [user]);
+  }, [user, course.id]);
+
+  useEffect(() => {
+    loadCertificateData();
+  }, [loadCertificateData]);
+
+  useStorageSync([STORAGE_KEYS.CERTIFICATES, STORAGE_KEYS.ATTENDANCE, STORAGE_KEYS.TEST_ATTEMPTS], loadCertificateData);
 
   const activeCert = certificates[0];
 

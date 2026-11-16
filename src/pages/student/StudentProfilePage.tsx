@@ -27,6 +27,7 @@ import { Badge } from '../../components/common/Badge';
 import { Card } from '../../components/common/Card';
 import { PasswordStrengthIndicator } from '../../components/auth/PasswordStrengthIndicator';
 import { getStorageItem, setStorageItem } from '../../utils/storage';
+import { STORAGE_KEYS } from '../../constants/appConfig';
 
 interface StudentProfileFormData {
   mobile: string;
@@ -37,7 +38,7 @@ interface StudentProfileFormData {
 }
 
 export const StudentProfilePage: React.FC = () => {
-  const { user } = useAuth();
+  const { user, refreshCurrentUser } = useAuth();
   const { showToast } = useNotification();
   const storageKey = `nex_student_profile_${user?.id || 'default'}`;
 
@@ -113,8 +114,46 @@ export const StudentProfilePage: React.FC = () => {
 
     setIsSubmitting(true);
     setTimeout(() => {
+      // 1. Update local student profile storage
       setStorageItem(storageKey, formData);
       setInitialData(formData);
+
+      // 2. Synchronize with global students roster (STORAGE_KEYS.STUDENTS) so Admin Panel (/admin/students) reflects updates
+      if (user?.id) {
+        const students = getStorageItem<any[]>(STORAGE_KEYS.STUDENTS, []);
+        const idx = students.findIndex((s) => s.id === user.id);
+        if (idx !== -1) {
+          students[idx] = {
+            ...students[idx],
+            mobile: formData.mobile,
+            guardianPhone: formData.guardianPhone,
+            fullAddress: formData.fullAddress,
+            address: formData.fullAddress,
+            linkedInUrl: formData.linkedInUrl,
+            githubUrl: formData.githubUrl,
+          };
+          setStorageItem(STORAGE_KEYS.STUDENTS, students);
+        }
+
+        // 3. Synchronize CURRENT_USER session
+        const currentStored = getStorageItem<any>(STORAGE_KEYS.CURRENT_USER, null);
+        if (currentStored && currentStored.id === user.id) {
+          const updatedUser = {
+            ...currentStored,
+            mobile: formData.mobile,
+            guardianPhone: formData.guardianPhone,
+            fullAddress: formData.fullAddress,
+            address: formData.fullAddress,
+            linkedInUrl: formData.linkedInUrl,
+            githubUrl: formData.githubUrl,
+          };
+          setStorageItem(STORAGE_KEYS.CURRENT_USER, updatedUser);
+        }
+        if (refreshCurrentUser) {
+          refreshCurrentUser();
+        }
+      }
+
       setIsSubmitting(false);
       showToast({
         type: 'success',

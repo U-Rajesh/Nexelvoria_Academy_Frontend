@@ -8,6 +8,8 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { adminService } from '../../services/adminService';
+import { STORAGE_KEYS } from '../../constants/appConfig';
+import { useStorageSync } from '../../hooks/useStorageSync';
 import { useAuth } from '../../context/AuthContext';
 import { useNotification } from '../../context/NotificationContext';
 import { formatINR } from '../../utils/formatters';
@@ -59,6 +61,8 @@ export const AdminCourseListPage: React.FC = () => {
   useEffect(() => {
     loadCourses();
   }, []);
+
+  useStorageSync(STORAGE_KEYS.COURSES, loadCourses);
 
   const handleOpenCreate = () => {
     setEditingCourse(null);

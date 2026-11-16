@@ -23,6 +23,8 @@ import { Badge } from '../../components/common/Badge';
 import { DataTable, type Column } from '../../components/tables/DataTable';
 import { Modal } from '../../components/feedback/Modal';
 import { Card } from '../../components/common/Card';
+import { useStorageSync } from '../../hooks/useStorageSync';
+import { STORAGE_KEYS } from '../../constants/appConfig';
 import type { HiringCompany, JobOpening, JobApplication, Course } from '../../types';
 
 export const AdminPlacementPage: React.FC = () => {
@@ -84,6 +86,8 @@ export const AdminPlacementPage: React.FC = () => {
   useEffect(() => {
     loadData();
   }, []);
+
+  useStorageSync([STORAGE_KEYS.JOBS, STORAGE_KEYS.APPLICATIONS], loadData);
 
   const handleCreateJob = async (e: React.FormEvent) => {
     e.preventDefault();

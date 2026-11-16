@@ -1,7 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { Award, Clock, CheckCircle2, AlertCircle, ArrowRight, RotateCcw } from 'lucide-react';
 import { SEED_TESTS, SEED_TEST_ATTEMPTS } from '../../mocks/seedData';
+import { studentService } from '../../services/studentService';
+import { STORAGE_KEYS } from '../../constants/appConfig';
+import { useStorageSync } from '../../hooks/useStorageSync';
 import { useAuth } from '../../context/AuthContext';
 import { formatDate } from '../../utils/formatters';
 import { Button } from '../../components/common/Button';
@@ -11,8 +14,23 @@ import type { OnlineTest, TestAttempt } from '../../types';
 
 export const StudentTestsPage: React.FC = () => {
   const { user } = useAuth();
-  const [tests] = useState<OnlineTest[]>(SEED_TESTS);
-  const [attempts] = useState<TestAttempt[]>(SEED_TEST_ATTEMPTS);
+  const [tests, setTests] = useState<OnlineTest[]>([]);
+  const [attempts, setAttempts] = useState<TestAttempt[]>([]);
+
+  const loadTestsData = useCallback(async () => {
+    if (!user) return;
+    const res = await studentService.getStudentOnlineTests(user.id);
+    if (res.success) {
+      setTests(res.data.tests);
+      setAttempts(res.data.attempts);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    loadTestsData();
+  }, [loadTestsData]);
+
+  useStorageSync([STORAGE_KEYS.TESTS, STORAGE_KEYS.TEST_ATTEMPTS], loadTestsData);
 
   return (
     <div className="space-y-8">

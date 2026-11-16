@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Target,
@@ -20,7 +20,19 @@ import { AmbientDarkGlow } from '../../components/public/AnimatedBackgroundLayer
 import { cmsService, type AboutUsConfig } from '../../services/cmsService';
 
 export const AboutUsPage: React.FC = () => {
-  const [aboutConfig] = useState<AboutUsConfig>(() => cmsService.getAboutUsConfig());
+  const [aboutConfig, setAboutConfig] = useState<AboutUsConfig>(() => cmsService.getAboutUsConfig());
+
+  useEffect(() => {
+    const syncAbout = () => {
+      setAboutConfig(cmsService.getAboutUsConfig());
+    };
+    window.addEventListener('cms-update', syncAbout);
+    window.addEventListener('storage', syncAbout);
+    return () => {
+      window.removeEventListener('cms-update', syncAbout);
+      window.removeEventListener('storage', syncAbout);
+    };
+  }, []);
 
   const renderPedagogyIcon = (iconName: string) => {
     switch (iconName) {

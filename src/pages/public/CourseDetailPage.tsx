@@ -19,6 +19,7 @@ import {
 import { SEED_COURSES } from '../../mocks/seedData';
 import { getStorageItem } from '../../utils/storage';
 import { STORAGE_KEYS } from '../../constants/appConfig';
+import { useStorageSync } from '../../hooks/useStorageSync';
 import type { Course } from '../../types';
 import { formatINR } from '../../utils/formatters';
 import { Button } from '../../components/common/Button';
@@ -45,7 +46,16 @@ export const CourseDetailPage: React.FC = () => {
   const [enrollmentModalOpen, setEnrollmentModalOpen] = useState(false);
   const [enquiryForm, setEnquiryForm] = useState({ name: '', email: '', phone: '', message: '' });
 
-  const allCourses = getStorageItem<Course[]>(STORAGE_KEYS.COURSES, SEED_COURSES);
+  const [allCourses, setAllCourses] = useState<Course[]>(() =>
+    getStorageItem<Course[]>(STORAGE_KEYS.COURSES, SEED_COURSES)
+  );
+
+  const syncCourses = React.useCallback(() => {
+    setAllCourses(getStorageItem<Course[]>(STORAGE_KEYS.COURSES, SEED_COURSES));
+  }, []);
+
+  useStorageSync(STORAGE_KEYS.COURSES, syncCourses);
+
   const course = allCourses.find((c) => c.slug === courseSlug || c.id === courseSlug);
 
   if (!course) {

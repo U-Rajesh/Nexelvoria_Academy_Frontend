@@ -24,6 +24,8 @@ import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
 import { DataTable, type Column } from '../../components/tables/DataTable';
 import { Card } from '../../components/common/Card';
+import { useStorageSync } from '../../hooks/useStorageSync';
+import { STORAGE_KEYS } from '../../constants/appConfig';
 import type { InAppNotification, Batch } from '../../types';
 
 const NOTIFICATION_TEMPLATES = [
@@ -123,6 +125,8 @@ export const AdminNotificationPage: React.FC = () => {
   useEffect(() => {
     loadData();
   }, []);
+
+  useStorageSync(STORAGE_KEYS.NOTIFICATIONS, loadData);
 
   const handleSendBroadcast = async (e: React.FormEvent) => {
     e.preventDefault();

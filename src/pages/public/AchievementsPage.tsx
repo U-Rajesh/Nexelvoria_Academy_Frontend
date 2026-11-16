@@ -1,13 +1,26 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Trophy, Award } from 'lucide-react';
-import { Badge } from '../../components/common/Badge';
 import { PageLabel } from '../../components/common/PageLabel';
 import { Card } from '../../components/common/Card';
 import { SEO } from '../../components/common/SEO';
 import { cmsService, type AchievementItem } from '../../services/cmsService';
 
 export const AchievementsPage: React.FC = () => {
-  const [achievements] = useState<AchievementItem[]>(() => cmsService.getAchievements());
+  const [achievements, setAchievements] = useState<AchievementItem[]>(() =>
+    cmsService.getAchievements().filter((a) => a.isActive !== false)
+  );
+
+  useEffect(() => {
+    const syncAchievements = () => {
+      setAchievements(cmsService.getAchievements().filter((a) => a.isActive !== false));
+    };
+    window.addEventListener('cms-update', syncAchievements);
+    window.addEventListener('storage', syncAchievements);
+    return () => {
+      window.removeEventListener('cms-update', syncAchievements);
+      window.removeEventListener('storage', syncAchievements);
+    };
+  }, []);
 
   const institutionalAwards = [
     {

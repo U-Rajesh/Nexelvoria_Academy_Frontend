@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ArrowRight,
@@ -23,6 +23,9 @@ import {
   Calendar,
 } from 'lucide-react';
 import { SEED_COURSES } from '../../mocks/seedData';
+import { STORAGE_KEYS } from '../../constants/appConfig';
+import { getStorageItem } from '../../utils/storage';
+import type { Course } from '../../types';
 import { formatINR, formatDate } from '../../utils/formatters';
 import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
@@ -48,18 +51,39 @@ import { TrainerOrbitSection } from '../../components/public/TrainerOrbitSection
 import { AmbientDarkGlow } from '../../components/public/AnimatedBackgroundLayer';
 
 export const HomePage: React.FC = () => {
-  const [homeConfig] = useState<HomePageConfig>(() => cmsService.getHomePageConfig());
+  const [homeConfig, setHomeConfig] = useState<HomePageConfig>(() => cmsService.getHomePageConfig());
   const [callbackModalOpen, setCallbackModalOpen] = useState(false);
   const [callbackForm, setCallbackForm] = useState({ name: '', phone: '', course: '' });
   const [enquiryForm, setEnquiryForm] = useState({ name: '', email: '', phone: '', course: '', message: '' });
   const [openFaqIdx, setOpenFaqIdx] = useState<number | null>(0);
-  const [trainers] = useState<TrainerProfile[]>(() => cmsService.getTrainers().filter((t) => t.isActive !== false));
-  const [articles] = useState<BlogArticle[]>(() => cmsService.getArticles().filter((a) => a.isPublished !== false).slice(0, 3));
-  const [testimonials] = useState<TestimonialItem[]>(() => cmsService.getTestimonials().filter((t) => t.isPublished !== false));
-  const [achievements] = useState<AchievementItem[]>(() => cmsService.getAchievements().filter((a) => a.isActive !== false).slice(0, 3));
-  const [faqs] = useState<FAQItem[]>(() => cmsService.getFAQs().filter((f) => f.isActive !== false).slice(0, 5));
+  const [trainers, setTrainers] = useState<TrainerProfile[]>(() => cmsService.getTrainers().filter((t) => t.isActive !== false));
+  const [courses, setCourses] = useState<Course[]>(() => getStorageItem<Course[]>(STORAGE_KEYS.COURSES, SEED_COURSES));
+  const [articles, setArticles] = useState<BlogArticle[]>(() => cmsService.getArticles().filter((a) => a.isPublished !== false).slice(0, 3));
+  const [testimonials, setTestimonials] = useState<TestimonialItem[]>(() => cmsService.getTestimonials().filter((t) => t.isPublished !== false));
+  const [achievements, setAchievements] = useState<AchievementItem[]>(() => cmsService.getAchievements().filter((a) => a.isActive !== false).slice(0, 3));
+  const [faqs, setFaqs] = useState<FAQItem[]>(() => cmsService.getFAQs().filter((f) => f.isActive !== false).slice(0, 5));
 
   const { showToast } = useNotification();
+
+  useEffect(() => {
+    const syncHomeData = () => {
+      setHomeConfig(cmsService.getHomePageConfig());
+      setCourses(getStorageItem<Course[]>(STORAGE_KEYS.COURSES, SEED_COURSES));
+      setTrainers(cmsService.getTrainers().filter((t) => t.isActive !== false));
+      setArticles(cmsService.getArticles().filter((a) => a.isPublished !== false).slice(0, 3));
+      setTestimonials(cmsService.getTestimonials().filter((t) => t.isPublished !== false));
+      setAchievements(cmsService.getAchievements().filter((a) => a.isActive !== false).slice(0, 3));
+      setFaqs(cmsService.getFAQs().filter((f) => f.isActive !== false).slice(0, 5));
+    };
+
+    window.addEventListener('cms-update', syncHomeData);
+    window.addEventListener('storage', syncHomeData);
+
+    return () => {
+      window.removeEventListener('cms-update', syncHomeData);
+      window.removeEventListener('storage', syncHomeData);
+    };
+  }, []);
 
   const handleCallbackSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -273,7 +297,7 @@ export const HomePage: React.FC = () => {
         </ScrollReveal>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {SEED_COURSES.slice(0, 3).map((course, idx) => (
+          {courses.filter((c) => c.isPublished !== false).slice(0, 3).map((course, idx) => (
             <ScrollReveal key={course.id} animation="fade-up" delay={idx * 120} className="h-full">
               <Card className="flex flex-col hover:shadow-xl hover:-translate-y-1 transition-all duration-200 h-full">
                 <div className="relative h-48 w-full overflow-hidden bg-slate-100">
@@ -806,7 +830,7 @@ export const HomePage: React.FC = () => {
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                   >
                     <option value="">Select a Program</option>
-                    {SEED_COURSES.map((c) => (
+                    {courses.map((c) => (
                       <option key={c.id} value={c.title}>{c.title}</option>
                     ))}
                   </select>
@@ -875,7 +899,7 @@ export const HomePage: React.FC = () => {
               className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none"
             >
               <option value="">Select a Program</option>
-              {SEED_COURSES.map((c) => (
+              {courses.map((c) => (
                 <option key={c.id} value={c.title}>
                   {c.title}
                 </option>

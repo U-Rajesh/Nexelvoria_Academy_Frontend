@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Briefcase,
@@ -20,14 +20,28 @@ import { Button } from '../../components/common/Button';
 import { PageLabel } from '../../components/common/PageLabel';
 import { Card, CardContent } from '../../components/common/Card';
 import { SEO } from '../../components/common/SEO';
-import { cmsService } from '../../services/cmsService';
+import { cmsService, type TestimonialItem } from '../../services/cmsService';
 import { ScrollReveal } from '../../components/public/ScrollReveal';
 import { AnimatedStatistic } from '../../components/public/AnimatedStatistic';
 import { AmbientDarkGlow } from '../../components/public/AnimatedBackgroundLayer';
 import { HiringPartnersMarquee } from '../../components/public/HiringPartnersMarquee';
 
 export const PlacementPage: React.FC = () => {
-  const testimonials = cmsService.getTestimonials();
+  const [testimonials, setTestimonials] = useState<TestimonialItem[]>(() =>
+    cmsService.getTestimonials().filter((t) => t.isPublished !== false)
+  );
+
+  useEffect(() => {
+    const syncTestimonials = () => {
+      setTestimonials(cmsService.getTestimonials().filter((t) => t.isPublished !== false));
+    };
+    window.addEventListener('cms-update', syncTestimonials);
+    window.addEventListener('storage', syncTestimonials);
+    return () => {
+      window.removeEventListener('cms-update', syncTestimonials);
+      window.removeEventListener('storage', syncTestimonials);
+    };
+  }, []);
 
   const placementSteps = [
     {
