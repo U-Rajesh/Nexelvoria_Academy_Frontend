@@ -12,6 +12,9 @@ import {
   Sparkles,
   Lock,
   Layers,
+  Tag,
+  Check,
+  X,
 } from 'lucide-react';
 import { SEED_COURSES } from '../../mocks/seedData';
 import { paymentService } from '../../services/paymentService';
@@ -22,9 +25,10 @@ import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
 import { Card } from '../../components/common/Card';
 import { Modal } from '../../components/feedback/Modal';
+import { useStorageSync } from '../../hooks/useStorageSync';
 import { getStorageItem, setStorageItem } from '../../utils/storage';
 import { STORAGE_KEYS } from '../../constants/appConfig';
-import type { PaymentTransaction, StudentProfile, Course } from '../../types';
+import type { PaymentTransaction, StudentProfile, Course, CouponDiscount } from '../../types';
 
 export const StudentFeesPage: React.FC = () => {
   const { user, refreshCurrentUser } = useAuth();
@@ -37,6 +41,13 @@ export const StudentFeesPage: React.FC = () => {
   const [selectedMethod, setSelectedMethod] = useState<'upi' | 'card' | 'netbanking'>('upi');
   const [isProcessing, setIsProcessing] = useState(false);
 
+  // Coupon & Scholarship Discount State (PAY-009, ADM-010)
+  const [couponCode, setCouponCode] = useState('');
+  const [appliedCoupon, setAppliedCoupon] = useState<CouponDiscount | null>(null);
+  const [discountAmountINR, setDiscountAmountINR] = useState(0);
+  const [isValidatingCoupon, setIsValidatingCoupon] = useState(false);
+  const [couponError, setCouponError] = useState<string | null>(null);
+
   const selectedCourse = courses.find((c) => c.id === selectedCourseId) || courses[0] || SEED_COURSES[0];
 
   const student = user as (StudentProfile | null);
@@ -44,22 +55,78 @@ export const StudentFeesPage: React.FC = () => {
   const enrolledCourseIds = student?.enrolledCourseIds || [];
   const isAlreadyEnrolled = enrolledCourseIds.includes(selectedCourse.id);
 
-  useEffect(() => {
+  const loadPaymentData = React.useCallback(() => {
     if (!user) return;
     paymentService.getStudentPaymentHistory(user.id).then((res) => {
       if (res.success) setTransactions(res.data);
     });
   }, [user]);
 
+  useEffect(() => {
+    loadPaymentData();
+  }, [loadPaymentData]);
+
+  useStorageSync([STORAGE_KEYS.PAYMENTS, STORAGE_KEYS.ENROLLMENTS, STORAGE_KEYS.DISCOUNTS], loadPaymentData);
+
+  // Re-verify coupon when course selection changes
+  useEffect(() => {
+    if (appliedCoupon && selectedCourse) {
+      if (appliedCoupon.applicableCourseIds && appliedCoupon.applicableCourseIds.length > 0) {
+        if (!appliedCoupon.applicableCourseIds.includes(selectedCourse.id)) {
+          setAppliedCoupon(null);
+          setDiscountAmountINR(0);
+          setCouponError('Previously applied coupon is not valid for this newly selected course.');
+        }
+      }
+    }
+  }, [selectedCourseId, appliedCoupon, selectedCourse]);
+
+  const handleApplyCoupon = async () => {
+    if (!couponCode.trim()) return;
+    setIsValidatingCoupon(true);
+    setCouponError(null);
+    const grossFee = selectedCourse.discountedFeeINR || selectedCourse.feeINR;
+    const res = await paymentService.validateCoupon(couponCode, selectedCourse.id, grossFee);
+    setIsValidatingCoupon(false);
+
+    if (res.success && res.data.valid) {
+      setAppliedCoupon(res.data.coupon || null);
+      setDiscountAmountINR(res.data.discountAmountINR);
+      showToast({
+        type: 'success',
+        title: 'Coupon Applied (PAY-009)',
+        message: res.data.message,
+      });
+    } else {
+      setAppliedCoupon(null);
+      setDiscountAmountINR(0);
+      setCouponError(res.error || res.data.message);
+      showToast({
+        type: 'error',
+        title: 'Invalid Coupon',
+        message: res.error || res.data.message,
+      });
+    }
+  };
+
+  const handleRemoveCoupon = () => {
+    setAppliedCoupon(null);
+    setDiscountAmountINR(0);
+    setCouponCode('');
+    setCouponError(null);
+  };
+
   const handleInitiatePayment = async () => {
     if (!user || !isApproved) return;
     setIsProcessing(true);
 
-    const feeToPay = selectedCourse.discountedFeeINR || selectedCourse.feeINR;
+    const grossFee = selectedCourse.discountedFeeINR || selectedCourse.feeINR;
     const res = await paymentService.processRazorpayPayment(
       { id: user.id, name: user.name },
-      { id: selectedCourse.id, title: selectedCourse.title, feeINR: feeToPay },
-      selectedMethod
+      { id: selectedCourse.id, title: selectedCourse.title, feeINR: grossFee },
+      selectedMethod,
+      appliedCoupon?.code,
+      discountAmountINR
     );
     setIsProcessing(false);
     setPaymentModalOpen(false);
@@ -181,18 +248,83 @@ export const StudentFeesPage: React.FC = () => {
             </div>
 
             <div className="text-right sm:border-l sm:border-slate-200 sm:pl-4 space-y-1">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Total Tuition</span>
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Net Payable Tuition</span>
               <div className="flex items-baseline gap-2">
                 <span className="text-xl font-black text-indigo-900">
-                  {formatINR(selectedCourse.discountedFeeINR || selectedCourse.feeINR)}
+                  {formatINR(Math.max(0, (selectedCourse.discountedFeeINR || selectedCourse.feeINR) - discountAmountINR))}
                 </span>
-                {selectedCourse.discountedFeeINR && (
+                {(selectedCourse.discountedFeeINR || discountAmountINR > 0) && (
                   <span className="text-xs text-slate-400 line-through">
                     {formatINR(selectedCourse.feeINR)}
                   </span>
                 )}
               </div>
+              {discountAmountINR > 0 && (
+                <span className="text-[11px] font-semibold text-emerald-600 block">
+                  Savings of {formatINR(discountAmountINR)} applied
+                </span>
+              )}
             </div>
+          </div>
+
+          {/* Coupon & Scholarship Section (CRD 3.8: PAY-009, 3.4: ADM-010) */}
+          <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700 uppercase tracking-wider">
+              <Tag className="h-4 w-4 text-indigo-600" />
+              <span>Promotional Coupon or Merit Scholarship Code (PAY-009)</span>
+            </div>
+            {appliedCoupon ? (
+              <div className="flex items-center justify-between p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs">
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded">
+                      {appliedCoupon.code}
+                    </span>
+                    <Badge variant="success" size="sm">Applied</Badge>
+                  </div>
+                  <p className="text-[11px] text-emerald-700">{appliedCoupon.description}</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="font-bold text-emerald-900">- {formatINR(discountAmountINR)}</span>
+                  <button
+                    type="button"
+                    onClick={handleRemoveCoupon}
+                    className="p-1 text-slate-400 hover:text-rose-600 rounded cursor-pointer"
+                    title="Remove Coupon"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={couponCode}
+                    onChange={(e) => {
+                      setCouponCode(e.target.value.toUpperCase());
+                      setCouponError(null);
+                    }}
+                    placeholder="e.g. DIWALI2026, MERIT25"
+                    className="flex-1 px-3 py-2 text-xs font-mono bg-white border border-slate-300 rounded-xl uppercase placeholder:normal-case focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    isLoading={isValidatingCoupon}
+                    onClick={handleApplyCoupon}
+                    disabled={!couponCode.trim()}
+                  >
+                    Apply
+                  </Button>
+                </div>
+                {couponError && (
+                  <p className="text-[11px] text-rose-600 font-medium">{couponError}</p>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="space-y-1.5 text-xs text-slate-600 bg-indigo-50/50 p-3.5 rounded-xl border border-indigo-100">
@@ -225,7 +357,7 @@ export const StudentFeesPage: React.FC = () => {
                 onClick={() => setPaymentModalOpen(true)}
                 rightIcon={<CreditCard className="h-4 w-4" />}
               >
-                Pay via Razorpay Gateway ({formatINR(selectedCourse.discountedFeeINR || selectedCourse.feeINR)})
+                Pay via Razorpay Gateway ({formatINR(Math.max(0, (selectedCourse.discountedFeeINR || selectedCourse.feeINR) - discountAmountINR))})
               </Button>
             )}
           </div>
@@ -305,15 +437,34 @@ export const StudentFeesPage: React.FC = () => {
         size="md"
       >
         <div className="space-y-5">
-          <div className="p-4 bg-indigo-50/70 border border-indigo-100 rounded-xl flex items-center justify-between text-xs">
-            <div>
-              <span className="text-slate-500 block">Course:</span>
-              <span className="font-bold text-slate-900">{selectedCourse.title}</span>
+          <div className="p-4 bg-indigo-50/70 border border-indigo-100 rounded-xl space-y-2 text-xs">
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="text-slate-500 block">Course:</span>
+                <span className="font-bold text-slate-900">{selectedCourse.title}</span>
+              </div>
+              <div className="text-right">
+                <span className="text-slate-500 block">Base Tuition:</span>
+                <span className="font-semibold text-slate-700">
+                  {formatINR(selectedCourse.discountedFeeINR || selectedCourse.feeINR)}
+                </span>
+              </div>
             </div>
-            <div className="text-right">
-              <span className="text-slate-500 block">Amount:</span>
-              <span className="text-lg font-extrabold text-indigo-900">
-                {formatINR(selectedCourse.discountedFeeINR || selectedCourse.feeINR)}
+
+            {appliedCoupon && (
+              <div className="flex items-center justify-between pt-2 border-t border-indigo-200/60 text-emerald-800">
+                <span className="flex items-center gap-1 font-medium">
+                  <Tag className="h-3.5 w-3.5 text-emerald-600" />
+                  Coupon Discount ({appliedCoupon.code}):
+                </span>
+                <span className="font-bold">- {formatINR(discountAmountINR)}</span>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between pt-2 border-t border-indigo-200/60 font-bold">
+              <span className="text-slate-900">Final Net Payable:</span>
+              <span className="text-lg font-black text-indigo-900">
+                {formatINR(Math.max(0, (selectedCourse.discountedFeeINR || selectedCourse.feeINR) - discountAmountINR))}
               </span>
             </div>
           </div>
@@ -372,7 +523,7 @@ export const StudentFeesPage: React.FC = () => {
               isLoading={isProcessing}
               onClick={handleInitiatePayment}
             >
-              Confirm & Pay {formatINR(selectedCourse.discountedFeeINR || selectedCourse.feeINR)}
+              Confirm & Pay {formatINR(Math.max(0, (selectedCourse.discountedFeeINR || selectedCourse.feeINR) - discountAmountINR))}
             </Button>
           </div>
         </div>

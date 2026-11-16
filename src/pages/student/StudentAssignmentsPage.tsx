@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Clock, Upload, Send, ExternalLink } from 'lucide-react';
 import { Github } from '../../components/common/SocialIcons';
 import { SEED_ASSIGNMENTS, SEED_ASSIGNMENT_SUBMISSIONS } from '../../mocks/seedData';
 import { studentService } from '../../services/studentService';
+import { STORAGE_KEYS } from '../../constants/appConfig';
+import { useStorageSync } from '../../hooks/useStorageSync';
 import { useAuth } from '../../context/AuthContext';
 import { useNotification } from '../../context/NotificationContext';
 import { formatDate } from '../../utils/formatters';
@@ -16,9 +18,24 @@ export const StudentAssignmentsPage: React.FC = () => {
   const { user } = useAuth();
   const { showToast } = useNotification();
 
-  const [assignments] = useState<Assignment[]>(SEED_ASSIGNMENTS);
-  const [submissions, setSubmissions] = useState<AssignmentSubmission[]>(SEED_ASSIGNMENT_SUBMISSIONS);
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [submissions, setSubmissions] = useState<AssignmentSubmission[]>([]);
   const [activeModalAssignment, setActiveModalAssignment] = useState<Assignment | null>(null);
+
+  const loadAssignmentsData = useCallback(async () => {
+    if (!user) return;
+    const res = await studentService.getStudentAssignments(user.id);
+    if (res.success) {
+      setAssignments(res.data.assignments);
+      setSubmissions(res.data.submissions);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    loadAssignmentsData();
+  }, [loadAssignmentsData]);
+
+  useStorageSync([STORAGE_KEYS.ASSIGNMENTS, STORAGE_KEYS.SUBMISSIONS], loadAssignmentsData);
 
   const [submissionMethod, setSubmissionMethod] = useState<'github_link' | 'file_upload' | 'text'>('github_link');
   const [githubUrl, setGithubUrl] = useState('');

@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { HelpCircle, Plus, Send, MessageSquare, Clock } from 'lucide-react';
-import { SEED_TICKETS } from '../../mocks/seedData';
+import { studentService } from '../../services/studentService';
 import { useAuth } from '../../context/AuthContext';
 import { useNotification } from '../../context/NotificationContext';
+import { useStorageSync } from '../../hooks/useStorageSync';
+import { STORAGE_KEYS } from '../../constants/appConfig';
 import { formatDate } from '../../utils/formatters';
 import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
@@ -14,78 +16,80 @@ export const StudentSupportPage: React.FC = () => {
   const { user } = useAuth();
   const { showToast } = useNotification();
 
-  const [tickets, setTickets] = useState<SupportTicket[]>(SEED_TICKETS);
-  const [selectedTicket, setSelectedTicket] = useState<SupportTicket | null>(SEED_TICKETS[0]);
+  const [tickets, setTickets] = useState<SupportTicket[]>([]);
+  const [selectedTicket, setSelectedTicket] = useState<SupportTicket | null>(null);
   const [newTicketModalOpen, setNewTicketModalOpen] = useState(false);
   const [replyText, setReplyText] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // New ticket form
   const [newSubject, setNewSubject] = useState('');
   const [newCategory, setNewCategory] = useState<TicketCategory>('Academic');
   const [newMessage, setNewMessage] = useState('');
 
-  const handleCreateTicket = (e: React.FormEvent) => {
-    e.preventDefault();
+  const loadTickets = useCallback(async () => {
     if (!user) return;
+    const res = await studentService.getStudentTickets(user.id);
+    if (res.success) {
+      setTickets(res.data);
+      if (res.data.length > 0) {
+        setSelectedTicket((prev) => {
+          if (!prev) return res.data[0];
+          const found = res.data.find((t) => t.id === prev.id);
+          return found || res.data[0];
+        });
+      }
+    }
+  }, [user]);
 
-    const newTkt: SupportTicket = {
-      id: `tkt-${Date.now()}`,
-      ticketNumber: `TKT-${Math.floor(1000 + Math.random() * 9000)}`,
-      studentId: user.id,
-      studentName: user.name,
-      studentEmail: user.email,
-      category: newCategory,
-      subject: newSubject,
-      status: 'open',
-      priority: 'medium',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      messages: [
-        {
-          id: `msg-${Date.now()}`,
-          senderId: user.id,
-          senderName: user.name,
-          senderRole: 'student',
-          message: newMessage,
-          sentAt: new Date().toISOString(),
-        },
-      ],
-    };
+  useEffect(() => {
+    loadTickets();
+  }, [loadTickets]);
 
-    setTickets((prev) => [newTkt, ...prev]);
-    setSelectedTicket(newTkt);
-    setNewTicketModalOpen(false);
-    setNewSubject('');
-    setNewMessage('');
-    showToast({
-      type: 'success',
-      title: 'Ticket Raised',
-      message: `Support ticket ${newTkt.ticketNumber} created successfully.`,
-    });
+  useStorageSync(STORAGE_KEYS.TICKETS, loadTickets);
+
+  const handleCreateTicket = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user || !newSubject.trim() || !newMessage.trim()) return;
+
+    setIsSubmitting(true);
+    const res = await studentService.createTicket(
+      { id: user.id, name: user.name, email: user.email },
+      { category: newCategory, subject: newSubject, message: newMessage }
+    );
+    setIsSubmitting(false);
+
+    if (res.success && res.data) {
+      setTickets((prev) => [res.data, ...prev.filter((t) => t.id !== res.data.id)]);
+      setSelectedTicket(res.data);
+      setNewTicketModalOpen(false);
+      setNewSubject('');
+      setNewMessage('');
+      showToast({
+        type: 'success',
+        title: 'Ticket Raised',
+        message: `Support ticket ${res.data.ticketNumber} created successfully.`,
+      });
+    }
   };
 
-  const handleSendReply = (e: React.FormEvent) => {
+  const handleSendReply = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!replyText.trim() || !selectedTicket || !user) return;
 
-    const updated = {
-      ...selectedTicket,
-      messages: [
-        ...selectedTicket.messages,
-        {
-          id: `msg-${Date.now()}`,
-          senderId: user.id,
-          senderName: user.name,
-          senderRole: 'student' as const,
-          message: replyText,
-          sentAt: new Date().toISOString(),
-        },
-      ],
-    };
+    setIsSubmitting(true);
+    const res = await studentService.replyTicket(
+      { id: user.id, name: user.name },
+      selectedTicket.id,
+      replyText.trim()
+    );
+    setIsSubmitting(false);
 
-    setTickets((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
-    setSelectedTicket(updated);
-    setReplyText('');
+    if (res.success && res.data) {
+      setTickets((prev) => prev.map((t) => (t.id === res.data.id ? res.data : t)));
+      setSelectedTicket(res.data);
+      setReplyText('');
+    }
   };
 
   return (

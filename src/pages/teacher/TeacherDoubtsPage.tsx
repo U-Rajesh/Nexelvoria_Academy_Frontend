@@ -17,6 +17,8 @@ import { Card } from '../../components/common/Card';
 import { Badge } from '../../components/common/Badge';
 import { Button } from '../../components/common/Button';
 import { Modal } from '../../components/feedback/Modal';
+import { useStorageSync } from '../../hooks/useStorageSync';
+import { STORAGE_KEYS } from '../../constants/appConfig';
 import { formatDate } from '../../utils/formatters';
 
 export const TeacherDoubtsPage: React.FC = () => {
@@ -29,15 +31,17 @@ export const TeacherDoubtsPage: React.FC = () => {
   const [newStatus, setNewStatus] = useState<'answered' | 'resolved'>('answered');
   const [isReplying, setIsReplying] = useState(false);
 
-  useEffect(() => {
-    const loadDoubts = async () => {
-      const teacherId = user?.id || 'user-tch-001';
-      const res = await teacherService.getStudentDoubts(teacherId);
-      if (res.success) setDoubts(res.data);
-    };
-
-    loadDoubts();
+  const loadDoubts = React.useCallback(async () => {
+    const teacherId = user?.id || 'user-tch-001';
+    const res = await teacherService.getStudentDoubts(teacherId);
+    if (res.success) setDoubts(res.data);
   }, [user]);
+
+  useEffect(() => {
+    loadDoubts();
+  }, [loadDoubts]);
+
+  useStorageSync(STORAGE_KEYS.TEACHER_DOUBTS, loadDoubts);
 
   const handleOpenReply = (doubt: StudentDoubt) => {
     setSelectedDoubt(doubt);

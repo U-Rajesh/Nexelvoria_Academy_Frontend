@@ -1,46 +1,81 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Save, CheckCircle2 } from 'lucide-react';
 import { SEED_BATCHES, SEED_USERS } from '../../mocks/seedData';
 import { teacherService } from '../../services/teacherService';
+import { STORAGE_KEYS } from '../../constants/appConfig';
+import { useStorageSync } from '../../hooks/useStorageSync';
 import { useAuth } from '../../context/AuthContext';
 import { useNotification } from '../../context/NotificationContext';
 import { Button } from '../../components/common/Button';
 import { Card } from '../../components/common/Card';
-import type { AttendanceStatus } from '../../types';
+import type { AttendanceStatus, Batch, StudentProfile } from '../../types';
 
 export const TeacherAttendancePage: React.FC = () => {
   const { user } = useAuth();
   const { showToast } = useNotification();
 
-  const [selectedBatchId, setSelectedBatchId] = useState(SEED_BATCHES[0].id);
+  const [batches, setBatches] = useState<Batch[]>(SEED_BATCHES);
+  const [selectedBatchId, setSelectedBatchId] = useState(SEED_BATCHES[0]?.id || '');
   const [sessionDate, setSessionDate] = useState('2026-11-09');
   const [topicCovered, setTopicCovered] = useState('Kafka Event-Driven Sagas & Distributed Transactions');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Student list for selected batch
-  const [studentEntries, setStudentEntries] = useState([
-    {
-      studentId: SEED_USERS.student.id,
-      studentName: SEED_USERS.student.name,
-      college: SEED_USERS.student.collegeName,
-      status: 'present' as AttendanceStatus,
-      note: '',
-    },
-    {
-      studentId: 'user-stu-003',
-      studentName: 'Karthik Varma',
-      college: 'Chaitanya Bharathi Institute of Technology',
-      status: 'present' as AttendanceStatus,
-      note: '',
-    },
-    {
-      studentId: 'user-stu-004',
-      studentName: 'Sneha Reddy',
-      college: 'VNR Vignana Jyothi Institute',
-      status: 'leave' as AttendanceStatus,
-      note: 'Authorized medical leave',
-    },
-  ]);
+  const [studentEntries, setStudentEntries] = useState<{
+    studentId: string;
+    studentName: string;
+    college?: string;
+    status: AttendanceStatus;
+    note?: string;
+  }[]>([]);
+
+  const loadBatches = useCallback(async () => {
+    const teacherId = user?.id || 'user-tch-001';
+    const res = await teacherService.getAssignedBatches(teacherId);
+    if (res.success && res.data.length > 0) {
+      setBatches(res.data);
+      if (!selectedBatchId || !res.data.some((b) => b.id === selectedBatchId)) {
+        setSelectedBatchId(res.data[0].id);
+      }
+    }
+  }, [user, selectedBatchId]);
+
+  useEffect(() => {
+    loadBatches();
+  }, [loadBatches]);
+
+  useStorageSync([STORAGE_KEYS.BATCHES, STORAGE_KEYS.TEACHERS], loadBatches);
+
+  useEffect(() => {
+    const loadStudents = async () => {
+      if (!selectedBatchId) return;
+      const res = await teacherService.getBatchStudents(selectedBatchId);
+      if (res.success && res.data.length > 0) {
+        setStudentEntries(
+          res.data.map((stu: StudentProfile) => ({
+            studentId: stu.id,
+            studentName: stu.name,
+            college: stu.collegeName || 'Engineering College',
+            status: 'present' as AttendanceStatus,
+            note: '',
+          }))
+        );
+      } else {
+        // Fallback baseline students if batch has empty enrollments in demo
+        setStudentEntries([
+          {
+            studentId: SEED_USERS.student.id,
+            studentName: SEED_USERS.student.name,
+            college: SEED_USERS.student.collegeName,
+            status: 'present' as AttendanceStatus,
+            note: '',
+          },
+        ]);
+      }
+    };
+
+    loadStudents();
+  }, [selectedBatchId]);
 
   const handleStatusChange = (studentId: string, status: AttendanceStatus) => {
     setStudentEntries((prev) =>
@@ -56,11 +91,12 @@ export const TeacherAttendancePage: React.FC = () => {
     e.preventDefault();
     if (!user) return;
 
+    const currentBatch = batches.find((b) => b.id === selectedBatchId) || batches[0];
     setIsSubmitting(true);
     const res = await teacherService.recordAttendance(
       { id: user.id, name: user.name },
       selectedBatchId,
-      SEED_BATCHES[0].courseId,
+      currentBatch?.courseId || 'course-fsd-01',
       sessionDate,
       topicCovered,
       studentEntries
@@ -96,7 +132,7 @@ export const TeacherAttendancePage: React.FC = () => {
                 onChange={(e) => setSelectedBatchId(e.target.value)}
                 className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 font-medium"
               >
-                {SEED_BATCHES.map((b) => (
+                {batches.map((b) => (
                   <option key={b.id} value={b.id}>
                     {b.name} ({b.batchCode})
                   </option>

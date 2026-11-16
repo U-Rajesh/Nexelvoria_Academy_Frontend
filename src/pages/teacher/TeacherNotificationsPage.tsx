@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Bell,
@@ -15,6 +15,10 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useNotification } from '../../context/NotificationContext';
+import { useStorageSync } from '../../hooks/useStorageSync';
+import { STORAGE_KEYS } from '../../constants/appConfig';
+import { teacherService } from '../../services/teacherService';
+import { formatDate } from '../../utils/formatters';
 import { Card } from '../../components/common/Card';
 import { Badge } from '../../components/common/Badge';
 import { Button } from '../../components/common/Button';
@@ -94,6 +98,44 @@ export const TeacherNotificationsPage: React.FC = () => {
   );
   const [filter, setFilter] = useState<'all' | 'unread' | 'live_class' | 'doubt' | 'retake' | 'submission'>('all');
 
+  const loadNotifications = useCallback(async () => {
+    const personal = getStorageItem<TeacherNotificationItem[]>(storageKey, DEFAULT_TEACHER_NOTIFICATIONS);
+    if (!user) {
+      setNotifications(personal);
+      return;
+    }
+    const res = await teacherService.getNotificationsForTeacher(user.id);
+    if (res.success && res.data.length > 0) {
+      const broadcastItems: TeacherNotificationItem[] = res.data.map((b) => ({
+        id: b.id,
+        category: 'announcement',
+        title: b.title,
+        message: b.message,
+        timestamp: formatDate(b.createdAt),
+        isRead: b.isRead || false,
+        actionUrl: b.linkUrl || '/teacher/announcements',
+        actionLabel: 'View Announcement',
+      }));
+
+      const combined = [...personal];
+      broadcastItems.forEach((item) => {
+        const existingIdx = combined.findIndex((c) => c.id === item.id);
+        if (existingIdx === -1) {
+          combined.unshift(item);
+        }
+      });
+      setNotifications(combined);
+    } else {
+      setNotifications(personal);
+    }
+  }, [user, storageKey]);
+
+  useEffect(() => {
+    loadNotifications();
+  }, [loadNotifications]);
+
+  useStorageSync(STORAGE_KEYS.NOTIFICATIONS, loadNotifications);
+
   useEffect(() => {
     setStorageItem(storageKey, notifications);
   }, [notifications, storageKey]);
@@ -137,6 +179,8 @@ export const TeacherNotificationsPage: React.FC = () => {
         return <Badge variant="info" size="sm">Code Submission</Badge>;
       case 'mock':
         return <Badge variant="success" size="sm">Mock Interview</Badge>;
+      case 'announcement':
+        return <Badge variant="purple" size="sm">Broadcast</Badge>;
       default:
         return <Badge variant="neutral" size="sm">System Notice</Badge>;
     }

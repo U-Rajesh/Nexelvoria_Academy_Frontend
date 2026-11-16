@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Bell,
@@ -17,6 +17,10 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useNotification } from '../../context/NotificationContext';
+import { useStorageSync } from '../../hooks/useStorageSync';
+import { STORAGE_KEYS } from '../../constants/appConfig';
+import { studentService } from '../../services/studentService';
+import { formatDate } from '../../utils/formatters';
 import { Card } from '../../components/common/Card';
 import { Badge } from '../../components/common/Badge';
 import { Button } from '../../components/common/Button';
@@ -105,6 +109,53 @@ export const StudentNotificationsPage: React.FC = () => {
     getStorageItem<StudentNotificationItem[]>(storageKey, DEFAULT_NOTIFICATIONS)
   );
   const [activeFilter, setActiveFilter] = useState<'all' | 'unread' | 'academic' | 'live_class' | 'test' | 'placement' | 'fee'>('all');
+
+  const loadNotifications = useCallback(async () => {
+    const personal = getStorageItem<StudentNotificationItem[]>(storageKey, DEFAULT_NOTIFICATIONS);
+    if (!user) {
+      setNotifications(personal);
+      return;
+    }
+    const res = await studentService.getNotificationsForStudent(user.id);
+    if (res.success && res.data.length > 0) {
+      const broadcastItems: StudentNotificationItem[] = res.data.map((b) => ({
+        id: b.id,
+        category: (b.category === 'assignment' || b.category === 'announcement'
+          ? 'academic'
+          : b.category === 'exam'
+          ? 'test'
+          : b.category === 'payment'
+          ? 'fee'
+          : b.category === 'placement'
+          ? 'placement'
+          : 'system') as any,
+        title: b.title,
+        message: b.message,
+        timestamp: formatDate(b.createdAt),
+        isRead: b.isRead || false,
+        actionUrl: b.linkUrl,
+        actionLabel: b.linkUrl ? 'View Details' : undefined,
+      }));
+
+      // Merge broadcast items with personal notifications, keeping user's read state if already present
+      const combined = [...personal];
+      broadcastItems.forEach((item) => {
+        const existingIdx = combined.findIndex((c) => c.id === item.id);
+        if (existingIdx === -1) {
+          combined.unshift(item);
+        }
+      });
+      setNotifications(combined);
+    } else {
+      setNotifications(personal);
+    }
+  }, [user, storageKey]);
+
+  useEffect(() => {
+    loadNotifications();
+  }, [loadNotifications]);
+
+  useStorageSync(STORAGE_KEYS.NOTIFICATIONS, loadNotifications);
 
   useEffect(() => {
     setStorageItem(storageKey, notifications);

@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Search, Calendar, User, ArrowRight, Tag, Clock } from 'lucide-react';
+import { Search, ArrowRight } from 'lucide-react';
 import { PageLabel } from '../../components/common/PageLabel';
 import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
@@ -9,9 +9,23 @@ import { formatDate } from '../../utils/formatters';
 import { cmsService, type BlogArticle } from '../../services/cmsService';
 
 export const BlogPage: React.FC = () => {
-  const [articles] = useState<BlogArticle[]>(() => cmsService.getArticles());
+  const [articles, setArticles] = useState<BlogArticle[]>(() =>
+    cmsService.getArticles().filter((a) => a.isPublished !== false)
+  );
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState<string>('');
+
+  useEffect(() => {
+    const syncArticles = () => {
+      setArticles(cmsService.getArticles().filter((a) => a.isPublished !== false));
+    };
+    window.addEventListener('cms-update', syncArticles);
+    window.addEventListener('storage', syncArticles);
+    return () => {
+      window.removeEventListener('cms-update', syncArticles);
+      window.removeEventListener('storage', syncArticles);
+    };
+  }, []);
 
   const categories = ['All', 'Java & Cloud', 'Architecture', 'Placement Prep', 'DevOps'];
 

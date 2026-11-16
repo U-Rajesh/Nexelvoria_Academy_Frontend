@@ -17,14 +17,17 @@ import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
 import { Card } from '../../components/common/Card';
 import { ConfirmDialog } from '../../components/feedback/ConfirmDialog';
-import type { Question, TestAttempt } from '../../types';
+import { STORAGE_KEYS } from '../../constants/appConfig';
+import { getStorageItem } from '../../utils/storage';
+import type { Question, TestAttempt, OnlineTest } from '../../types';
 
 export const TestEnginePage: React.FC = () => {
   const { testId } = useParams<{ testId: string }>();
   const { user } = useAuth();
   const { showToast } = useNotification();
 
-  const test = SEED_TESTS.find((t) => t.id === testId) || SEED_TESTS[0];
+  const allTests = getStorageItem<OnlineTest[]>(STORAGE_KEYS.TESTS, SEED_TESTS);
+  const test = allTests.find((t) => t.id === testId) || allTests[0] || SEED_TESTS[0];
 
   const [currentIdx, setCurrentIdx] = useState(0);
   const [secondsRemaining, setSecondsRemaining] = useState(test.durationMinutes * 60);

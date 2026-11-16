@@ -1,23 +1,21 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import {
   BookOpen,
-  Users,
-  Clock,
-  Layers,
-  ShieldAlert,
   ArrowRight,
   Info,
-  Calendar,
-  CheckCircle2,
+  Edit,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { teacherService } from '../../services/teacherService';
+import { STORAGE_KEYS } from '../../constants/appConfig';
+import { useStorageSync } from '../../hooks/useStorageSync';
 import type { Course, Batch } from '../../types';
 import { Card } from '../../components/common/Card';
 import { Badge } from '../../components/common/Badge';
 import { Button } from '../../components/common/Button';
 import { Modal } from '../../components/feedback/Modal';
+import { TeacherCourseEditorModal } from '../../components/teacher/TeacherCourseEditorModal';
 
 export const TeacherCoursesPage: React.FC = () => {
   const { user } = useAuth();
@@ -25,27 +23,36 @@ export const TeacherCoursesPage: React.FC = () => {
   const [batches, setBatches] = useState<Batch[]>([]);
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [editingCourse, setEditingCourse] = useState<Course | null>(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    const loadCourses = async () => {
-      const teacherId = user?.id || 'user-tch-001';
-      const [coursesRes, batchesRes] = await Promise.all([
-        teacherService.getAssignedCourses(teacherId),
-        teacherService.getAssignedBatches(teacherId),
-      ]);
+  const loadCourses = useCallback(async () => {
+    const teacherId = user?.id || 'user-tch-001';
+    const [coursesRes, batchesRes] = await Promise.all([
+      teacherService.getAssignedCourses(teacherId),
+      teacherService.getAssignedBatches(teacherId),
+    ]);
 
-      if (coursesRes.success) setCourses(coursesRes.data);
-      if (batchesRes.success) setBatches(batchesRes.data);
-      setIsLoading(false);
-    };
-
-    loadCourses();
+    if (coursesRes.success) setCourses(coursesRes.data);
+    if (batchesRes.success) setBatches(batchesRes.data);
+    setIsLoading(false);
   }, [user]);
+
+  useEffect(() => {
+    loadCourses();
+  }, [loadCourses]);
+
+  useStorageSync([STORAGE_KEYS.COURSES, STORAGE_KEYS.BATCHES, STORAGE_KEYS.TEACHERS], loadCourses);
 
   const handleOpenDetail = (course: Course) => {
     setSelectedCourse(course);
     setIsDetailModalOpen(true);
+  };
+
+  const handleOpenEdit = (course: Course) => {
+    setEditingCourse(course);
+    setIsEditModalOpen(true);
   };
 
   return (
@@ -134,25 +141,36 @@ export const TeacherCoursesPage: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="p-5 pt-0 flex items-center justify-between gap-3 border-t border-slate-100 mt-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleOpenDetail(course)}
-                    leftIcon={<Info className="h-3.5 w-3.5" />}
-                  >
-                    View Curriculum
-                  </Button>
+                <div className="p-5 pt-0 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 mt-2">
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleOpenDetail(course)}
+                      leftIcon={<Info className="h-3.5 w-3.5" />}
+                    >
+                      Curriculum
+                    </Button>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      className="bg-teal-600 hover:bg-teal-700 text-white"
+                      onClick={() => handleOpenEdit(course)}
+                      leftIcon={<Edit className="h-3.5 w-3.5" />}
+                    >
+                      Edit Course
+                    </Button>
+                  </div>
 
                   <div className="flex items-center gap-2">
                     <Link to="/teacher/materials">
                       <Button variant="outline" size="sm">
-                        Study Materials
+                        Materials
                       </Button>
                     </Link>
                     <Link to="/teacher/batches">
-                      <Button variant="primary" size="sm" className="bg-teal-600 hover:bg-teal-700" rightIcon={<ArrowRight className="h-3.5 w-3.5" />}>
-                        View Batches
+                      <Button variant="secondary" size="sm" rightIcon={<ArrowRight className="h-3.5 w-3.5" />}>
+                        Batches
                       </Button>
                     </Link>
                   </div>
@@ -195,13 +213,40 @@ export const TeacherCoursesPage: React.FC = () => {
               </div>
             </div>
 
-            <div className="pt-3 border-t border-slate-100 flex justify-end">
+            <div className="pt-3 border-t border-slate-100 flex justify-between items-center">
+              <Button
+                variant="primary"
+                size="sm"
+                className="bg-teal-600 hover:bg-teal-700 text-white"
+                onClick={() => {
+                  setIsDetailModalOpen(false);
+                  handleOpenEdit(selectedCourse);
+                }}
+                leftIcon={<Edit className="h-3.5 w-3.5" />}
+              >
+                Edit This Course
+              </Button>
               <Button variant="outline" size="sm" onClick={() => setIsDetailModalOpen(false)}>
                 Close
               </Button>
             </div>
           </div>
         </Modal>
+      )}
+
+      {/* Faculty Course & Curriculum Editor Modal (TASK 1) */}
+      {editingCourse && (
+        <TeacherCourseEditorModal
+          isOpen={isEditModalOpen}
+          onClose={() => {
+            setIsEditModalOpen(false);
+            setEditingCourse(null);
+          }}
+          course={editingCourse}
+          onSaved={() => {
+            loadCourses();
+          }}
+        />
       )}
     </div>
   );

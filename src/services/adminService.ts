@@ -6,6 +6,7 @@ import {
   SEED_BATCHES,
   SEED_ENROLLMENTS,
   SEED_PAYMENTS,
+  SEED_REFUNDS,
   SEED_CERTIFICATES,
   SEED_COMPANIES,
   SEED_JOBS,
@@ -28,6 +29,7 @@ import type {
   Batch,
   Enrollment,
   PaymentTransaction,
+  RefundRequest,
   CertificateRecord,
   AttendanceSession,
   Assignment,
@@ -1185,6 +1187,7 @@ export const adminService = {
     const newNotif: InAppNotification = {
       id: `notif-${Date.now()}`,
       userId: data.targetGroup,
+      targetRole: (data.targetGroup === 'students' ? 'student' : data.targetGroup === 'teachers' ? 'teacher' : data.targetGroup === 'all' ? 'all' : undefined) as any,
       title: data.title,
       message: data.message,
       category: data.category as any,
@@ -1421,5 +1424,52 @@ export const adminService = {
     );
 
     return { success: true, data: settings, message: 'Institute operational settings saved.' };
+  },
+
+  /**
+   * Refund Processing Workflow (CRD BR-006): Admin initiates request for Super Admin authorization
+   */
+  async getRefundRequests(): Promise<ApiResponse<RefundRequest[]>> {
+    await sleep(150);
+    const refunds = getStorageItem<RefundRequest[]>(STORAGE_KEYS.REFUNDS, SEED_REFUNDS);
+    return { success: true, data: refunds };
+  },
+
+  async requestRefund(
+    admin: { id: string; name: string },
+    data: {
+      transactionId: string;
+      studentId: string;
+      studentName: string;
+      courseId: string;
+      courseTitle: string;
+      amountINR: number;
+      reason: string;
+    }
+  ): Promise<ApiResponse<RefundRequest>> {
+    await sleep(250);
+    const refunds = getStorageItem<RefundRequest[]>(STORAGE_KEYS.REFUNDS, SEED_REFUNDS);
+    const newRefund: RefundRequest = {
+      id: `ref-${Date.now().toString().slice(-4)}`,
+      transactionId: data.transactionId,
+      studentId: data.studentId,
+      studentName: data.studentName,
+      courseId: data.courseId,
+      courseTitle: data.courseTitle,
+      amountINR: data.amountINR,
+      reason: data.reason,
+      status: 'pending_super_admin',
+      requestedAt: new Date().toISOString(),
+    };
+
+    setStorageItem(STORAGE_KEYS.REFUNDS, [newRefund, ...refunds]);
+    recordAuditLog(
+      { id: admin.id, name: admin.name, role: 'admin' },
+      'REFUND_REQUESTED',
+      `Payment: ${data.transactionId} | Student: ${data.studentName}`,
+      `Initiated refund request of ₹${data.amountINR.toLocaleString('en-IN')}. Awaiting Super Admin authorization (BR-006).`
+    );
+
+    return { success: true, data: newRefund, message: 'Refund request submitted to Super Admin for approval.' };
   },
 };

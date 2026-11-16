@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Users,
@@ -22,6 +22,8 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { teacherService } from '../../services/teacherService';
+import { STORAGE_KEYS } from '../../constants/appConfig';
+import { useStorageSync } from '../../hooks/useStorageSync';
 import type { Batch, Course, AssignmentSubmission, StudentDoubt, AnnouncementItem } from '../../types';
 import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
@@ -35,23 +37,35 @@ export const TeacherDashboardPage: React.FC = () => {
   const [pendingDoubts, setPendingDoubts] = useState<StudentDoubt[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    const loadDashboardData = async () => {
-      const teacherId = user?.id || 'user-tch-001';
-      const [batchesRes, coursesRes, doubtsRes] = await Promise.all([
-        teacherService.getAssignedBatches(teacherId),
-        teacherService.getAssignedCourses(teacherId),
-        teacherService.getStudentDoubts(teacherId),
-      ]);
+  const loadDashboardData = useCallback(async () => {
+    const teacherId = user?.id || 'user-tch-001';
+    const [batchesRes, coursesRes, doubtsRes] = await Promise.all([
+      teacherService.getAssignedBatches(teacherId),
+      teacherService.getAssignedCourses(teacherId),
+      teacherService.getStudentDoubts(teacherId),
+    ]);
 
-      if (batchesRes.success) setAssignedBatches(batchesRes.data);
-      if (coursesRes.success) setAssignedCourses(coursesRes.data);
-      if (doubtsRes.success) setPendingDoubts(doubtsRes.data.filter((d) => d.status === 'open'));
-      setIsLoading(false);
-    };
-
-    loadDashboardData();
+    if (batchesRes.success) setAssignedBatches(batchesRes.data);
+    if (coursesRes.success) setAssignedCourses(coursesRes.data);
+    if (doubtsRes.success) setPendingDoubts(doubtsRes.data.filter((d) => d.status === 'open'));
+    setIsLoading(false);
   }, [user]);
+
+  useEffect(() => {
+    loadDashboardData();
+  }, [loadDashboardData]);
+
+  useStorageSync(
+    [
+      STORAGE_KEYS.COURSES,
+      STORAGE_KEYS.BATCHES,
+      STORAGE_KEYS.TEACHERS,
+      STORAGE_KEYS.TEACHER_DOUBTS,
+      STORAGE_KEYS.ASSIGNMENTS,
+      STORAGE_KEYS.SUBMISSIONS,
+    ],
+    loadDashboardData
+  );
 
   const activeBatch = assignedBatches[0];
   const totalStudents = assignedBatches.reduce((acc, b) => acc + (b.enrolledStudentIds?.length || 40), 0);

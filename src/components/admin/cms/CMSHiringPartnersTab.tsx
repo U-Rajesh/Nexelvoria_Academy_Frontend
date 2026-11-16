@@ -78,13 +78,21 @@ export const CMSHiringPartnersTab: React.FC = () => {
       return;
     }
 
-    cmsService.saveHiringPartner(editingPartner);
+    const toSave: HiringPartnerCompany = {
+      ...editingPartner,
+      isActive: editingPartner.isActive !== false,
+      isVisible: editingPartner.isActive !== false,
+      website: editingPartner.websiteUrl || editingPartner.website,
+      websiteUrl: editingPartner.websiteUrl || editingPartner.website,
+    };
+
+    cmsService.saveHiringPartner(toSave);
     setPartners(cmsService.getHiringPartners());
     setPartnerModalOpen(false);
     showToast({
       type: 'success',
       title: 'Hiring Partner Saved',
-      message: `${editingPartner.name} updated in the hiring network.`,
+      message: `${toSave.name} updated in the hiring network.`,
     });
   };
 
@@ -103,18 +111,20 @@ export const CMSHiringPartnersTab: React.FC = () => {
   const handleTogglePartnerActive = (id: string) => {
     const target = partners.find((p) => p.id === id);
     if (!target) return;
-    const updated = { ...target, isActive: !target.isActive };
+    const nextStatus = target.isActive === false ? true : false;
+    const updated: HiringPartnerCompany = { ...target, isActive: nextStatus, isVisible: nextStatus };
     cmsService.saveHiringPartner(updated);
     setPartners(cmsService.getHiringPartners());
     showToast({
       type: 'success',
       title: 'Status Updated',
-      message: `${target.name} is now ${updated.isActive ? 'Active' : 'Hidden'}.`,
+      message: `${target.name} is now ${nextStatus ? 'Active' : 'Hidden'}.`,
     });
   };
 
   const handleSaveMarqueeConfig = () => {
     cmsService.saveMarqueeConfig(marqueeConfig);
+    setMarqueeConfig(cmsService.getMarqueeConfig());
     showToast({
       type: 'success',
       title: 'Marquee Settings Saved',
@@ -326,20 +336,61 @@ export const CMSHiringPartnersTab: React.FC = () => {
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Scroll Velocity</label>
+                <label className="block font-semibold text-slate-700 mb-1">Scroll Velocity Preset</label>
                 <div className="grid grid-cols-3 gap-2">
-                  {(['slow', 'normal', 'fast'] as const).map((spd) => (
-                    <button
-                      key={spd}
-                      type="button"
-                      onClick={() => setMarqueeConfig({ ...marqueeConfig, speed: spd })}
-                      className={`p-2 rounded-lg border font-bold text-center capitalize cursor-pointer ${
-                        marqueeConfig.speed === spd ? 'border-indigo-600 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-white text-slate-600'
-                      }`}
-                    >
-                      {spd} ({spd === 'slow' ? '45s' : spd === 'normal' ? '30s' : '18s'})
-                    </button>
-                  ))}
+                  {(['slow', 'normal', 'fast'] as const).map((spd) => {
+                    const sec = spd === 'slow' ? 45 : spd === 'normal' ? 30 : 18;
+                    return (
+                      <button
+                        key={spd}
+                        type="button"
+                        onClick={() =>
+                          setMarqueeConfig({
+                            ...marqueeConfig,
+                            speed: spd,
+                            row1Speed: spd,
+                            row2Speed: spd,
+                            durationSeconds: sec,
+                          })
+                        }
+                        className={`p-2 rounded-lg border font-bold text-center capitalize cursor-pointer ${
+                          marqueeConfig.speed === spd
+                            ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
+                            : 'border-slate-200 bg-white text-slate-600'
+                        }`}
+                      >
+                        {spd} ({sec}s)
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Exact Movement Duration (seconds)</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={5}
+                    max={120}
+                    value={
+                      marqueeConfig.durationSeconds ||
+                      (marqueeConfig.speed === 'fast' ? 18 : marqueeConfig.speed === 'slow' ? 45 : 30)
+                    }
+                    onChange={(e) => {
+                      const sec = Math.max(5, parseInt(e.target.value) || 18);
+                      const spd = sec <= 20 ? 'fast' : sec >= 40 ? 'slow' : 'normal';
+                      setMarqueeConfig({
+                        ...marqueeConfig,
+                        durationSeconds: sec,
+                        speed: spd,
+                        row1Speed: `${sec}s`,
+                        row2Speed: `${sec}s`,
+                      });
+                    }}
+                    className="w-28 px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-mono font-bold focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white"
+                  />
+                  <span className="text-slate-500 text-xs font-medium">seconds per full logo loop (e.g. 18s)</span>
                 </div>
               </div>
 
@@ -366,18 +417,34 @@ export const CMSHiringPartnersTab: React.FC = () => {
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
-                    onClick={() => setMarqueeConfig({ ...marqueeConfig, directionRow1: 'left' })}
+                    onClick={() =>
+                      setMarqueeConfig({
+                        ...marqueeConfig,
+                        directionRow1: 'left',
+                        row1Direction: 'left',
+                      })
+                    }
                     className={`p-2 rounded-lg border font-bold text-center cursor-pointer ${
-                      marqueeConfig.directionRow1 === 'left' ? 'border-indigo-600 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-white text-slate-600'
+                      (marqueeConfig.directionRow1 === 'left' || marqueeConfig.row1Direction === 'left')
+                        ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
+                        : 'border-slate-200 bg-white text-slate-600'
                     }`}
                   >
                     ← Leftward
                   </button>
                   <button
                     type="button"
-                    onClick={() => setMarqueeConfig({ ...marqueeConfig, directionRow1: 'right' })}
+                    onClick={() =>
+                      setMarqueeConfig({
+                        ...marqueeConfig,
+                        directionRow1: 'right',
+                        row1Direction: 'right',
+                      })
+                    }
                     className={`p-2 rounded-lg border font-bold text-center cursor-pointer ${
-                      marqueeConfig.directionRow1 === 'right' ? 'border-indigo-600 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-white text-slate-600'
+                      (marqueeConfig.directionRow1 === 'right' || marqueeConfig.row1Direction === 'right')
+                        ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
+                        : 'border-slate-200 bg-white text-slate-600'
                     }`}
                   >
                     Rightward →
@@ -391,18 +458,34 @@ export const CMSHiringPartnersTab: React.FC = () => {
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
-                      onClick={() => setMarqueeConfig({ ...marqueeConfig, directionRow2: 'left' })}
+                      onClick={() =>
+                        setMarqueeConfig({
+                          ...marqueeConfig,
+                          directionRow2: 'left',
+                          row2Direction: 'left',
+                        })
+                      }
                       className={`p-2 rounded-lg border font-bold text-center cursor-pointer ${
-                        marqueeConfig.directionRow2 === 'left' ? 'border-indigo-600 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-white text-slate-600'
+                        (marqueeConfig.directionRow2 === 'left' || marqueeConfig.row2Direction === 'left')
+                          ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
+                          : 'border-slate-200 bg-white text-slate-600'
                       }`}
                     >
                       ← Leftward
                     </button>
                     <button
                       type="button"
-                      onClick={() => setMarqueeConfig({ ...marqueeConfig, directionRow2: 'right' })}
+                      onClick={() =>
+                        setMarqueeConfig({
+                          ...marqueeConfig,
+                          directionRow2: 'right',
+                          row2Direction: 'right',
+                        })
+                      }
                       className={`p-2 rounded-lg border font-bold text-center cursor-pointer ${
-                        marqueeConfig.directionRow2 === 'right' ? 'border-indigo-600 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-white text-slate-600'
+                        (marqueeConfig.directionRow2 === 'right' || marqueeConfig.row2Direction === 'right')
+                          ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
+                          : 'border-slate-200 bg-white text-slate-600'
                       }`}
                     >
                       Rightward →
@@ -540,7 +623,13 @@ export const CMSHiringPartnersTab: React.FC = () => {
                 type="checkbox"
                 id="partnerActive"
                 checked={editingPartner.isActive !== false}
-                onChange={(e) => setEditingPartner({ ...editingPartner, isActive: e.target.checked })}
+                onChange={(e) =>
+                  setEditingPartner({
+                    ...editingPartner,
+                    isActive: e.target.checked,
+                    isVisible: e.target.checked,
+                  })
+                }
                 className="rounded text-indigo-600 focus:ring-indigo-500"
               />
               <label htmlFor="partnerActive" className="font-semibold text-slate-700 cursor-pointer">

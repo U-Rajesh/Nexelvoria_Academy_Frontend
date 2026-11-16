@@ -32,6 +32,8 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { adminService, type DashboardStatsData } from '../../services/adminService';
+import { STORAGE_KEYS } from '../../constants/appConfig';
+import { useStorageSync } from '../../hooks/useStorageSync';
 import { formatINR } from '../../utils/formatters';
 import { MetricCard } from '../../components/charts/MetricCard';
 import { Button } from '../../components/common/Button';
@@ -57,11 +59,26 @@ export const AdminDashboardPage: React.FC = () => {
     placementsCount: 0,
   });
 
-  useEffect(() => {
+  const loadStats = React.useCallback(() => {
     adminService.getDashboardStats().then((res) => {
       if (res.success) setStats(res.data);
     });
   }, []);
+
+  useEffect(() => {
+    loadStats();
+  }, [loadStats]);
+
+  useStorageSync(
+    [
+      STORAGE_KEYS.ENROLLMENTS,
+      STORAGE_KEYS.STUDENTS,
+      STORAGE_KEYS.COURSES,
+      STORAGE_KEYS.PAYMENTS,
+      STORAGE_KEYS.BATCHES,
+    ],
+    loadStats
+  );
 
   const revenueData = [
     { month: 'Jun', revenue: 120000 },

@@ -59,12 +59,12 @@
 }
 
 .animate-marquee-left {
-  animation: marquee-left 32s linear infinite;
+  animation: marquee-left var(--marquee-duration, 30s) linear infinite;
   will-change: transform;
 }
 
 .animate-marquee-right {
-  animation: marquee-right 32s linear infinite;
+  animation: marquee-right var(--marquee-duration, 30s) linear infinite;
   will-change: transform;
 }
 

@@ -14,6 +14,8 @@ import {
   BookOpen,
 } from 'lucide-react';
 import { adminService } from '../../services/adminService';
+import { STORAGE_KEYS } from '../../constants/appConfig';
+import { useStorageSync } from '../../hooks/useStorageSync';
 import { useAuth } from '../../context/AuthContext';
 import { useNotification } from '../../context/NotificationContext';
 import { formatDate } from '../../utils/formatters';
@@ -61,6 +63,8 @@ export const AdminAttendancePage: React.FC = () => {
   useEffect(() => {
     loadData();
   }, []);
+
+  useStorageSync([STORAGE_KEYS.ATTENDANCE, STORAGE_KEYS.BATCHES], loadData);
 
   const filteredSessions = sessions.filter((s) => {
     if (selectedBatchId !== 'all' && s.batchId !== selectedBatchId) return false;

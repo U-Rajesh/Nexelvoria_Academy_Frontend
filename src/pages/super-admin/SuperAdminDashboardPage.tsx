@@ -27,6 +27,8 @@ import {
   Activity,
 } from 'lucide-react';
 import { superAdminService } from '../../services/superAdminService';
+import { STORAGE_KEYS } from '../../constants/appConfig';
+import { useStorageSync } from '../../hooks/useStorageSync';
 import { formatINR, formatDate } from '../../utils/formatters';
 import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
@@ -48,25 +50,36 @@ export const SuperAdminDashboardPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null);
 
-  useEffect(() => {
-    const loadAll = async () => {
-      setIsLoading(true);
-      const [statsRes, refundsRes, overridesRes, logsRes] = await Promise.all([
-        superAdminService.getDashboardStats(),
-        superAdminService.getRefundRequests(),
-        superAdminService.getFinancialOverrides(),
-        superAdminService.getAuditLogs(),
-      ]);
+  const loadAll = React.useCallback(async () => {
+    const [statsRes, refundsRes, overridesRes, logsRes] = await Promise.all([
+      superAdminService.getDashboardStats(),
+      superAdminService.getRefundRequests(),
+      superAdminService.getFinancialOverrides(),
+      superAdminService.getAuditLogs(),
+    ]);
 
-      if (statsRes.success) setStats(statsRes.data);
-      if (refundsRes.success) setRefunds(refundsRes.data);
-      if (overridesRes.success) setOverrides(overridesRes.data);
-      if (logsRes.success) setAuditLogs(logsRes.data);
-      setIsLoading(false);
-    };
-
-    loadAll();
+    if (statsRes.success) setStats(statsRes.data);
+    if (refundsRes.success) setRefunds(refundsRes.data);
+    if (overridesRes.success) setOverrides(overridesRes.data);
+    if (logsRes.success) setAuditLogs(logsRes.data);
+    setIsLoading(false);
   }, []);
+
+  useEffect(() => {
+    setIsLoading(true);
+    loadAll();
+  }, [loadAll]);
+
+  useStorageSync(
+    [
+      STORAGE_KEYS.REFUNDS,
+      STORAGE_KEYS.FINANCIAL_OVERRIDES,
+      STORAGE_KEYS.AUDIT_LOGS,
+      STORAGE_KEYS.PAYMENTS,
+      STORAGE_KEYS.ADMINS,
+    ],
+    loadAll
+  );
 
   const pendingRefunds = refunds.filter((r) => r.status === 'pending_super_admin');
   const pendingOverrides = overrides.filter((o) => o.status === 'pending');
