@@ -1,4 +1,7 @@
 
+import type { ApiResponse } from '../types/common.types';
+export type { ApiResponse };
+
 export interface WebsiteBanner {
   id: string;
   text: string;
@@ -243,12 +246,43 @@ export interface MarqueeAnimationConfig {
   rowCount: 1 | 2;
   row1Direction?: 'left' | 'right';
   row2Direction?: 'left' | 'right';
-  row1Speed?: 'slow' | 'normal' | 'fast';
-  row2Speed?: 'slow' | 'normal' | 'fast';
+  row1Speed?: 'slow' | 'normal' | 'fast' | string;
+  row2Speed?: 'slow' | 'normal' | 'fast' | string;
   directionRow1?: 'left' | 'right';
   directionRow2?: 'left' | 'right';
-  speed?: 'slow' | 'normal' | 'fast';
+  speed?: 'slow' | 'normal' | 'fast' | string;
+  durationSeconds?: number;
   pauseOnHover: boolean;
+}
+
+export type PartnershipType =
+  | 'Placement Support'
+  | 'Training'
+  | 'Internships'
+  | 'Skill Development'
+  | 'Faculty Development (FDP)'
+  | 'Curriculum Design'
+  | string;
+
+export interface CollegePartnership {
+  id: string;
+  collegeName: string;
+  name?: string;               // backward-compatible alias
+  collegeLogo?: string;
+  logoUrl?: string;            // backward-compatible alias
+  city: string;
+  state: string;
+  location?: string;           // backward-compatible alias
+  partnershipTypes: PartnershipType[];
+  description: string;
+  status: 'active' | 'inactive';
+  mouYear?: string;            // backward-compatible
+  activeStudentsCount?: number;// backward-compatible
+  isVisible?: boolean;         // backward-compatible
+  displayOrder?: number;
+  needsReview?: boolean;       // flagged for review if legacy record lacked explicit status
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface CollegePartnershipConfig {
@@ -261,25 +295,8 @@ export interface CollegePartnershipConfig {
     title: string;
     desc: string;
   }>;
-  partners?: Array<{
-    id: string;
-    collegeName: string;
-    logoUrl?: string;
-    location: string;
-    mouYear: string;
-    activeStudentsCount: number;
-    isVisible: boolean;
-    displayOrder: number;
-  }>;
-  partnerColleges: Array<{
-    id?: string;
-    name: string;
-    collegeName?: string;
-    logoUrl?: string;
-    location: string;
-    mouYear: string;
-    activeStudentsCount?: number;
-  }>;
+  partners?: CollegePartnership[];
+  partnerColleges: CollegePartnership[];
   sectionVisibility: {
     header: boolean;
     benefits: boolean;
@@ -288,12 +305,26 @@ export interface CollegePartnershipConfig {
   };
 }
 
+export interface CorporateTrainingService {
+  id: string;
+  title: string;
+  shortDescription: string;
+  fullDescription: string;
+  topics: string[];
+  icon: string; // Lucide icon name or image URL / base64 data URL
+  displayOrder: number;
+  status: 'active' | 'inactive';
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface CorporateTrainingConfig {
   header: {
     badgeText?: string;
     title: string;
     subtitle: string;
   };
+  services: CorporateTrainingService[];
   offerings: Array<{
     id?: string;
     title: string;
@@ -311,6 +342,7 @@ export interface CorporateTrainingConfig {
   }>;
   sectionVisibility: {
     header: boolean;
+    services: boolean;
     offerings: boolean;
     form: boolean;
     clients: boolean;
@@ -976,8 +1008,155 @@ const INITIAL_MARQUEE_CONFIG: MarqueeAnimationConfig = {
   directionRow1: 'left',
   directionRow2: 'right',
   speed: 'normal',
+  durationSeconds: 30,
   pauseOnHover: true,
 };
+
+export function normalizeCollegePartnership(item: any, fallbackId?: string): CollegePartnership {
+  const collegeName = (item.collegeName || item.name || '').trim();
+  const id = item.id || fallbackId || `col-${Date.now()}`;
+  const logo = item.collegeLogo || item.logoUrl || '';
+
+  // Location: do not assume default city/state if location is missing (Preserves user adjustment #1)
+  let city = (item.city || '').trim();
+  let state = (item.state || '').trim();
+  if (!city && item.location) {
+    const parts = item.location.split(',').map((p: string) => p.trim());
+    city = parts[0] || '';
+    state = parts[1] || '';
+  }
+  const combinedLocation = city && state ? `${city}, ${state}` : city || state || (item.location || '');
+
+  // Status: do not automatically mark legacy records as Active (Preserves user adjustment #2)
+  let status: 'active' | 'inactive' = 'inactive';
+  let needsReview = false;
+
+  if (item.status === 'active' || item.status === 'inactive') {
+    status = item.status;
+  } else if (item.isVisible === true) {
+    status = 'active';
+  } else if (item.isVisible === false) {
+    status = 'inactive';
+  } else {
+    // Missing status in legacy data: preserved as inactive and flagged for admin review
+    status = 'inactive';
+    needsReview = true;
+  }
+
+  // Partnership Types
+  const rawTypes = item.partnershipTypes;
+  let partnershipTypes: PartnershipType[] = [];
+  if (Array.isArray(rawTypes) && rawTypes.length > 0) {
+    partnershipTypes = rawTypes;
+  } else if (typeof rawTypes === 'string' && rawTypes.trim()) {
+    partnershipTypes = [rawTypes.trim()];
+  } else {
+    partnershipTypes = ['Training'];
+  }
+
+  // Description
+  const description = item.description || (item.activeStudentsCount ? `Institutional training MoU with ${item.activeStudentsCount} enrolled students.` : 'Institutional partnership agreement for student technical training and placements.');
+
+  return {
+    id,
+    collegeName: collegeName || 'Partner Institution',
+    name: collegeName || 'Partner Institution',
+    collegeLogo: logo,
+    logoUrl: logo,
+    city,
+    state,
+    location: combinedLocation,
+    partnershipTypes,
+    description,
+    status,
+    mouYear: item.mouYear || '',
+    activeStudentsCount: item.activeStudentsCount || 0,
+    isVisible: status === 'active',
+    displayOrder: item.displayOrder || 1,
+    needsReview,
+    createdAt: item.createdAt || new Date().toISOString(),
+    updatedAt: item.updatedAt || new Date().toISOString(),
+  };
+}
+
+const INITIAL_COLLEGE_PARTNERS: CollegePartnership[] = [
+  {
+    id: 'mou-01',
+    collegeName: 'Osmania University College of Engineering',
+    name: 'Osmania University College of Engineering',
+    collegeLogo: '',
+    logoUrl: '',
+    city: 'Hyderabad',
+    state: 'Telangana',
+    location: 'Hyderabad, Telangana',
+    partnershipTypes: ['Training', 'Placement Support', 'Skill Development'],
+    description: 'Center-of-excellence setup and placement training partnership for engineering graduates.',
+    status: 'active',
+    isVisible: true,
+    mouYear: '2024',
+    activeStudentsCount: 320,
+    displayOrder: 1,
+    createdAt: '2024-01-15T10:00:00Z',
+    updatedAt: '2026-11-16T10:00:00Z',
+  },
+  {
+    id: 'mou-02',
+    collegeName: 'JNTU College of Engineering',
+    name: 'JNTU College of Engineering',
+    collegeLogo: '',
+    logoUrl: '',
+    city: 'Hyderabad',
+    state: 'Telangana',
+    location: 'Hyderabad, Telangana',
+    partnershipTypes: ['Training', 'Faculty Development (FDP)', 'Internships'],
+    description: 'MoU covering curriculum co-delivery, faculty development programs, and cloud microservices labs.',
+    status: 'active',
+    isVisible: true,
+    mouYear: '2024',
+    activeStudentsCount: 450,
+    displayOrder: 2,
+    createdAt: '2024-03-20T10:00:00Z',
+    updatedAt: '2026-11-16T10:00:00Z',
+  },
+  {
+    id: 'mou-03',
+    collegeName: 'Chaitanya Bharathi Institute of Technology (CBIT)',
+    name: 'Chaitanya Bharathi Institute of Technology (CBIT)',
+    collegeLogo: '',
+    logoUrl: '',
+    city: 'Hyderabad',
+    state: 'Telangana',
+    location: 'Hyderabad, Telangana',
+    partnershipTypes: ['Placement Support', 'Skill Development'],
+    description: 'Campus recruitment acceleration and full-stack software development finishing school program.',
+    status: 'active',
+    isVisible: true,
+    mouYear: '2025',
+    activeStudentsCount: 280,
+    displayOrder: 3,
+    createdAt: '2025-02-10T10:00:00Z',
+    updatedAt: '2026-11-16T10:00:00Z',
+  },
+  {
+    id: 'mou-04',
+    collegeName: 'VNR Vignana Jyothi Institute of Engineering & Technology',
+    name: 'VNR Vignana Jyothi Institute of Engineering & Technology',
+    collegeLogo: '',
+    logoUrl: '',
+    city: 'Hyderabad',
+    state: 'Telangana',
+    location: 'Hyderabad, Telangana',
+    partnershipTypes: ['Training', 'Internships', 'Curriculum Design'],
+    description: 'Specialized enterprise Java and cloud computing mentorship partnership for pre-final year students.',
+    status: 'active',
+    isVisible: true,
+    mouYear: '2025',
+    activeStudentsCount: 210,
+    displayOrder: 4,
+    createdAt: '2025-06-15T10:00:00Z',
+    updatedAt: '2026-11-16T10:00:00Z',
+  },
+];
 
 const INITIAL_COLLEGE_PARTNERSHIPS: CollegePartnershipConfig = {
   header: {
@@ -990,18 +1169,8 @@ const INITIAL_COLLEGE_PARTNERSHIPS: CollegePartnershipConfig = {
     { title: 'Exclusive Campus Drives', desc: 'Top tier hiring partners invited specifically for partnered colleges, improving overall departmental placement records.' },
     { title: 'Faculty Development Programs (FDP)', desc: 'Equipping college professors with the latest trends in Cloud Microservices, GenAI, and DevOps architectures.' },
   ],
-  partners: [
-    { id: 'mou-01', collegeName: 'Osmania University College of Engineering', location: 'Hyderabad', mouYear: '2024', activeStudentsCount: 320, isVisible: true, displayOrder: 1 },
-    { id: 'mou-02', collegeName: 'JNTU College of Engineering', location: 'Hyderabad', mouYear: '2024', activeStudentsCount: 450, isVisible: true, displayOrder: 2 },
-    { id: 'mou-03', collegeName: 'Chaitanya Bharathi Institute of Technology (CBIT)', location: 'Hyderabad', mouYear: '2025', activeStudentsCount: 280, isVisible: true, displayOrder: 3 },
-    { id: 'mou-04', collegeName: 'VNR Vignana Jyothi Institute of Engineering & Technology', location: 'Hyderabad', mouYear: '2025', activeStudentsCount: 210, isVisible: true, displayOrder: 4 },
-  ],
-  partnerColleges: [
-    { id: 'mou-01', name: 'Osmania University College of Engineering', location: 'Hyderabad', mouYear: '2024', activeStudentsCount: 320 },
-    { id: 'mou-02', name: 'JNTU College of Engineering', location: 'Hyderabad', mouYear: '2024', activeStudentsCount: 450 },
-    { id: 'mou-03', name: 'Chaitanya Bharathi Institute of Technology (CBIT)', location: 'Hyderabad', mouYear: '2025', activeStudentsCount: 280 },
-    { id: 'mou-04', name: 'VNR Vignana Jyothi Institute of Engineering & Technology', location: 'Hyderabad', mouYear: '2025', activeStudentsCount: 210 },
-  ],
+  partners: INITIAL_COLLEGE_PARTNERS,
+  partnerColleges: INITIAL_COLLEGE_PARTNERS,
   sectionVisibility: {
     header: true,
     benefits: true,
@@ -1010,12 +1179,88 @@ const INITIAL_COLLEGE_PARTNERSHIPS: CollegePartnershipConfig = {
   },
 };
 
+export const INITIAL_CORPORATE_SERVICES: CorporateTrainingService[] = [
+  {
+    id: 'corp-service-1',
+    title: 'Technical Training',
+    shortDescription: 'Enterprise-grade deep-dive engineering upskilling in modern software development stacks.',
+    fullDescription: 'Comprehensive technology tracks designed to elevate developer proficiency, covering architectural patterns, production debugging, unit testing, and scalable application development.',
+    topics: ['Java', 'Python', 'React.js', 'Node.js', '.NET', 'Microservices', 'Cloud Architecture'],
+    icon: 'Laptop',
+    displayOrder: 1,
+    status: 'active',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  },
+  {
+    id: 'corp-service-2',
+    title: 'Soft Skills Training',
+    shortDescription: 'Empowering engineering and delivery teams with impactful communication, leadership, and collaboration.',
+    fullDescription: 'Workplace readiness programs focusing on cross-functional alignment, client presentation mastery, executive storytelling, and constructive conflict resolution.',
+    topics: ['Communication skills', 'Teamwork', 'Leadership', 'Presentation skills', 'Business Acumen'],
+    icon: 'Users',
+    displayOrder: 2,
+    status: 'active',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  },
+  {
+    id: 'corp-service-3',
+    title: 'Employee Skill Development',
+    shortDescription: 'Structured capability enhancement to upgrade existing technical workforces and close skill gaps.',
+    fullDescription: 'Targeted upskilling and reskilling initiatives that benchmark current workforce capabilities and systematically progress employees through hands-on role transitions.',
+    topics: ['Improving employees\' existing technical skills', 'Practical skill enhancement', 'Professional development', 'Code Quality & Clean Code'],
+    icon: 'TrendingUp',
+    displayOrder: 3,
+    status: 'active',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  },
+  {
+    id: 'corp-service-4',
+    title: 'Corporate Workshops',
+    shortDescription: 'High-impact, intensive bootcamps focused on emergent tools, architectures, and engineering practices.',
+    fullDescription: 'Fast-paced experiential learning delivered by veteran practitioners featuring live sandbox labs, architectural tear-downs, and instant hackathons.',
+    topics: ['Practical workshops on new technologies', 'Industry tools and frameworks', 'Hands-on technical sessions', 'DevOps & CI/CD', 'GenAI Tools'],
+    icon: 'Wrench',
+    displayOrder: 4,
+    status: 'active',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  },
+  {
+    id: 'corp-service-5',
+    title: 'Customized Training Programs',
+    shortDescription: 'Bespoke enterprise curricula crafted precisely to meet specific organizational frameworks and project roadmaps.',
+    fullDescription: 'Tailor-made training paths aligned with company tech stacks, coding standards, internal APIs, and delivery deadlines, offering flexible hybrid and virtual cohorts.',
+    topics: ['Training designed according to company requirements', 'Customized course content', 'Flexible training plans', 'Internal API Onboarding'],
+    icon: 'Sliders',
+    displayOrder: 5,
+    status: 'active',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  },
+  {
+    id: 'corp-service-6',
+    title: 'Placement & Internship Training',
+    shortDescription: 'Industry-readiness incubation bridging academic foundations to billable client project delivery.',
+    fullDescription: 'Rigorous graduate trainee and intern enablement programs covering real-world project simulations, mock technical interviews, and corporate conduct.',
+    topics: ['Preparing candidates for industry requirements', 'Interview preparation', 'Job-readiness training', 'Mock Technical Rounds', 'Live Capstone Projects'],
+    icon: 'GraduationCap',
+    displayOrder: 6,
+    status: 'active',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  },
+];
+
 const INITIAL_CORPORATE_TRAINING: CorporateTrainingConfig = {
   header: {
     badgeText: 'Enterprise Solutions',
     title: 'Upskill Engineering Teams with Custom Cohorts',
     subtitle: 'Accelerate your workforce into modern cloud architectures, microservices migration, Kubernetes, and enterprise GenAI systems.',
   },
+  services: INITIAL_CORPORATE_SERVICES,
   offerings: [
     { id: 'corp-1', title: 'Dedicated Sandboxes', desc: 'Every corporate cohort receives tailored AWS/GCP cloud environments pre-configured with project repositories and CI/CD pipelines.', iconName: 'Laptop', isVisible: true },
     { id: 'corp-2', title: 'Customized Tech Stack', desc: 'We adapt curriculum modules to mirror your company’s internal architectural patterns and proprietary internal APIs.', iconName: 'ShieldCheck', isVisible: true },
@@ -1028,6 +1273,7 @@ const INITIAL_CORPORATE_TRAINING: CorporateTrainingConfig = {
   ],
   sectionVisibility: {
     header: true,
+    services: true,
     offerings: true,
     form: true,
     clients: true,
@@ -1207,15 +1453,35 @@ class CMSService {
     }
   }
 
-  private setStorageItem<T>(key: string, value: T): void {
+  private setStorageItem<T>(key: string, value: T): { success: boolean; error?: string } {
     try {
       localStorage.setItem(key, JSON.stringify(value));
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('cms-update', { detail: { key } }));
+    } catch (e: any) {
+      console.error(`Failed to save to localStorage key "${key}":`, e);
+      let errorMsg = 'Failed to write to local storage.';
+      if (e?.name === 'QuotaExceededError' || e?.code === 22 || e?.code === 1014) {
+        errorMsg = 'LocalStorage storage quota exceeded. Please use an image URL or upload a smaller logo image (< 100KB).';
+      } else if (e?.message) {
+        errorMsg = `Storage error: ${e.message}`;
       }
-    } catch (e) {
-      console.warn(`Failed to save to localStorage key "${key}":`, e);
+      return { success: false, error: errorMsg };
     }
+
+    // Storage write succeeded!
+    // Safely dispatch application events in isolated try/catch blocks
+    if (typeof window !== 'undefined') {
+      try {
+        window.dispatchEvent(new CustomEvent('cms-update', { detail: { key } }));
+      } catch (err) {
+        console.warn('Error in cms-update listener:', err);
+      }
+      try {
+        window.dispatchEvent(new CustomEvent('app-storage-update', { detail: { key, value } }));
+      } catch (err) {
+        console.warn('Error in app-storage-update listener:', err);
+      }
+    }
+    return { success: true };
   }
 
   // --- Banners (PUB-022) ---
@@ -1430,25 +1696,471 @@ class CMSService {
   }
 
   saveMarqueeConfig(config: MarqueeAnimationConfig): void {
-    this.setStorageItem(STORAGE_KEYS.MARQUEE_CONFIG, config);
+    const speed = config.speed || config.row1Speed || 'normal';
+    const row1Direction = config.row1Direction || config.directionRow1 || 'left';
+    const row2Direction = config.row2Direction || config.directionRow2 || 'right';
+    const durationSeconds =
+      config.durationSeconds ?? (speed === 'fast' ? 18 : speed === 'slow' ? 45 : 30);
+
+    const normalized: MarqueeAnimationConfig = {
+      ...config,
+      speed,
+      row1Speed: config.row1Speed || speed,
+      row2Speed: config.row2Speed || speed,
+      row1Direction,
+      directionRow1: row1Direction,
+      row2Direction,
+      directionRow2: row2Direction,
+      durationSeconds,
+    };
+    this.setStorageItem(STORAGE_KEYS.MARQUEE_CONFIG, normalized);
   }
 
   // --- 10. College Partnerships ---
   getCollegePartnerships(): CollegePartnershipConfig {
-    return this.getStorageItem<CollegePartnershipConfig>(STORAGE_KEYS.COLLEGE_PARTNERSHIPS, INITIAL_COLLEGE_PARTNERSHIPS);
+    const raw = this.getStorageItem<any>(STORAGE_KEYS.COLLEGE_PARTNERSHIPS, INITIAL_COLLEGE_PARTNERSHIPS);
+
+    // Inspect both raw.partners and raw.partnerColleges to preserve all existing records
+    const rawList: any[] = [];
+    if (Array.isArray(raw.partners)) {
+      rawList.push(...raw.partners);
+    }
+    if (Array.isArray(raw.partnerColleges)) {
+      raw.partnerColleges.forEach((pc: any) => {
+        const exists = rawList.some(
+          (p: any) =>
+            (p.id && pc.id && p.id === pc.id) ||
+            (p.collegeName && (p.collegeName === pc.name || p.collegeName === pc.collegeName))
+        );
+        if (!exists) {
+          rawList.push(pc);
+        }
+      });
+    }
+
+    if (rawList.length === 0 && Array.isArray(INITIAL_COLLEGE_PARTNERSHIPS.partners)) {
+      rawList.push(...INITIAL_COLLEGE_PARTNERSHIPS.partners);
+    }
+
+    const normalizedPartners = rawList.map((item, idx) =>
+      normalizeCollegePartnership(item, item.id || `col-${idx + 1}`)
+    );
+
+    return {
+      header: raw.header || INITIAL_COLLEGE_PARTNERSHIPS.header,
+      benefits: raw.benefits || INITIAL_COLLEGE_PARTNERSHIPS.benefits,
+      partners: normalizedPartners,
+      partnerColleges: normalizedPartners,
+      sectionVisibility: raw.sectionVisibility || INITIAL_COLLEGE_PARTNERSHIPS.sectionVisibility,
+    };
   }
 
-  saveCollegePartnerships(config: CollegePartnershipConfig): void {
-    this.setStorageItem(STORAGE_KEYS.COLLEGE_PARTNERSHIPS, config);
+  saveCollegePartnerships(config: CollegePartnershipConfig): ApiResponse<CollegePartnershipConfig> {
+    const rawList = config.partners || config.partnerColleges || [];
+    const normalizedPartners = rawList.map((p, idx) =>
+      normalizeCollegePartnership(p, p.id || `col-${Date.now()}-${idx}`)
+    );
+    const toSave: CollegePartnershipConfig = {
+      ...config,
+      partners: normalizedPartners,
+      partnerColleges: normalizedPartners,
+    };
+    const res = this.setStorageItem(STORAGE_KEYS.COLLEGE_PARTNERSHIPS, toSave);
+    if (!res.success) {
+      return { success: false, data: toSave, error: res.error || 'Failed to write partnership configuration to storage.' };
+    }
+    return { success: true, data: toSave, message: 'College partnerships saved successfully.' };
   }
 
-  // --- 11. Corporate Training ---
+  saveCollegePageSettings(settings: {
+    header?: CollegePartnershipConfig['header'];
+    benefits?: CollegePartnershipConfig['benefits'];
+    sectionVisibility?: CollegePartnershipConfig['sectionVisibility'];
+  }): ApiResponse<CollegePartnershipConfig> {
+    const latest = this.getCollegePartnerships();
+    const updated: CollegePartnershipConfig = {
+      header: settings.header || latest.header,
+      benefits: settings.benefits || latest.benefits,
+      sectionVisibility: settings.sectionVisibility || latest.sectionVisibility,
+      partners: latest.partners,
+      partnerColleges: latest.partnerColleges,
+    };
+    const res = this.setStorageItem(STORAGE_KEYS.COLLEGE_PARTNERSHIPS, updated);
+    if (!res.success) {
+      return { success: false, data: updated, error: res.error || 'Failed to save page settings to storage.' };
+    }
+    return { success: true, data: updated, message: 'College partnerships page configuration saved successfully.' };
+  }
+
+  getCollegePartners(): CollegePartnership[] {
+    return this.getCollegePartnerships().partners || [];
+  }
+
+  getCollegePartnerById(id: string): CollegePartnership | null {
+    const partners = this.getCollegePartners();
+    const target = id.trim().toLowerCase();
+    const match = partners.find(
+      (p) =>
+        p.id === id ||
+        (p.collegeName && p.collegeName.toLowerCase() === target) ||
+        (p.name && p.name.toLowerCase() === target)
+    );
+    return match || null;
+  }
+
+  saveCollegePartner(partner: CollegePartnership): ApiResponse<CollegePartnership> {
+    if (!partner || !partner.collegeName || !partner.collegeName.trim()) {
+      return { success: false, data: partner, error: 'College Name is required.' };
+    }
+    if (!partner.description || !partner.description.trim()) {
+      return { success: false, data: partner, error: 'Partnership Description is required.' };
+    }
+    if (!partner.partnershipTypes || partner.partnershipTypes.length === 0) {
+      return { success: false, data: partner, error: 'At least one Partnership Type must be selected.' };
+    }
+
+    const config = this.getCollegePartnerships();
+    const current = [...(config.partners || [])];
+    const targetName = (partner.collegeName || partner.name || '').trim().toLowerCase();
+    const idx = current.findIndex(
+      (p) => p.id === partner.id || (p.collegeName && p.collegeName.toLowerCase() === targetName)
+    );
+    const normalized = normalizeCollegePartnership(partner, partner.id || `col-${Date.now()}`);
+    let savedItem: CollegePartnership;
+    if (idx >= 0) {
+      savedItem = { ...current[idx], ...normalized, updatedAt: new Date().toISOString() };
+      current[idx] = savedItem;
+    } else {
+      savedItem = normalized;
+      current.push(savedItem);
+    }
+    const res = this.setStorageItem(STORAGE_KEYS.COLLEGE_PARTNERSHIPS, {
+      ...config,
+      partners: current,
+      partnerColleges: current,
+    });
+    if (!res.success) {
+      return { success: false, data: savedItem, error: res.error || 'Storage persistence failed while saving partnership.' };
+    }
+    return { success: true, data: savedItem, message: `${savedItem.collegeName} saved successfully.` };
+  }
+
+  deleteCollegePartner(id: string): ApiResponse<boolean> {
+    const config = this.getCollegePartnerships();
+    const targetId = id.trim().toLowerCase();
+    const existing = (config.partners || []).find(
+      (p) =>
+        p.id === id ||
+        (p.collegeName && p.collegeName.toLowerCase() === targetId) ||
+        (p.name && p.name.toLowerCase() === targetId)
+    );
+    if (!existing) {
+      return { success: false, data: false, error: `Partnership with ID "${id}" was not found.` };
+    }
+    const filtered = (config.partners || []).filter(
+      (p) =>
+        p.id !== id &&
+        p.name !== id &&
+        p.collegeName !== id &&
+        p.collegeName.toLowerCase() !== targetId
+    );
+    const res = this.setStorageItem(STORAGE_KEYS.COLLEGE_PARTNERSHIPS, {
+      ...config,
+      partners: filtered,
+      partnerColleges: filtered,
+    });
+    if (!res.success) {
+      return { success: false, data: false, error: res.error || 'Storage persistence failed while deleting partnership.' };
+    }
+    return { success: true, data: true, message: 'Partnership removed successfully.' };
+  }
+
+  toggleCollegePartnerStatus(id: string): ApiResponse<CollegePartnership> {
+    const config = this.getCollegePartnerships();
+    const current = [...(config.partners || [])];
+    const targetId = id.trim().toLowerCase();
+    const idx = current.findIndex(
+      (p) =>
+        p.id === id ||
+        (p.collegeName && p.collegeName.toLowerCase() === targetId) ||
+        (p.name && p.name.toLowerCase() === targetId)
+    );
+    if (idx < 0) {
+      return {
+        success: false,
+        data: {} as CollegePartnership,
+        error: `Partnership with ID "${id}" was not found.`,
+      };
+    }
+
+    const nextStatus: 'active' | 'inactive' = current[idx].status === 'active' ? 'inactive' : 'active';
+    const updated: CollegePartnership = {
+      ...current[idx],
+      status: nextStatus,
+      isVisible: nextStatus === 'active',
+      needsReview: false,
+      updatedAt: new Date().toISOString(),
+    };
+    current[idx] = updated;
+
+    const res = this.setStorageItem(STORAGE_KEYS.COLLEGE_PARTNERSHIPS, {
+      ...config,
+      partners: current,
+      partnerColleges: current,
+    });
+    if (!res.success) {
+      return { success: false, data: updated, error: res.error || 'Storage persistence failed while toggling status.' };
+    }
+    return {
+      success: true,
+      data: updated,
+      message: `"${updated.collegeName}" is now marked as ${nextStatus === 'active' ? 'Active' : 'Inactive'}.`,
+    };
+  }
+
+  // --- Async Service Methods (Ready for Backend HTTP / REST Integration) ---
+  async getCollegePartnershipsAsync(): Promise<ApiResponse<CollegePartnershipConfig>> {
+    return { success: true, data: this.getCollegePartnerships() };
+  }
+
+  async getCollegePartnersAsync(): Promise<ApiResponse<CollegePartnership[]>> {
+    return { success: true, data: this.getCollegePartners() };
+  }
+
+  async getCollegePartnerByIdAsync(id: string): Promise<ApiResponse<CollegePartnership | null>> {
+    return { success: true, data: this.getCollegePartnerById(id) };
+  }
+
+  async saveCollegePartnerAsync(partner: CollegePartnership): Promise<ApiResponse<CollegePartnership>> {
+    return this.saveCollegePartner(partner);
+  }
+
+  async deleteCollegePartnerAsync(id: string): Promise<ApiResponse<boolean>> {
+    return this.deleteCollegePartner(id);
+  }
+
+  async toggleCollegePartnerStatusAsync(id: string): Promise<ApiResponse<CollegePartnership>> {
+    return this.toggleCollegePartnerStatus(id);
+  }
+
+  // --- 11. Corporate Training Services Management ---
   getCorporateTraining(): CorporateTrainingConfig {
-    return this.getStorageItem<CorporateTrainingConfig>(STORAGE_KEYS.CORPORATE_TRAINING, INITIAL_CORPORATE_TRAINING);
+    const config = this.getStorageItem<CorporateTrainingConfig>(STORAGE_KEYS.CORPORATE_TRAINING, INITIAL_CORPORATE_TRAINING);
+    let mutated = false;
+
+    // Backward-compatibility: Ensure services array exists and is populated
+    if (!config.services || !Array.isArray(config.services) || config.services.length === 0) {
+      config.services = [...INITIAL_CORPORATE_SERVICES];
+      mutated = true;
+    }
+
+    // Ensure sectionVisibility has services property
+    if (!config.sectionVisibility) {
+      config.sectionVisibility = { ...INITIAL_CORPORATE_TRAINING.sectionVisibility };
+      mutated = true;
+    } else if (config.sectionVisibility.services === undefined) {
+      config.sectionVisibility.services = true;
+      mutated = true;
+    }
+
+    // Ensure header and clients fallback
+    if (!config.header) {
+      config.header = { ...INITIAL_CORPORATE_TRAINING.header };
+      mutated = true;
+    }
+    if (!config.clients) {
+      config.clients = [...INITIAL_CORPORATE_TRAINING.clients];
+      mutated = true;
+    }
+    if (!config.offerings) {
+      config.offerings = [...INITIAL_CORPORATE_TRAINING.offerings];
+      mutated = true;
+    }
+
+    if (mutated) {
+      this.saveCorporateTraining(config);
+    }
+
+    return config;
   }
 
-  saveCorporateTraining(config: CorporateTrainingConfig): void {
-    this.setStorageItem(STORAGE_KEYS.CORPORATE_TRAINING, config);
+  saveCorporateTraining(config: CorporateTrainingConfig): { success: boolean; error?: string } {
+    return this.setStorageItem(STORAGE_KEYS.CORPORATE_TRAINING, config);
+  }
+
+  getCorporateTrainingServices(): CorporateTrainingService[] {
+    const config = this.getCorporateTraining();
+    const services = Array.isArray(config.services) ? config.services : [];
+    return [...services].sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+  }
+
+  getCorporateTrainingServiceById(id: string): CorporateTrainingService | undefined {
+    const services = this.getCorporateTrainingServices();
+    return services.find((s) => s.id === id);
+  }
+
+  saveCorporateTrainingService(service: CorporateTrainingService): ApiResponse<CorporateTrainingService> {
+    if (!service.title || !service.title.trim()) {
+      return { success: false, data: service, error: 'Service Title is required.' };
+    }
+    if (!service.shortDescription || !service.shortDescription.trim()) {
+      return { success: false, data: service, error: 'Short Description is required.' };
+    }
+    if (!Array.isArray(service.topics) || service.topics.length === 0) {
+      return { success: false, data: service, error: 'At least one Topic or Technology is required.' };
+    }
+
+    const config = this.getCorporateTraining();
+    const currentServices = Array.isArray(config.services) ? [...config.services] : [];
+    const now = new Date().toISOString();
+
+    const normalizedService: CorporateTrainingService = {
+      ...service,
+      id: service.id || `corp-service-${Date.now()}`,
+      title: service.title.trim(),
+      shortDescription: service.shortDescription.trim(),
+      fullDescription: (service.fullDescription || '').trim(),
+      topics: service.topics.map((t) => t.trim()).filter(Boolean),
+      icon: service.icon || 'Laptop',
+      displayOrder: typeof service.displayOrder === 'number' && !isNaN(service.displayOrder) && service.displayOrder > 0
+        ? service.displayOrder
+        : currentServices.length + 1,
+      status: service.status === 'inactive' ? 'inactive' : 'active',
+      createdAt: service.createdAt || now,
+      updatedAt: now,
+    };
+
+    const existingIdx = currentServices.findIndex((s) => s.id === normalizedService.id);
+    if (existingIdx >= 0) {
+      currentServices[existingIdx] = normalizedService;
+    } else {
+      currentServices.push(normalizedService);
+    }
+
+    currentServices.sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+    config.services = currentServices;
+
+    const res = this.saveCorporateTraining(config);
+    if (!res.success) {
+      return { success: false, data: normalizedService, error: res.error || 'Storage persistence failed while saving corporate training service.' };
+    }
+
+    return {
+      success: true,
+      data: normalizedService,
+      message: `Corporate training service "${normalizedService.title}" saved successfully.`,
+    };
+  }
+
+  deleteCorporateTrainingService(id: string): ApiResponse<boolean> {
+    const config = this.getCorporateTraining();
+    const currentServices = Array.isArray(config.services) ? [...config.services] : [];
+    const target = currentServices.find((s) => s.id === id);
+
+    if (!target) {
+      return { success: false, data: false, error: `Corporate training service with ID "${id}" not found.` };
+    }
+
+    config.services = currentServices.filter((s) => s.id !== id);
+    const res = this.saveCorporateTraining(config);
+
+    if (!res.success) {
+      return { success: false, data: false, error: res.error || 'Failed to persist deletion to storage.' };
+    }
+
+    return {
+      success: true,
+      data: true,
+      message: `Corporate training service "${target.title}" was deleted.`,
+    };
+  }
+
+  toggleCorporateTrainingServiceStatus(id: string): ApiResponse<CorporateTrainingService> {
+    const config = this.getCorporateTraining();
+    const currentServices = Array.isArray(config.services) ? [...config.services] : [];
+    const target = currentServices.find((s) => s.id === id);
+
+    if (!target) {
+      return { success: false, data: null as any, error: `Corporate training service with ID "${id}" not found.` };
+    }
+
+    const nextStatus: 'active' | 'inactive' = target.status === 'active' ? 'inactive' : 'active';
+    target.status = nextStatus;
+    target.updatedAt = new Date().toISOString();
+
+    const res = this.saveCorporateTraining(config);
+    if (!res.success) {
+      return { success: false, data: target, error: res.error || 'Failed to persist status change to storage.' };
+    }
+
+    return {
+      success: true,
+      data: target,
+      message: `Corporate training service "${target.title}" is now ${nextStatus}.`,
+    };
+  }
+
+  reorderCorporateTrainingServices(serviceIds: string[]): ApiResponse<CorporateTrainingService[]> {
+    const config = this.getCorporateTraining();
+    const currentServices = Array.isArray(config.services) ? [...config.services] : [];
+    const reordered: CorporateTrainingService[] = [];
+    const now = new Date().toISOString();
+
+    serviceIds.forEach((id, idx) => {
+      const match = currentServices.find((s) => s.id === id);
+      if (match) {
+        match.displayOrder = idx + 1;
+        match.updatedAt = now;
+        reordered.push(match);
+      }
+    });
+
+    // Append any services that weren't in serviceIds
+    currentServices.forEach((s) => {
+      if (!serviceIds.includes(s.id)) {
+        s.displayOrder = reordered.length + 1;
+        reordered.push(s);
+      }
+    });
+
+    config.services = reordered;
+    const res = this.saveCorporateTraining(config);
+
+    if (!res.success) {
+      return { success: false, data: currentServices, error: res.error || 'Failed to persist reordering to storage.' };
+    }
+
+    return {
+      success: true,
+      data: reordered,
+      message: 'Services display order updated successfully.',
+    };
+  }
+
+  // --- Asynchronous Service Methods for Future Backend Integration ---
+  async getCorporateTrainingServicesAsync(): Promise<ApiResponse<CorporateTrainingService[]>> {
+    return { success: true, data: this.getCorporateTrainingServices() };
+  }
+
+  async getCorporateTrainingServiceByIdAsync(id: string): Promise<ApiResponse<CorporateTrainingService | null>> {
+    const found = this.getCorporateTrainingServiceById(id);
+    return { success: true, data: found || null };
+  }
+
+  async saveCorporateTrainingServiceAsync(service: CorporateTrainingService): Promise<ApiResponse<CorporateTrainingService>> {
+    return this.saveCorporateTrainingService(service);
+  }
+
+  async deleteCorporateTrainingServiceAsync(id: string): Promise<ApiResponse<boolean>> {
+    return this.deleteCorporateTrainingService(id);
+  }
+
+  async toggleCorporateTrainingServiceStatusAsync(id: string): Promise<ApiResponse<CorporateTrainingService>> {
+    return this.toggleCorporateTrainingServiceStatus(id);
+  }
+
+  async reorderCorporateTrainingServicesAsync(serviceIds: string[]): Promise<ApiResponse<CorporateTrainingService[]>> {
+    return this.reorderCorporateTrainingServices(serviceIds);
   }
 
   // --- 14. Contact Info Configuration ---

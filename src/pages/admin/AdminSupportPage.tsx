@@ -21,6 +21,8 @@ import { Badge } from '../../components/common/Badge';
 import { DataTable, type Column } from '../../components/tables/DataTable';
 import { Modal } from '../../components/feedback/Modal';
 import { Card } from '../../components/common/Card';
+import { useStorageSync } from '../../hooks/useStorageSync';
+import { STORAGE_KEYS } from '../../constants/appConfig';
 import type { SupportTicket, TicketMessage } from '../../types';
 
 export const AdminSupportPage: React.FC = () => {
@@ -47,6 +49,8 @@ export const AdminSupportPage: React.FC = () => {
   useEffect(() => {
     loadTickets();
   }, []);
+
+  useStorageSync(STORAGE_KEYS.TICKETS, loadTickets);
 
   const handleSendReply = async (e: React.FormEvent) => {
     e.preventDefault();

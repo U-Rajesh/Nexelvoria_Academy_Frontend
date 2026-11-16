@@ -15,6 +15,7 @@ import { recordAuditLog } from '../mocks/mockStorage';
 import type {
   Batch,
   Course,
+  CourseModule,
   StudentProfile,
   TeacherProfile,
   AttendanceSession,
@@ -28,18 +29,32 @@ import type {
   AnnouncementItem,
   StudentDoubt,
   RecordedClassItem,
+  InAppNotification,
   ApiResponse,
 } from '../types';
 
 const sleep = (ms: number = 200) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Storage key helpers for teacher features
-const TEACHER_MATERIALS_KEY = 'nexelvoria_teacher_materials_db';
-const TEACHER_RECORDINGS_KEY = 'nexelvoria_teacher_recordings_db';
-const TEACHER_ANNOUNCEMENTS_KEY = 'nexelvoria_teacher_announcements_db';
-const TEACHER_DOUBTS_KEY = 'nexelvoria_teacher_doubts_db';
+const TEACHER_MATERIALS_KEY = STORAGE_KEYS.TEACHER_MATERIALS;
+const TEACHER_RECORDINGS_KEY = STORAGE_KEYS.TEACHER_RECORDINGS;
+const TEACHER_ANNOUNCEMENTS_KEY = STORAGE_KEYS.TEACHER_ANNOUNCEMENTS;
+const TEACHER_DOUBTS_KEY = STORAGE_KEYS.TEACHER_DOUBTS;
 
 export const teacherService = {
+  /**
+   * Check if a course is allocated to this teacher
+   */
+  isCourseAssigned(teacherId: string, courseId: string): boolean {
+    const batches = getStorageItem<Batch[]>(STORAGE_KEYS.BATCHES, SEED_BATCHES);
+    const teachers = getStorageItem<TeacherProfile[]>(STORAGE_KEYS.TEACHERS, [SEED_USERS.teacher]);
+    const teacher = teachers.find((t) => t.id === teacherId);
+
+    const batchAssigned = batches.some((b) => b.courseId === courseId && b.assignedTeacherIds.includes(teacherId));
+    const directAssigned = teacher?.assignedCourseIds?.includes(courseId) ?? false;
+    return batchAssigned || directAssigned;
+  },
+
   /**
    * Get courses allocated to this teacher by Admin (TCH-001)
    */
@@ -47,12 +62,98 @@ export const teacherService = {
     await sleep();
     const batches = getStorageItem<Batch[]>(STORAGE_KEYS.BATCHES, SEED_BATCHES);
     const courses = getStorageItem<Course[]>(STORAGE_KEYS.COURSES, SEED_COURSES);
+    const teachers = getStorageItem<TeacherProfile[]>(STORAGE_KEYS.TEACHERS, [SEED_USERS.teacher]);
+    const teacher = teachers.find((t) => t.id === teacherId);
 
     const assignedBatches = batches.filter((b) => b.assignedTeacherIds.includes(teacherId));
-    const courseIds = Array.from(new Set(assignedBatches.map((b) => b.courseId)));
+    const batchCourseIds = assignedBatches.map((b) => b.courseId);
+    const directCourseIds = teacher?.assignedCourseIds || [];
+    const courseIds = Array.from(new Set([...batchCourseIds, ...directCourseIds]));
 
     const assignedCourses = courses.filter((c) => courseIds.includes(c.id));
     return { success: true, data: assignedCourses };
+  },
+
+  /**
+   * Update assigned course instructional information (TCH-001)
+   * Strictly enforces that teachers cannot edit unassigned courses, pricing, or status.
+   */
+  async updateAssignedCourse(
+    teacher: { id: string; name: string },
+    courseId: string,
+    updates: {
+      title?: string;
+      shortDescription?: string;
+      longDescription?: string;
+      technologies?: string[];
+      prerequisites?: string[];
+      learningOutcomes?: string[];
+      modules?: CourseModule[];
+    }
+  ): Promise<ApiResponse<Course>> {
+    await sleep(200);
+    if (!this.isCourseAssigned(teacher.id, courseId)) {
+      return {
+        success: false,
+        data: null as any,
+        error: 'Unauthorized (SRS Rule TCH-001): You can only edit courses officially allocated to your instructional portfolio.',
+      };
+    }
+
+    const courses = getStorageItem<Course[]>(STORAGE_KEYS.COURSES, SEED_COURSES);
+    const idx = courses.findIndex((c) => c.id === courseId);
+    if (idx === -1) {
+      return { success: false, data: null as any, error: 'Course not found.' };
+    }
+
+    // Apply allowed pedagogical and instructional modifications only
+    if (updates.title !== undefined && updates.title.trim()) {
+      courses[idx].title = updates.title.trim();
+    }
+    if (updates.shortDescription !== undefined) {
+      courses[idx].shortDescription = updates.shortDescription;
+    }
+    if (updates.longDescription !== undefined) {
+      courses[idx].longDescription = updates.longDescription;
+    }
+    if (updates.technologies !== undefined) {
+      courses[idx].technologies = updates.technologies;
+    }
+    if (updates.prerequisites !== undefined) {
+      courses[idx].prerequisites = updates.prerequisites;
+    }
+    if (updates.learningOutcomes !== undefined) {
+      courses[idx].learningOutcomes = updates.learningOutcomes;
+    }
+    if (updates.modules !== undefined) {
+      courses[idx].modules = updates.modules;
+    }
+
+    setStorageItem(STORAGE_KEYS.COURSES, courses);
+
+    recordAuditLog(
+      { id: teacher.id, name: teacher.name, role: 'teacher' },
+      'COURSE_UPDATED_BY_FACULTY',
+      `Course: ${courses[idx].title} (${courseId})`,
+      `Faculty updated curriculum and instructional details. Modules: ${courses[idx].modules?.length || 0}.`
+    );
+
+    return {
+      success: true,
+      data: courses[idx],
+      message: `Course details for "${courses[idx].title}" updated successfully.`,
+    };
+  },
+
+  /**
+   * Update curriculum modules & lessons for an assigned course
+   */
+  async updateAssignedCourseCurriculum(
+    teacher: { id: string; name: string },
+    courseId: string,
+    modules: CourseModule[]
+  ): Promise<ApiResponse<Course>> {
+    return this.updateAssignedCourse(teacher, courseId, { modules });
   },
 
   /**
@@ -242,19 +343,56 @@ export const teacherService = {
 
   async uploadStudyMaterial(
     teacher: { id: string; name: string },
-    data: Omit<StudyMaterial, 'id' | 'uploadedByTeacherId' | 'uploadedAt'>
+    data: Omit<StudyMaterial, 'id' | 'uploadedByTeacherId' | 'uploadedAt'>,
+    file?: File,
+    onProgress?: (progressPercent: number) => void
   ): Promise<ApiResponse<StudyMaterial>> {
-    await sleep(250);
-    const materials = getStorageItem<StudyMaterial[]>(TEACHER_MATERIALS_KEY, []);
+    const materialId = `mat-${Date.now()}`;
+
+    // Simulated progress transitions for mock frontend mode.
+    // In future backend integration, replace this block with real upload transfer events
+    // (e.g. axios onUploadProgress or XMLHttpRequest.upload.onprogress).
+    if (onProgress) {
+      onProgress(25);
+      await sleep(80);
+      onProgress(65);
+      await sleep(80);
+      onProgress(95);
+      await sleep(60);
+      onProgress(100);
+    } else {
+      await sleep(250);
+    }
+
+    // Determine permanent persistent file URL.
+    // Object URLs (blob:...) are transient and expire on page refresh; therefore,
+    // we assign a permanent persistent endpoint identifier or preserve external documentation URLs.
+    let permanentFileUrl = data.fileUrl;
+    if (file) {
+      const sanitizedFilename = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      permanentFileUrl = `/uploads/materials/${materialId}/${sanitizedFilename}`;
+    }
+
     const newMaterial: StudyMaterial = {
       ...data,
-      id: `mat-${Date.now()}`,
+      id: materialId,
+      fileUrl: permanentFileUrl,
+      fileSizeBytes: file ? file.size : data.fileSizeBytes || 102400,
       uploadedByTeacherId: teacher.id,
       uploadedAt: new Date().toISOString(),
     };
 
-    setStorageItem(TEACHER_MATERIALS_KEY, [newMaterial, ...materials]);
-    return { success: true, data: newMaterial, message: 'Study material uploaded successfully.' };
+    try {
+      const materials = getStorageItem<StudyMaterial[]>(TEACHER_MATERIALS_KEY, []);
+      setStorageItem(TEACHER_MATERIALS_KEY, [newMaterial, ...materials]);
+      return { success: true, data: newMaterial, message: 'Study material uploaded successfully.' };
+    } catch (err: any) {
+      return {
+        success: false,
+        data: null as any,
+        error: err?.message || 'Storage persistence failed while uploading study material.',
+      };
+    }
   },
 
   async deleteStudyMaterial(materialId: string): Promise<ApiResponse<boolean>> {
@@ -674,5 +812,23 @@ export const teacherService = {
   async getTeacherProfile(_teacherId: string): Promise<ApiResponse<TeacherProfile>> {
     await sleep();
     return { success: true, data: SEED_USERS.teacher };
+  },
+
+  /**
+   * Get In-App Notifications for Teacher (CRD 3.13: COM-001 to COM-010)
+   * Merges personal notifications with institutional broadcasts from Admin
+   */
+  async getNotificationsForTeacher(teacherId: string): Promise<ApiResponse<InAppNotification[]>> {
+    await sleep(150);
+    const broadcasts = getStorageItem<InAppNotification[]>(STORAGE_KEYS.NOTIFICATIONS, []);
+    const teacherBroadcasts = broadcasts.filter(
+      (n) =>
+        n.userId === 'all' ||
+        n.userId === teacherId ||
+        n.userId === 'teachers' ||
+        n.targetRole === 'all' ||
+        n.targetRole === 'teacher'
+    );
+    return { success: true, data: teacherBroadcasts };
   },
 };

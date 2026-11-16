@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Mail, Phone, MapPin, Send, MessageCircle, Clock, CheckCircle2, AlertCircle, PhoneCall, Share2 } from 'lucide-react';
-import { APP_CONFIG } from '../../constants/appConfig';
+import { APP_CONFIG, STORAGE_KEYS } from '../../constants/appConfig';
+import { getStorageItem } from '../../utils/storage';
+import type { Course } from '../../types';
 import { Button } from '../../components/common/Button';
 import { PageLabel } from '../../components/common/PageLabel';
 import { Card } from '../../components/common/Card';
@@ -14,12 +16,14 @@ import { analytics } from '../../utils/analytics';
 export const ContactUsPage: React.FC = () => {
   const [contactConfig, setContactConfig] = useState<ContactInfoConfig>(() => cmsService.getContactInfo());
   const [socialLinks, setSocialLinks] = useState<SocialMediaLink[]>(() => cmsService.getSocialMediaLinks());
+  const [courses, setCourses] = useState<Course[]>(() => getStorageItem<Course[]>(STORAGE_KEYS.COURSES, SEED_COURSES));
   const [activeTab, setActiveTab] = useState<'general' | 'admission' | 'callback'>('admission');
 
   useEffect(() => {
     const handleSync = () => {
       setContactConfig(cmsService.getContactInfo());
       setSocialLinks(cmsService.getSocialMediaLinks());
+      setCourses(getStorageItem<Course[]>(STORAGE_KEYS.COURSES, SEED_COURSES));
     };
     window.addEventListener('cms-update', handleSync);
     window.addEventListener('cms-social-update', handleSync);
@@ -289,7 +293,7 @@ export const ContactUsPage: React.FC = () => {
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                   >
                     <option value="">Select a Program</option>
-                    {SEED_COURSES.map((c) => (
+                    {courses.map((c) => (
                       <option key={c.id} value={c.title}>{c.title}</option>
                     ))}
                   </select>
@@ -382,7 +386,7 @@ export const ContactUsPage: React.FC = () => {
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                   >
                     <option value="">General Academic Guidance</option>
-                    {SEED_COURSES.map((c) => (
+                    {courses.map((c) => (
                       <option key={c.id} value={c.title}>{c.title}</option>
                     ))}
                   </select>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Star,
@@ -9,6 +9,7 @@ import {
   CheckCircle,
   ChevronLeft,
   ChevronRight,
+  MoveHorizontal,
 } from 'lucide-react';
 import { useScrollProgress } from '../../hooks/useScrollProgress';
 import { PageLabel } from '../common/PageLabel';
@@ -44,11 +45,29 @@ export const TrainerOrbitSection: React.FC<TrainerOrbitSectionProps> = ({
   );
 
   // Reduced motion preference
-  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return false;
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  });
 
-  // Manual jump target (if user clicks pagination dots or arrow buttons)
+  // Manual jump / snap index target
   const [manualIndex, setManualIndex] = useState<number | null>(null);
   const isManualRef = useRef(false);
+
+  // Drag & Swipe Interaction State
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragFloatIndex, setDragFloatIndex] = useState<number>(0);
+
+  const isPointerDownRef = useRef(false);
+  const isHorizontalDragRef = useRef(false);
+  const hasMovedSignificantlyRef = useRef(false);
+  const dragStartXRef = useRef(0);
+  const dragStartYRef = useRef(0);
+  const startFloatIndexRef = useRef(0);
+  const lastMoveXRef = useRef(0);
+  const lastMoveTimeRef = useRef(0);
+  const velocityRef = useRef(0);
+  const snapAnimationIdRef = useRef<number | null>(null);
 
   useEffect(() => {
     const handleResize = () => setWindowWidth(window.innerWidth);
@@ -59,21 +78,21 @@ export const TrainerOrbitSection: React.FC<TrainerOrbitSectionProps> = ({
   useEffect(() => {
     if (typeof window === 'undefined' || !window.matchMedia) return;
     const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
-    setPrefersReducedMotion(mediaQuery.matches);
     const listener = (e: MediaQueryListEvent) => setPrefersReducedMotion(e.matches);
     mediaQuery.addEventListener('change', listener);
     return () => mediaQuery.removeEventListener('change', listener);
   }, []);
 
-  // Reset manual index when user resumes scrolling
+  // Cleanup any snap animation on unmount
   useEffect(() => {
-    if (isManualRef.current) {
-      isManualRef.current = false;
-      setManualIndex(null);
-    }
-  }, [progress]);
+    return () => {
+      if (snapAnimationIdRef.current) {
+        cancelAnimationFrame(snapAnimationIdRef.current);
+      }
+    };
+  }, []);
 
-  // Strictly display the original mentor profiles without any duplication or extra cards
+  // Strictly preserve the original mentor profiles without any dummy data or duplication
   const orbitalTrainers = useMemo(() => {
     return trainers || [];
   }, [trainers]);
@@ -84,56 +103,222 @@ export const TrainerOrbitSection: React.FC<TrainerOrbitSectionProps> = ({
   const { s1, s2, cardWidthClass } = useMemo(() => {
     if (windowWidth < 640) {
       // Mobile (< 640px)
-      return { s1: 145, s2: 90, cardWidthClass: 'w-[240px]' };
+      return { s1: 145, s2: 90, cardWidthClass: 'w-[250px]' };
     }
     if (windowWidth < 1024) {
       // Tablet (640px - 1023px)
-      return { s1: 215, s2: 140, cardWidthClass: 'w-[275px]' };
+      return { s1: 215, s2: 140, cardWidthClass: 'w-[280px]' };
     }
     // Desktop (>= 1024px)
-    return { s1: 285, s2: 185, cardWidthClass: 'w-[315px]' };
+    return { s1: 275, s2: 180, cardWidthClass: 'w-[320px]' };
   }, [windowWidth]);
 
-  // Floating active index driven continuously by scroll progress:
+  // Floating active index driven continuously by scroll progress or manual drag/jump:
   // When progress = 0: floatIndex = 0 (first mentor centered)
   // As user scrolls DOWN: progress increases -> floatIndex increases -> cards shift RIGHT to LEFT
   // As user scrolls UP: progress decreases -> floatIndex decreases -> cards shift LEFT to RIGHT
   const activeFloatIndex = useMemo(() => {
+    if (isDragging) {
+      return dragFloatIndex;
+    }
     if (manualIndex !== null) {
       return manualIndex;
     }
-    return progress * (N - 1);
-  }, [progress, manualIndex, N]);
+    return progress * Math.max(0, N - 1);
+  }, [isDragging, dragFloatIndex, manualIndex, progress, N]);
+
+  // Release manual jump once smooth page scroll settles at target index
+  useEffect(() => {
+    if (manualIndex !== null && !isDragging) {
+      const scrollFloat = progress * Math.max(0, N - 1);
+      if (Math.abs(scrollFloat - manualIndex) < 0.05) {
+        const timeout = setTimeout(() => {
+          setManualIndex(null);
+          isManualRef.current = false;
+        }, 30);
+        return () => clearTimeout(timeout);
+      }
+    }
+  }, [progress, manualIndex, isDragging, N]);
 
   // Closest integer index currently in center
   const centerIndex = Math.min(N - 1, Math.max(0, Math.round(activeFloatIndex)));
   const centerTrainer = orbitalTrainers[centerIndex] || orbitalTrainers[0];
 
-  // Helper to jump to a specific mentor via pagination dot
-  const handleJumpToIndex = (idx: number) => {
-    isManualRef.current = true;
-    setManualIndex(idx);
-    if (containerRef.current) {
-      const rect = containerRef.current.getBoundingClientRect();
-      const totalScrollable = containerRef.current.offsetHeight - window.innerHeight;
-      if (totalScrollable > 0 && N > 1) {
-        const targetProgress = idx / (N - 1);
-        const currentScroll = window.scrollY;
-        const targetScroll = currentScroll + rect.top + targetProgress * totalScrollable;
-        window.scrollTo({ top: targetScroll, behavior: 'smooth' });
+  // Helper to jump to a specific mentor via pagination dot, arrows, or post-drag snap
+  const handleJumpToIndex = useCallback(
+    (idx: number, smoothScroll = true) => {
+      const targetIdx = Math.max(0, Math.min(N - 1, idx));
+      isManualRef.current = true;
+      setManualIndex(targetIdx);
+
+      if (containerRef.current && smoothScroll && N > 1) {
+        const rect = containerRef.current.getBoundingClientRect();
+        const totalScrollable = containerRef.current.offsetHeight - window.innerHeight;
+        if (totalScrollable > 0) {
+          const targetProgress = targetIdx / (N - 1);
+          const currentScroll = window.scrollY;
+          const targetScroll = currentScroll + rect.top + targetProgress * totalScrollable;
+          window.scrollTo({ top: targetScroll, behavior: 'smooth' });
+        }
       }
+    },
+    [containerRef, N]
+  );
+
+  const handlePrev = useCallback(() => {
+    const nextIdx = Math.max(0, centerIndex - 1);
+    handleJumpToIndex(nextIdx);
+  }, [centerIndex, handleJumpToIndex]);
+
+  const handleNext = useCallback(() => {
+    const nextIdx = Math.min(N - 1, centerIndex + 1);
+    handleJumpToIndex(nextIdx);
+  }, [centerIndex, N, handleJumpToIndex]);
+
+  // Pointer / Drag & Swipe Handlers
+  const handlePointerDown = (e: React.PointerEvent) => {
+    // Only primary button (left mouse click) or touch
+    if (e.button !== 0) return;
+
+    if (snapAnimationIdRef.current) {
+      cancelAnimationFrame(snapAnimationIdRef.current);
+      snapAnimationIdRef.current = null;
+    }
+
+    isPointerDownRef.current = true;
+    isHorizontalDragRef.current = false;
+    hasMovedSignificantlyRef.current = false;
+
+    dragStartXRef.current = e.clientX;
+    dragStartYRef.current = e.clientY;
+    lastMoveXRef.current = e.clientX;
+    lastMoveTimeRef.current = performance.now();
+    velocityRef.current = 0;
+    startFloatIndexRef.current = activeFloatIndex;
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!isPointerDownRef.current) return;
+
+    const dx = e.clientX - dragStartXRef.current;
+    const dy = e.clientY - dragStartYRef.current;
+
+    // Detect gesture direction on first significant movement
+    if (!hasMovedSignificantlyRef.current) {
+      if (Math.hypot(dx, dy) > 7) {
+        hasMovedSignificantlyRef.current = true;
+        if (Math.abs(dx) >= Math.abs(dy)) {
+          isHorizontalDragRef.current = true;
+          setIsDragging(true);
+          try {
+            (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+          } catch {
+            // Ignore capture failure
+          }
+        } else {
+          // Vertical movement - let native page scrolling take precedence
+          isHorizontalDragRef.current = false;
+          isPointerDownRef.current = false;
+          return;
+        }
+      }
+    }
+
+    if (isHorizontalDragRef.current) {
+      const now = performance.now();
+      const dt = now - lastMoveTimeRef.current;
+      if (dt > 8) {
+        velocityRef.current = (e.clientX - lastMoveXRef.current) / dt;
+        lastMoveTimeRef.current = now;
+        lastMoveXRef.current = e.clientX;
+      }
+
+      // Drag sensitivity: moving by ~s1 pixels shifts by 1 card index
+      const indexDelta = -dx / (s1 * 1.15);
+      let newFloat = startFloatIndexRef.current + indexDelta;
+
+      // Gentle rubber-banding past boundaries
+      if (newFloat < 0) {
+        newFloat = newFloat * 0.25;
+      } else if (newFloat > N - 1) {
+        newFloat = N - 1 + (newFloat - (N - 1)) * 0.25;
+      }
+
+      setDragFloatIndex(newFloat);
     }
   };
 
-  const handlePrev = () => {
-    const nextIdx = Math.max(0, centerIndex - 1);
-    handleJumpToIndex(nextIdx);
+  const handlePointerUpOrCancel = (e: React.PointerEvent) => {
+    if (!isPointerDownRef.current && !isDragging) return;
+
+    isPointerDownRef.current = false;
+
+    try {
+      if ((e.currentTarget as HTMLElement).hasPointerCapture?.(e.pointerId)) {
+        (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+      }
+    } catch {
+      // Ignore
+    }
+
+    if (isHorizontalDragRef.current && hasMovedSignificantlyRef.current) {
+      // Determine snap target based on position and release flick velocity
+      let target = dragFloatIndex;
+      const v = velocityRef.current;
+
+      if (v < -0.28) {
+        // Flicked leftward -> advance to next card
+        target = Math.ceil(dragFloatIndex);
+      } else if (v > 0.28) {
+        // Flicked rightward -> move to previous card
+        target = Math.floor(dragFloatIndex);
+      } else {
+        // Standard release -> snap to nearest card
+        target = Math.round(dragFloatIndex);
+      }
+
+      target = Math.max(0, Math.min(N - 1, target));
+
+      // Smooth glide to snap target
+      const startVal = dragFloatIndex;
+      const endVal = target;
+      const startTime = performance.now();
+      const duration = 240;
+
+      const animateSnap = (now: number) => {
+        const elapsed = now - startTime;
+        const p = Math.min(1, elapsed / duration);
+        // easeOutCubic curve
+        const ease = 1 - Math.pow(1 - p, 3);
+        const current = startVal + (endVal - startVal) * ease;
+        setDragFloatIndex(current);
+
+        if (p < 1) {
+          snapAnimationIdRef.current = requestAnimationFrame(animateSnap);
+        } else {
+          setIsDragging(false);
+          handleJumpToIndex(endVal, true);
+        }
+      };
+
+      snapAnimationIdRef.current = requestAnimationFrame(animateSnap);
+
+      // Brief suppress window so pointerup does not trigger card click
+      setTimeout(() => {
+        hasMovedSignificantlyRef.current = false;
+        isHorizontalDragRef.current = false;
+      }, 150);
+    } else {
+      setIsDragging(false);
+      hasMovedSignificantlyRef.current = false;
+      isHorizontalDragRef.current = false;
+    }
   };
 
-  const handleNext = () => {
-    const nextIdx = Math.min(N - 1, centerIndex + 1);
-    handleJumpToIndex(nextIdx);
-  };
+  if (orbitalTrainers.length === 0) {
+    return null;
+  }
 
   return (
     <div
@@ -163,20 +348,28 @@ export const TrainerOrbitSection: React.FC<TrainerOrbitSectionProps> = ({
           </p>
 
           <div className="flex items-center justify-center gap-2 text-[11px] sm:text-xs text-slate-400 font-mono pt-1">
-            <Compass className="h-3.5 w-3.5 text-indigo-400" />
+            <Compass className="h-3.5 w-3.5 text-indigo-400 shrink-0" />
             <span>
-              Scroll down to traverse mentors (Right → Left) • Click any card for full bio
+              Scroll down or drag horizontally (Right → Left) • Click card for full bio
             </span>
+            <MoveHorizontal className="h-3 w-3 text-cyan-400 shrink-0 ml-0.5 hidden sm:inline" />
           </div>
         </div>
 
-        {/* 3D Cover-Flow Stage Container */}
+        {/* 3D Cover-Flow Stage Container with Touch Drag & Swipe Support */}
         <div
-          className="relative z-10 w-full max-w-6xl mx-auto flex-1 flex flex-col items-center justify-center min-h-[390px] sm:min-h-[460px]"
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUpOrCancel}
+          onPointerCancel={handlePointerUpOrCancel}
+          className={`relative z-10 w-full max-w-6xl mx-auto flex-1 flex flex-col items-center justify-center min-h-[390px] sm:min-h-[460px] touch-pan-y ${
+            isDragging ? 'cursor-grabbing' : 'cursor-grab'
+          }`}
           style={{
-            perspective: '1200px',
+            perspective: windowWidth < 640 ? '900px' : '1200px',
             perspectiveOrigin: '50% 50%',
           }}
+          title="Drag horizontally or scroll to traverse mentor profiles"
         >
           {/* Card Carousel Stage with 3D Preservation */}
           <div
@@ -187,11 +380,11 @@ export const TrainerOrbitSection: React.FC<TrainerOrbitSectionProps> = ({
           >
             {orbitalTrainers.map((tr, idx) => {
               // Delta represents relative position relative to active center:
-              // delta = 0: Center Card (Prominent, front-facing, largest)
-              // delta > 0: Card on the Right side
-              // delta < 0: Card on the Left side
-              // When user scrolls DOWN, activeFloatIndex increases -> delta decreases -> Right cards move towards Center and Left!
-              // When user scrolls UP, activeFloatIndex decreases -> delta increases -> Left cards move towards Center and Right!
+              // delta = 0: Center Card (Prominent, front-facing, straight, focused)
+              // delta > 0: Card on the Right side (rotated towards center)
+              // delta < 0: Card on the Left side (rotated towards center)
+              // When user scrolls DOWN or drags left, activeFloatIndex increases -> delta decreases -> Right cards move towards Center!
+              // When user scrolls UP or drags right, activeFloatIndex decreases -> delta increases -> Left cards move towards Center!
               const delta = idx - activeFloatIndex;
               const absDelta = Math.abs(delta);
               const sign = delta >= 0 ? 1 : -1;
@@ -211,40 +404,40 @@ export const TrainerOrbitSection: React.FC<TrainerOrbitSectionProps> = ({
               let rotateY = 0;
               if (!prefersReducedMotion) {
                 if (absDelta <= 1) {
-                  rotateY = -delta * 26; // smoothly interpolates between -26deg and +26deg
+                  rotateY = -delta * 34; // smoothly interpolates between -34deg and +34deg
                 } else {
                   const extra = Math.min(1, absDelta - 1);
-                  rotateY = -sign * (26 + extra * 12); // up to ±38deg
+                  rotateY = -sign * (34 + extra * 12); // up to ±46deg for far cards
                 }
               }
 
               // Z-translation (depth):
-              // Center card is pushed forward (+80px); side cards are pushed back into distance
+              // Center card is pushed prominently forward (+70px); side cards recede into distance
               let translateZ = 0;
               if (!prefersReducedMotion) {
                 if (absDelta <= 1) {
-                  translateZ = 80 - absDelta * 140; // +80px at center, -60px at adjacent
+                  translateZ = 70 - absDelta * 160; // +70px at center, -90px at adjacent
                 } else {
-                  translateZ = -60 - (absDelta - 1) * 90; // -150px at far
+                  translateZ = -90 - (absDelta - 1) * 110; // -200px at far cards
                 }
               }
 
-              // Scale: Center card is largest (1.06), adjacent cards 0.85, outer cards 0.65
+              // Scale: Center card is largest (1.06), adjacent cards 0.85, outer cards 0.68
               let scale = 1;
               if (absDelta <= 1) {
                 scale = 1.06 - absDelta * 0.21;
               } else {
-                scale = Math.max(0.62, 0.85 - (absDelta - 1) * 0.15);
+                scale = Math.max(0.62, 0.85 - (absDelta - 1) * 0.17);
               }
 
-              // Opacity: Center & adjacent cards 1.0; outer cards fade smoothly; beyond 3.0 invisible
+              // Opacity: Center & adjacent cards 1.0; outer cards fade smoothly; beyond 2.8 invisible
               let opacity = 1;
               if (absDelta > 1.2) {
-                opacity = Math.max(0, 1.0 - (absDelta - 1.2) * 0.50);
+                opacity = Math.max(0, 1.0 - (absDelta - 1.2) * 0.62);
               }
 
-              // Stacking order: Center card must have highest z-index, layering decreasing outward
-              const zIndex = Math.max(1, Math.round(50 - absDelta * 10));
+              // Stacking order: Center card must have highest z-index (50), layering decreasing outward
+              const zIndex = Math.max(1, Math.round(50 - absDelta * 12));
 
               // Center state check
               const isCenter = absDelta < 0.5;
@@ -257,11 +450,18 @@ export const TrainerOrbitSection: React.FC<TrainerOrbitSectionProps> = ({
               return (
                 <div
                   key={tr.id}
-                  onClick={() => {
+                  onClick={(e) => {
+                    if (hasMovedSignificantlyRef.current) {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      return;
+                    }
                     handleJumpToIndex(idx);
                     setSelectedTrainer(tr);
                   }}
-                  className={`absolute cursor-pointer transition-[box-shadow,border-color] duration-300 ${cardWidthClass}`}
+                  className={`absolute transition-[box-shadow,border-color] duration-300 ${cardWidthClass} ${
+                    isDragging ? 'pointer-events-none' : 'cursor-pointer'
+                  }`}
                   style={{
                     left: '50%',
                     top: '50%',
@@ -275,15 +475,15 @@ export const TrainerOrbitSection: React.FC<TrainerOrbitSectionProps> = ({
                 >
                   {/* Premium Mentor 3D Cover-Flow Card */}
                   <div
-                    className={`relative p-4 sm:p-5 rounded-2xl border backdrop-blur-xl transition-all duration-300 ${
+                    className={`relative p-4 sm:p-5 rounded-2xl border backdrop-blur-xl transition-all duration-300 select-none ${
                       isCenter
-                        ? 'bg-slate-900/95 border-indigo-500 shadow-[0_20px_50px_rgba(99,102,241,0.35)] ring-1 ring-indigo-400/60'
+                        ? 'bg-slate-900/95 border-indigo-500 shadow-[0_25px_60px_-15px_rgba(99,102,241,0.4)] ring-1 ring-indigo-400/60'
                         : 'bg-slate-900/80 border-slate-700/80 hover:border-slate-500 hover:bg-slate-900/90 shadow-xl'
                     }`}
                   >
                     {/* Depth Shading Overlay for Side Cards */}
                     {!isCenter && (
-                      <div className="pointer-events-none absolute inset-0 rounded-2xl bg-slate-950/20 backdrop-blur-[0.5px] transition-opacity duration-300" />
+                      <div className="pointer-events-none absolute inset-0 rounded-2xl bg-slate-950/30 backdrop-blur-[0.5px] transition-opacity duration-300" />
                     )}
 
                     {/* Top Section: Avatar + Name + Live Center Ping */}
@@ -292,7 +492,8 @@ export const TrainerOrbitSection: React.FC<TrainerOrbitSectionProps> = ({
                         <img
                           src={tr.avatarUrl}
                           alt={tr.name}
-                          className={`h-16 w-16 sm:h-20 sm:w-20 rounded-2xl object-cover object-top border-2 shadow-md transition-colors ${
+                          draggable={false}
+                          className={`h-16 w-16 sm:h-20 sm:w-20 rounded-2xl object-cover object-top border-2 shadow-md transition-colors pointer-events-none ${
                             isCenter ? 'border-indigo-400' : 'border-slate-700'
                           }`}
                         />
@@ -340,7 +541,9 @@ export const TrainerOrbitSection: React.FC<TrainerOrbitSectionProps> = ({
                     <div className="mt-3.5 pt-2.5 border-t border-slate-800/80 flex items-center justify-between text-xs">
                       <div className="truncate max-w-[160px] text-slate-400">
                         <span className="text-slate-500 font-medium">Ex: </span>
-                        <span className="text-slate-300 font-medium">{tr.formerCompanies.slice(0, 2).join(', ')}</span>
+                        <span className="text-slate-300 font-medium">
+                          {tr.formerCompanies.slice(0, 2).join(', ')}
+                        </span>
                       </div>
                       <span className="text-indigo-400 font-semibold inline-flex items-center gap-0.5 hover:underline shrink-0">
                         View Bio →
@@ -391,7 +594,7 @@ export const TrainerOrbitSection: React.FC<TrainerOrbitSectionProps> = ({
                       key={dotIdx}
                       type="button"
                       onClick={() => handleJumpToIndex(dotIdx)}
-                      className={`h-2 rounded-full transition-all duration-300 ${
+                      className={`h-2 rounded-full transition-all duration-300 cursor-pointer ${
                         isCurrent
                           ? 'w-7 bg-indigo-500 shadow-xs'
                           : 'w-2 bg-slate-700 hover:bg-slate-500'

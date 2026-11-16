@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Users,
@@ -16,17 +16,49 @@ import {
 } from 'lucide-react';
 import { SEED_BATCHES, SEED_USERS } from '../../mocks/seedData';
 import { teacherService } from '../../services/teacherService';
+import { STORAGE_KEYS } from '../../constants/appConfig';
+import { useStorageSync } from '../../hooks/useStorageSync';
+import { useAuth } from '../../context/AuthContext';
 import { useNotification } from '../../context/NotificationContext';
 import { formatDate } from '../../utils/formatters';
 import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
 import { Card } from '../../components/common/Card';
 import { Modal } from '../../components/feedback/Modal';
-import type { Batch } from '../../types';
+import type { Batch, StudentProfile } from '../../types';
 
 export const TeacherBatchesPage: React.FC = () => {
-  const [batches] = useState<Batch[]>(SEED_BATCHES);
+  const { user } = useAuth();
+  const [batches, setBatches] = useState<Batch[]>(SEED_BATCHES);
   const [rosterBatch, setRosterBatch] = useState<Batch | null>(null);
+  const [rosterStudents, setRosterStudents] = useState<StudentProfile[]>([]);
+
+  const loadBatches = useCallback(async () => {
+    const teacherId = user?.id || 'user-tch-001';
+    const res = await teacherService.getAssignedBatches(teacherId);
+    if (res.success && res.data.length > 0) {
+      setBatches(res.data);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    loadBatches();
+  }, [loadBatches]);
+
+  useStorageSync([STORAGE_KEYS.BATCHES, STORAGE_KEYS.TEACHERS], loadBatches);
+
+  useEffect(() => {
+    const loadRoster = async () => {
+      if (!rosterBatch) return;
+      const res = await teacherService.getBatchStudents(rosterBatch.id);
+      if (res.success && res.data.length > 0) {
+        setRosterStudents(res.data);
+      } else {
+        setRosterStudents([SEED_USERS.student]);
+      }
+    };
+    loadRoster();
+  }, [rosterBatch]);
 
   return (
     <div className="space-y-8">
@@ -152,7 +184,7 @@ export const TeacherBatchesPage: React.FC = () => {
             </p>
 
             <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden bg-white">
-              {[SEED_USERS.student].map((stu) => (
+              {rosterStudents.map((stu) => (
                 <div key={stu.id} className="p-3.5 flex items-center justify-between text-xs">
                   <div className="flex items-center gap-3">
                     <img

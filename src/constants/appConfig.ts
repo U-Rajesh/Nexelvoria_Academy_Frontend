@@ -45,5 +45,11 @@ export const STORAGE_KEYS = {
   FINANCIAL_OVERRIDES: 'nexelvoria_financial_overrides_db',
   SYSTEM_CONFIG: 'nexelvoria_system_config_db',
   GLOBAL_ROLES: 'nexelvoria_global_roles_db',
+  TEACHER_MATERIALS: 'nexelvoria_teacher_materials_db',
+  TEACHER_RECORDINGS: 'nexelvoria_teacher_recordings_db',
+  TEACHER_ANNOUNCEMENTS: 'nexelvoria_teacher_announcements_db',
+  TEACHER_DOUBTS: 'nexelvoria_teacher_doubts_db',
+  COLLEGE_PARTNERSHIPS: 'nexelvoria_cms_college_partnerships',
+  CORPORATE_TRAINING: 'nexelvoria_cms_corporate_training',
 };
 

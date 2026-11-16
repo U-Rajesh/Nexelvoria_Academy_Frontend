@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { Search, Clock, BookOpen, ArrowRight, Filter, Award, MessageSquare, CheckCircle, Sparkles } from 'lucide-react';
 import { SEED_COURSES } from '../../mocks/seedData';
 import { getStorageItem } from '../../utils/storage';
 import { STORAGE_KEYS } from '../../constants/appConfig';
+import { useStorageSync } from '../../hooks/useStorageSync';
 import type { Course } from '../../types';
 import { formatINR } from '../../utils/formatters';
 import { Button } from '../../components/common/Button';
@@ -28,7 +29,15 @@ export const CoursesPage: React.FC = () => {
   const categories = ['All', 'Software Development', 'Data & AI', 'Cloud & DevOps'];
   const levels = ['All', 'Beginner to Advanced', 'Intermediate', 'Advanced'];
 
-  const allCourses = getStorageItem<Course[]>(STORAGE_KEYS.COURSES, SEED_COURSES);
+  const [allCourses, setAllCourses] = useState<Course[]>(() =>
+    getStorageItem<Course[]>(STORAGE_KEYS.COURSES, SEED_COURSES)
+  );
+
+  const syncCourses = useCallback(() => {
+    setAllCourses(getStorageItem<Course[]>(STORAGE_KEYS.COURSES, SEED_COURSES));
+  }, []);
+
+  useStorageSync(STORAGE_KEYS.COURSES, syncCourses);
 
   const filteredCourses = allCourses.filter((course) => {
     const courseStatus = course.status || (course.isPublished ? 'Published' : 'Draft');
@@ -136,7 +145,7 @@ export const CoursesPage: React.FC = () => {
             </button>
           ))}
           <span className="ml-auto text-slate-400 text-[11px]">
-            Showing <strong>{filteredCourses.length}</strong> of {SEED_COURSES.length} courses
+            Showing <strong>{filteredCourses.length}</strong> of {allCourses.length} courses
           </span>
         </div>
       </div>

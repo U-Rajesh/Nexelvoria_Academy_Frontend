@@ -21,6 +21,8 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { studentService } from '../../services/studentService';
 import { paymentService } from '../../services/paymentService';
+import { STORAGE_KEYS } from '../../constants/appConfig';
+import { useStorageSync } from '../../hooks/useStorageSync';
 import type { Course, Enrollment, Batch, PaymentTransaction } from '../../types';
 import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
@@ -35,23 +37,28 @@ export const StudentDashboardPage: React.FC = () => {
   const [transactions, setTransactions] = useState<PaymentTransaction[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    const loadStudentData = async () => {
-      if (!user) return;
-      const [enrRes, attRes, payRes] = await Promise.all([
-        studentService.getStudentEnrollments(user.id),
-        studentService.getStudentAttendance(user.id),
-        paymentService.getStudentPaymentHistory(user.id),
-      ]);
+  const loadStudentData = React.useCallback(async () => {
+    if (!user) return;
+    const [enrRes, attRes, payRes] = await Promise.all([
+      studentService.getStudentEnrollments(user.id),
+      studentService.getStudentAttendance(user.id),
+      paymentService.getStudentPaymentHistory(user.id),
+    ]);
 
-      if (enrRes.success) setEnrollments(enrRes.data);
-      if (attRes.success) setAttendance(attRes.data);
-      if (payRes.success) setTransactions(payRes.data);
-      setIsLoading(false);
-    };
-
-    loadStudentData();
+    if (enrRes.success) setEnrollments(enrRes.data);
+    if (attRes.success) setAttendance(attRes.data);
+    if (payRes.success) setTransactions(payRes.data);
+    setIsLoading(false);
   }, [user]);
+
+  useEffect(() => {
+    loadStudentData();
+  }, [loadStudentData]);
+
+  useStorageSync(
+    [STORAGE_KEYS.ENROLLMENTS, STORAGE_KEYS.COURSES, STORAGE_KEYS.ATTENDANCE, STORAGE_KEYS.PAYMENTS],
+    loadStudentData
+  );
 
   // Check if student application is still pending Admin approval (BR-002)
   const isPendingApproval = (user as any)?.adminApprovalStatus === 'pending';

@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { School, Handshake, CheckCircle2, Send, Building2, Users } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { CheckCircle2, Send, MapPin, Award } from 'lucide-react';
 import { Button } from '../../components/common/Button';
 import { PageLabel } from '../../components/common/PageLabel';
 import { Card } from '../../components/common/Card';
@@ -8,9 +8,39 @@ import { cmsService, type CollegePartnershipConfig } from '../../services/cmsSer
 import { ScrollReveal } from '../../components/public/ScrollReveal';
 
 export const CollegePartnershipsPage: React.FC = () => {
-  const [config] = useState<CollegePartnershipConfig>(() => cmsService.getCollegePartnerships());
+  const [config, setConfig] = useState<CollegePartnershipConfig>(() => cmsService.getCollegePartnerships());
+
+  useEffect(() => {
+    const syncCollege = () => {
+      setConfig(cmsService.getCollegePartnerships());
+    };
+    window.addEventListener('cms-update', syncCollege);
+    window.addEventListener('app-storage-update', syncCollege);
+    window.addEventListener('storage', syncCollege);
+    return () => {
+      window.removeEventListener('cms-update', syncCollege);
+      window.removeEventListener('app-storage-update', syncCollege);
+      window.removeEventListener('storage', syncCollege);
+    };
+  }, []);
+
   const [form, setForm] = useState({ college: '', contactPerson: '', email: '', phone: '', studentCount: '' });
   const { showToast } = useNotification();
+
+  // Helper for college initials monogram
+  const getInitials = (name: string) => {
+    const words = name.replace(/[^a-zA-Z0-9\s]/g, '').trim().split(/\s+/);
+    if (words.length >= 2) {
+      return (words[0][0] + words[1][0]).toUpperCase();
+    }
+    return (name.slice(0, 2) || 'CL').toUpperCase();
+  };
+
+  // Only active partnerships are displayed publicly
+  const activePartners = useMemo(() => {
+    const list = config.partners || config.partnerColleges || [];
+    return list.filter((col) => col.status === 'active');
+  }, [config]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,6 +76,114 @@ export const CollegePartnershipsPage: React.FC = () => {
         </ScrollReveal>
       )}
 
+      {/* 1. Partnered Institutions - Active Partnerships Only */}
+      {config.sectionVisibility.partnerList && activePartners.length > 0 && (
+        <ScrollReveal animation="fade-up" className="space-y-8">
+          <div className="text-center max-w-2xl mx-auto space-y-2">
+            <h3 className="text-2xl font-bold text-slate-900 tracking-tight">Partnered Institutions</h3>
+            <p className="text-sm text-slate-500">
+              Colleges and universities holding active training MoUs, Centers of Excellence, and direct placement pipelines with Nexelvoria.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {activePartners.map((col) => {
+              const hasLogo = Boolean(col.collegeLogo || col.logoUrl);
+              const locationDisplay =
+                col.city && col.state
+                  ? `${col.city}, ${col.state}`
+                  : col.city || col.state || col.location || '';
+
+              return (
+                <div
+                  key={col.id}
+                  className="p-6 rounded-2xl bg-white border border-slate-200/90 shadow-sm hover:shadow-md transition-all duration-300 flex flex-col justify-between group"
+                >
+                  <div className="space-y-4">
+                    {/* Top Row: Logo & Status Badge */}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="h-14 w-14 rounded-xl bg-slate-50 border border-slate-200/80 p-1.5 flex items-center justify-center shrink-0 shadow-xs overflow-hidden group-hover:border-indigo-200 transition-colors">
+                        {hasLogo ? (
+                          <img
+                            src={col.collegeLogo || col.logoUrl}
+                            alt={col.collegeName}
+                            className="max-h-11 max-w-11 object-contain transition-transform duration-300 group-hover:scale-105"
+                            onError={(e) => {
+                              e.currentTarget.style.display = 'none';
+                              const fallback = e.currentTarget.parentElement?.querySelector('.logo-fallback');
+                              if (fallback) fallback.classList.remove('hidden');
+                            }}
+                          />
+                        ) : null}
+                        <div
+                          className={`logo-fallback h-full w-full rounded-lg bg-gradient-to-br from-indigo-50 to-blue-50 text-indigo-700 font-extrabold text-sm flex flex-col items-center justify-center border border-indigo-100 ${
+                            hasLogo ? 'hidden' : ''
+                          }`}
+                        >
+                          <span className="tracking-wider">{getInitials(col.collegeName)}</span>
+                        </div>
+                      </div>
+
+                      {/* Active Status Badge */}
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/80 shrink-0">
+                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        Active MoU
+                      </span>
+                    </div>
+
+                    {/* College Name & Location */}
+                    <div>
+                      <h4 className="text-base font-bold text-slate-900 leading-snug line-clamp-2 group-hover:text-indigo-600 transition-colors">
+                        {col.collegeName}
+                      </h4>
+                      <div className="flex items-center gap-1.5 text-xs text-slate-500 mt-1.5">
+                        <MapPin className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                        <span>{locationDisplay || 'Location Verified'}</span>
+                        {col.mouYear && (
+                          <>
+                            <span className="text-slate-300">•</span>
+                            <span>MoU Est. {col.mouYear}</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Description */}
+                    <p className="text-xs text-slate-600 line-clamp-3 leading-relaxed">
+                      {col.description || 'Institutional partnership agreement for student technical training, workshops, and campus placements.'}
+                    </p>
+                  </div>
+
+                  {/* Partnership Types Tags */}
+                  <div className="pt-4 mt-5 border-t border-slate-100">
+                    <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                      Partnership Scope
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {col.partnershipTypes && col.partnershipTypes.length > 0 ? (
+                        col.partnershipTypes.map((type, tIdx) => (
+                          <span
+                            key={tIdx}
+                            className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md bg-indigo-50/80 text-indigo-700 border border-indigo-100/80"
+                          >
+                            <Award className="h-2.5 w-2.5 text-indigo-500" />
+                            {type}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-[11px] font-medium px-2 py-0.5 rounded-md bg-slate-100 text-slate-600">
+                          Technical Training
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </ScrollReveal>
+      )}
+
+      {/* 2. Institutional MoU Inquiry Section */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-start">
         {/* Partnership Benefits */}
         {config.sectionVisibility.benefits && (
@@ -147,29 +285,6 @@ export const CollegePartnershipsPage: React.FC = () => {
           </ScrollReveal>
         )}
       </div>
-
-      {/* Partnered Colleges Showcase */}
-      {config.sectionVisibility.partnerList && config.partnerColleges && config.partnerColleges.length > 0 && (
-        <ScrollReveal animation="fade-up" className="space-y-6 pt-4">
-          <div className="text-center max-w-xl mx-auto space-y-2">
-            <h3 className="text-xl font-bold text-slate-900">Partnered Institutions</h3>
-            <p className="text-xs text-slate-500">Colleges that have active training MoUs and center-of-excellence setups with Nexelvoria.</p>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {config.partnerColleges.map((col, idx) => (
-              <div key={idx} className="p-4 rounded-xl bg-white border border-slate-200/80 shadow-xs flex items-center gap-3">
-                <div className="h-10 w-10 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
-                  <School className="h-5 w-5" />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-xs font-bold text-slate-900 truncate">{col.name}</p>
-                  <p className="text-[11px] text-slate-500 truncate">{col.location} • {col.mouYear}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </ScrollReveal>
-      )}
     </div>
   );
 };

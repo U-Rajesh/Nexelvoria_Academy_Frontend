@@ -1,6 +1,6 @@
 import { STORAGE_KEYS } from '../constants/appConfig';
 import { getStorageItem, setStorageItem } from '../utils/storage';
-import { SEED_USERS, SEED_COURSES, SEED_BATCHES, SEED_PAYMENTS } from '../mocks/seedData';
+import { SEED_USERS, SEED_COURSES, SEED_BATCHES, SEED_PAYMENTS, SEED_REFUNDS } from '../mocks/seedData';
 import type {
   AdminProfile,
   RefundRequest,
@@ -50,51 +50,6 @@ const SEED_ADMINS: AdminProfile[] = [
     ],
     createdAt: '2026-07-01T10:00:00Z',
     lastLoginIp: '192.168.1.140',
-  },
-];
-
-const SEED_REFUNDS: RefundRequest[] = [
-  {
-    id: 'ref-001',
-    transactionId: 'pay-001',
-    studentId: 'user-stu-001',
-    studentName: 'Rohan Sharma',
-    courseId: 'course-fsd-01',
-    courseTitle: 'Full Stack Java & Cloud Microservices',
-    amountINR: 38000,
-    reason: 'Relocating abroad for on-campus master degree program in Germany.',
-    status: 'pending_super_admin',
-    requestedAt: '2026-11-08T11:00:00Z',
-  },
-  {
-    id: 'ref-002',
-    transactionId: 'pay-002',
-    studentId: 'user-stu-002',
-    studentName: 'Ananya Sen',
-    courseId: 'course-ds-01',
-    courseTitle: 'Data Science, Machine Learning & AI',
-    amountINR: 42000,
-    reason: 'Medical condition preventing participation in intense practical batches.',
-    status: 'approved',
-    requestedAt: '2026-10-28T14:30:00Z',
-    decidedAt: '2026-10-30T10:15:00Z',
-    decidedBySuperAdminId: 'user-super-001',
-    superAdminRemarks: 'Medical certificates and hospital receipts verified. Approved in full.',
-  },
-  {
-    id: 'ref-003',
-    transactionId: 'pay-003',
-    studentId: 'user-stu-003',
-    studentName: 'Deepak Patel',
-    courseId: 'course-devops-01',
-    courseTitle: 'DevOps, Docker & Kubernetes Engineering',
-    amountINR: 18000,
-    reason: 'Unhappy with evening class timing after 3 weeks of attendance.',
-    status: 'rejected',
-    requestedAt: '2026-10-15T09:00:00Z',
-    decidedAt: '2026-10-16T16:45:00Z',
-    decidedBySuperAdminId: 'user-super-001',
-    superAdminRemarks: 'Refund request submitted beyond 7-day institute cancellation policy. Student already attended 8 sessions.',
   },
 ];
 

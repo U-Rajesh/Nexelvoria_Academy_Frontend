@@ -74,7 +74,7 @@ export const PublicLayout: React.FC = () => {
   }, [location.pathname]);
 
   const navLinks = (headerFooterConfig.navLinks && headerFooterConfig.navLinks.length > 0)
-    ? headerFooterConfig.navLinks
+    ? headerFooterConfig.navLinks.filter((n) => n.isVisible !== false)
     : [
         { label: 'Home', path: '/' },
         { label: 'Courses', path: '/courses' },

@@ -1,8 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { FileCheck2, ExternalLink, Save, CheckCircle2, AlertCircle } from 'lucide-react';
 import { Github } from '../../components/common/SocialIcons';
 import { SEED_ASSIGNMENTS, SEED_ASSIGNMENT_SUBMISSIONS } from '../../mocks/seedData';
 import { teacherService } from '../../services/teacherService';
+import { STORAGE_KEYS } from '../../constants/appConfig';
+import { getStorageItem } from '../../utils/storage';
+import { useStorageSync } from '../../hooks/useStorageSync';
 import { useAuth } from '../../context/AuthContext';
 import { useNotification } from '../../context/NotificationContext';
 import { formatDate } from '../../utils/formatters';
@@ -16,7 +19,20 @@ export const AssignmentEvaluationPage: React.FC = () => {
   const { user } = useAuth();
   const { showToast } = useNotification();
 
-  const [submissions, setSubmissions] = useState<AssignmentSubmission[]>(SEED_ASSIGNMENT_SUBMISSIONS);
+  const [submissions, setSubmissions] = useState<AssignmentSubmission[]>(() =>
+    getStorageItem<AssignmentSubmission[]>(STORAGE_KEYS.SUBMISSIONS, SEED_ASSIGNMENT_SUBMISSIONS)
+  );
+
+  const loadSubmissions = useCallback(() => {
+    setSubmissions(getStorageItem<AssignmentSubmission[]>(STORAGE_KEYS.SUBMISSIONS, SEED_ASSIGNMENT_SUBMISSIONS));
+  }, []);
+
+  useEffect(() => {
+    loadSubmissions();
+  }, [loadSubmissions]);
+
+  useStorageSync(STORAGE_KEYS.SUBMISSIONS, loadSubmissions);
+
   const [evaluatingSub, setEvaluatingSub] = useState<AssignmentSubmission | null>(null);
 
   const [marks, setMarks] = useState<number>(45);

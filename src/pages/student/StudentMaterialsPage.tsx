@@ -1,21 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
-  FileText,
   Download,
-  ExternalLink,
-  BookOpen,
   Search,
-  Filter,
-  CheckCircle2,
-  FolderOpen,
   Eye,
-  FileCode,
-  ShieldAlert,
   Lock,
+  ShieldAlert,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { studentService } from '../../services/studentService';
-import type { Course, Enrollment, Batch } from '../../types';
+import { STORAGE_KEYS } from '../../constants/appConfig';
+import { useStorageSync } from '../../hooks/useStorageSync';
+import type { Course, Enrollment, Batch, StudyMaterial } from '../../types';
 import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
 import { Card } from '../../components/common/Card';
@@ -39,6 +34,7 @@ interface MaterialItem {
 export const StudentMaterialsPage: React.FC = () => {
   const { user } = useAuth();
   const [enrollments, setEnrollments] = useState<{ enrollment: Enrollment; course: Course; batch?: Batch }[]>([]);
+  const [materials, setMaterials] = useState<MaterialItem[]>([]);
   const [selectedCourseId, setSelectedCourseId] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [previewMaterial, setPreviewMaterial] = useState<MaterialItem | null>(null);
@@ -46,77 +42,52 @@ export const StudentMaterialsPage: React.FC = () => {
 
   const { showToast } = useNotification();
 
-  useEffect(() => {
-    const loadEnrollments = async () => {
-      if (!user) return;
-      const res = await studentService.getStudentEnrollments(user.id);
-      if (res.success) {
-        setEnrollments(res.data);
-      }
-      setIsLoading(false);
-    };
+  const loadData = useCallback(async () => {
+    if (!user) return;
+    const [enrRes, matRes] = await Promise.all([
+      studentService.getStudentEnrollments(user.id),
+      studentService.getStudyMaterialsForStudent(user.id),
+    ]);
 
-    loadEnrollments();
+    const loadedEnrollments = enrRes.success ? enrRes.data : [];
+    if (enrRes.success) {
+      setEnrollments(enrRes.data);
+    }
+
+    if (matRes.success) {
+      const items: MaterialItem[] = matRes.data.map((m: StudyMaterial) => {
+        const enr = loadedEnrollments.find((e) => e.course.id === m.courseId);
+        const formatSize = (bytes?: number) => {
+          if (!bytes) return '2.5 MB';
+          return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+        };
+        return {
+          id: m.id,
+          title: m.title,
+          type: m.fileType === 'pdf' ? 'pdf' : m.fileType === 'code' ? 'code_repo' : 'document',
+          size: formatSize(m.fileSizeBytes),
+          moduleName: 'Course Instructional Resource',
+          courseId: m.courseId,
+          courseTitle: enr?.course.title || 'Enrolled Course',
+          description: m.description,
+          downloadUrl: m.fileUrl || '#',
+          isDownloadRestricted: m.isDownloadRestricted,
+          previewContent: m.description,
+        };
+      });
+      setMaterials(items);
+    }
+    setIsLoading(false);
   }, [user]);
 
-  // Seed study materials matching enrolled courses
-  const materialsCatalog: MaterialItem[] = [
-    {
-      id: 'mat-1',
-      title: 'Spring Cloud Microservices & Distributed Architecture Reference Guide',
-      type: 'pdf',
-      size: '4.8 MB',
-      moduleName: 'Module 1: Advanced Java & Microservices',
-      courseId: 'crs-01',
-      courseTitle: 'Full Stack Java Cloud Architecture',
-      description: 'Comprehensive architectural diagrams of Eureka, Spring Cloud Gateway, resilience circuit breakers, and OpenFeign inter-service communication.',
-      downloadUrl: '#',
-      previewContent: 'This reference manual covers distributed systems patterns: API Gateway routing filters, distributed rate limiting with Redis, Resilience4j circuit breakers, and Sleuth distributed tracing with Zipkin.',
-    },
-    {
-      id: 'mat-2',
-      title: 'Docker & Kubernetes Pod Orchestration Cheatsheet',
-      type: 'cheatsheet',
-      size: '1.2 MB',
-      moduleName: 'Module 3: Cloud & Containerization',
-      courseId: 'crs-01',
-      courseTitle: 'Full Stack Java Cloud Architecture',
-      description: 'Production kubectl command references, multi-stage Dockerfile templates, Helm chart structures, and deployment rollbacks.',
-      downloadUrl: '#',
-      previewContent: 'Production commands: kubectl rollout undo, configuring Horizontal Pod Autoscaler (HPA) metrics, Ingress controllers with TLS certificates, and Persistent Volume Claims (PVC).',
-    },
-    {
-      id: 'mat-3',
-      title: 'Apache Kafka Event-Driven Messaging & Idempotent Consumer Patterns',
-      type: 'document',
-      size: '2.5 MB',
-      moduleName: 'Module 2: Event-Driven Architectures',
-      courseId: 'crs-01',
-      courseTitle: 'Full Stack Java Cloud Architecture',
-      description: 'Step-by-step code patterns for exactly-once messaging semantics, Dead Letter Queues (DLQ), and Kafka Streams state stores.',
-      downloadUrl: '#',
-      previewContent: 'Covers: Partition rebalance listeners, transactional KafkaTemplate in Spring Boot, handling poisoned pill messages with ErrorHandlingDeserializer.',
-    },
-    {
-      id: 'mat-4',
-      title: 'System Design Interview Playbook for Fresh Graduates',
-      type: 'pdf',
-      size: '6.2 MB',
-      moduleName: 'Placement & Assessment Preparation',
-      courseId: 'crs-01',
-      courseTitle: 'Full Stack Java Cloud Architecture',
-      description: 'Detailed walk-throughs of URL shorteners, distributed rate limiters, payment ledgers, and notification dispatch microservices.',
-      downloadUrl: '#',
-      isDownloadRestricted: true, // LMS-006: Admin restricted download
-      previewContent: 'Includes back-of-the-envelope calculations, CAP theorem trade-offs, database indexing with B-Trees, and Redis LRU cache eviction algorithms.',
-    },
-  ];
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
-  // STD-003: Filter only materials belonging to courses the student is actively enrolled in!
-  const enrolledCourseIds = new Set(enrollments.map((e) => e.course.id));
-  const authorizedMaterials = materialsCatalog.filter((m) => enrolledCourseIds.has(m.courseId));
+  useStorageSync([STORAGE_KEYS.TEACHER_MATERIALS, STORAGE_KEYS.ENROLLMENTS], loadData);
 
-  const filteredMaterials = authorizedMaterials.filter((m) => {
+  // Filter materials based on selections
+  const filteredMaterials = materials.filter((m) => {
     const matchesCourse = selectedCourseId === 'all' || m.courseId === selectedCourseId;
     const matchesQuery =
       m.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -173,7 +144,7 @@ export const StudentMaterialsPage: React.FC = () => {
         </div>
 
         <Badge variant="purple" size="md">
-          {authorizedMaterials.length} Resources Available
+          {materials.length} Resources Available
         </Badge>
       </div>
 

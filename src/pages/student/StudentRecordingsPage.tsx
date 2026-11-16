@@ -1,19 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Video,
   PlayCircle,
-  Clock,
   Calendar,
   User,
   Search,
-  BookOpen,
   ShieldAlert,
-  ChevronDown,
-  Sparkles,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { studentService } from '../../services/studentService';
-import type { Course, Enrollment, Batch } from '../../types';
+import { STORAGE_KEYS } from '../../constants/appConfig';
+import { useStorageSync } from '../../hooks/useStorageSync';
+import type { Course, Enrollment, Batch, RecordedClassItem } from '../../types';
 import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
 import { Card } from '../../components/common/Card';
@@ -36,81 +33,52 @@ interface RecordingItem {
 export const StudentRecordingsPage: React.FC = () => {
   const { user } = useAuth();
   const [enrollments, setEnrollments] = useState<{ enrollment: Enrollment; course: Course; batch?: Batch }[]>([]);
+  const [recordings, setRecordings] = useState<RecordingItem[]>([]);
   const [selectedCourseId, setSelectedCourseId] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeRecording, setActiveRecording] = useState<RecordingItem | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    const loadEnrollments = async () => {
-      if (!user) return;
-      const res = await studentService.getStudentEnrollments(user.id);
-      if (res.success) {
-        setEnrollments(res.data);
-      }
-      setIsLoading(false);
-    };
+  const loadData = useCallback(async () => {
+    if (!user) return;
+    const [enrRes, recRes] = await Promise.all([
+      studentService.getStudentEnrollments(user.id),
+      studentService.getStudentRecordedClasses(user.id),
+    ]);
 
-    loadEnrollments();
+    const loadedEnrollments = enrRes.success ? enrRes.data : [];
+    if (enrRes.success) {
+      setEnrollments(enrRes.data);
+    }
+
+    if (recRes.success) {
+      const mapped: RecordingItem[] = recRes.data.map((r: RecordedClassItem) => {
+        const enr = loadedEnrollments.find((e) => e.course.id === r.courseId);
+        return {
+          id: r.id,
+          title: r.title,
+          date: r.sessionDate || '2026-11-09',
+          duration: `${r.durationMinutes || 90}m`,
+          moduleName: r.moduleName || 'Instructional Module',
+          courseId: r.courseId,
+          courseTitle: enr?.course.title || 'Full Stack Java Cloud Architecture',
+          trainer: 'Dr. Vikram Rao',
+          description: r.description,
+          videoEmbedUrl: r.videoUrl || 'https://www.youtube.com/embed/dQw4w9WgXcQ',
+        };
+      });
+      setRecordings(mapped);
+    }
+    setIsLoading(false);
   }, [user]);
 
-  // Seed recorded lectures catalog
-  const recordingsCatalog: RecordingItem[] = [
-    {
-      id: 'rec-1',
-      title: 'Spring Cloud API Gateway & Resilience4j Circuit Breakers Deep Dive',
-      date: '2026-11-08',
-      duration: '1h 45m',
-      moduleName: 'Module 1: Advanced Java & Microservices',
-      courseId: 'crs-01',
-      courseTitle: 'Full Stack Java Cloud Architecture',
-      trainer: 'Dr. Vikram Seth',
-      description: 'Hands-on session implementing routing filters, JWT authorization headers, fallback controller endpoints, and bulkhead patterns in Resilience4j.',
-      videoEmbedUrl: 'https://www.youtube.com/embed/dQw4w9WgXcQ',
-    },
-    {
-      id: 'rec-2',
-      title: 'Kafka Consumer Groups, Rebalance Protocol & Exactly-Once Semantics',
-      date: '2026-11-06',
-      duration: '2h 10m',
-      moduleName: 'Module 2: Event-Driven Architectures',
-      courseId: 'crs-01',
-      courseTitle: 'Full Stack Java Cloud Architecture',
-      trainer: 'Dr. Vikram Seth',
-      description: 'Configuring idempotent producers, transaction coordinators, and consumer group offset commits with Apache Kafka on Docker.',
-      videoEmbedUrl: 'https://www.youtube.com/embed/dQw4w9WgXcQ',
-    },
-    {
-      id: 'rec-3',
-      title: 'Dockerizing Multi-Module Spring Boot & Maven Production Caching',
-      date: '2026-11-04',
-      duration: '1h 30m',
-      moduleName: 'Module 3: Cloud & Containerization',
-      courseId: 'crs-01',
-      courseTitle: 'Full Stack Java Cloud Architecture',
-      trainer: 'Aditya Verma',
-      description: 'Optimizing container layer caching with Eclipse Temurin JRE alpine images, multi-stage builds, and non-root execution security.',
-      videoEmbedUrl: 'https://www.youtube.com/embed/dQw4w9WgXcQ',
-    },
-    {
-      id: 'rec-4',
-      title: 'Kubernetes StatefulSets vs Deployments & Ingress Nginx Routing',
-      date: '2026-11-02',
-      duration: '2h 00m',
-      moduleName: 'Module 3: Cloud & Containerization',
-      courseId: 'crs-01',
-      courseTitle: 'Full Stack Java Cloud Architecture',
-      trainer: 'Aditya Verma',
-      description: 'Deploying MongoDB and PostgreSQL StatefulSets with persistent storage classes, secrets, configmaps, and cluster IP networking.',
-      videoEmbedUrl: 'https://www.youtube.com/embed/dQw4w9WgXcQ',
-    },
-  ];
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
-  // STD-003: Restrict recordings strictly to authorized enrolled courses
-  const enrolledCourseIds = new Set(enrollments.map((e) => e.course.id));
-  const authorizedRecordings = recordingsCatalog.filter((r) => enrolledCourseIds.has(r.courseId));
+  useStorageSync([STORAGE_KEYS.TEACHER_RECORDINGS, STORAGE_KEYS.ENROLLMENTS], loadData);
 
-  const filteredRecordings = authorizedRecordings.filter((rec) => {
+  const filteredRecordings = recordings.filter((rec) => {
     const matchesCourse = selectedCourseId === 'all' || rec.courseId === selectedCourseId;
     const matchesQuery =
       rec.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -151,7 +119,7 @@ export const StudentRecordingsPage: React.FC = () => {
         </div>
 
         <Badge variant="purple" size="md">
-          {authorizedRecordings.length} Recorded Sessions
+          {recordings.length} Recorded Sessions
         </Badge>
       </div>
 

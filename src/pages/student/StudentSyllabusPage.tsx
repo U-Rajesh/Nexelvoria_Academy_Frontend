@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   BookOpen,
@@ -15,6 +15,8 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { studentService } from '../../services/studentService';
+import { STORAGE_KEYS } from '../../constants/appConfig';
+import { useStorageSync } from '../../hooks/useStorageSync';
 import type { Course, Enrollment, Batch } from '../../types';
 import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
@@ -27,22 +29,24 @@ export const StudentSyllabusPage: React.FC = () => {
   const [openModuleId, setOpenModuleId] = useState<string>('mod-1');
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    const loadEnrollments = async () => {
-      if (!user) return;
-      const res = await studentService.getStudentEnrollments(user.id);
-      if (res.success && res.data.length > 0) {
-        setEnrollments(res.data);
-        setSelectedCourseId(res.data[0].course.id);
-        if (res.data[0].course.modules.length > 0) {
-          setOpenModuleId(res.data[0].course.modules[0].id);
-        }
+  const loadEnrollments = useCallback(async () => {
+    if (!user) return;
+    const res = await studentService.getStudentEnrollments(user.id);
+    if (res.success && res.data.length > 0) {
+      setEnrollments(res.data);
+      setSelectedCourseId((prev) => prev || res.data[0].course.id);
+      if (res.data[0].course.modules.length > 0) {
+        setOpenModuleId((prev) => prev || res.data[0].course.modules[0].id);
       }
-      setIsLoading(false);
-    };
-
-    loadEnrollments();
+    }
+    setIsLoading(false);
   }, [user]);
+
+  useEffect(() => {
+    loadEnrollments();
+  }, [loadEnrollments]);
+
+  useStorageSync([STORAGE_KEYS.COURSES, STORAGE_KEYS.ENROLLMENTS], loadEnrollments);
 
   const activeEnrollmentData = enrollments.find((e) => e.course.id === selectedCourseId);
   const activeCourse = activeEnrollmentData?.course;

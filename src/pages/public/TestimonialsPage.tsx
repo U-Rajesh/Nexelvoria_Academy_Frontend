@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Star, Video } from 'lucide-react';
 import { Badge } from '../../components/common/Badge';
 import { PageLabel } from '../../components/common/PageLabel';
@@ -8,8 +8,22 @@ import { AmbientDarkGlow } from '../../components/public/AnimatedBackgroundLayer
 import { cmsService, type TestimonialItem } from '../../services/cmsService';
 
 export const TestimonialsPage: React.FC = () => {
-  const [testimonials] = useState<TestimonialItem[]>(() => cmsService.getTestimonials());
+  const [testimonials, setTestimonials] = useState<TestimonialItem[]>(() =>
+    cmsService.getTestimonials().filter((t) => t.isPublished !== false)
+  );
   const [selectedCourse, setSelectedCourse] = useState<string>('All');
+
+  useEffect(() => {
+    const syncTestimonials = () => {
+      setTestimonials(cmsService.getTestimonials().filter((t) => t.isPublished !== false));
+    };
+    window.addEventListener('cms-update', syncTestimonials);
+    window.addEventListener('storage', syncTestimonials);
+    return () => {
+      window.removeEventListener('cms-update', syncTestimonials);
+      window.removeEventListener('storage', syncTestimonials);
+    };
+  }, []);
 
   const courseFilters = ['All', 'Full Stack Java Cloud Architecture', 'MERN Stack Cloud Native Specialist', 'DevOps & Cloud Architecture', 'Data Science & Generative AI Systems'];
 

@@ -30,6 +30,7 @@ import { CMSHomePageTab } from '../../components/admin/cms/CMSHomePageTab';
 import { CMSAboutUsTab } from '../../components/admin/cms/CMSAboutUsTab';
 import { CMSHiringPartnersTab } from '../../components/admin/cms/CMSHiringPartnersTab';
 import { CMSPartnershipsTab } from '../../components/admin/cms/CMSPartnershipsTab';
+import { CMSCorporateTrainingTab } from '../../components/admin/cms/CMSCorporateTrainingTab';
 import { CMSContactHeaderFooterTab } from '../../components/admin/cms/CMSContactHeaderFooterTab';
 import { CMSSEOAndMediaTab } from '../../components/admin/cms/CMSSEOAndMediaTab';
 
@@ -56,6 +57,7 @@ export const AdminWebsiteCMSPage: React.FC = () => {
     | 'about'
     | 'partners'
     | 'partnerships'
+    | 'corporate'
     | 'banners'
     | 'blogs'
     | 'faqs'
@@ -79,6 +81,7 @@ export const AdminWebsiteCMSPage: React.FC = () => {
   const [achievements, setAchievements] = useState<AchievementItem[]>([]);
   const [careers, setCareers] = useState<CareerOpening[]>([]);
   const [enquiries, setEnquiries] = useState<LeadEnquiry[]>([]);
+  const [corporateCount, setCorporateCount] = useState<number>(() => cmsService.getCorporateTrainingServices().length);
 
   // Edit Modals
   const [bannerModalOpen, setBannerModalOpen] = useState(false);
@@ -111,10 +114,20 @@ export const AdminWebsiteCMSPage: React.FC = () => {
     setAchievements(cmsService.getAchievements());
     setCareers(cmsService.getCareers());
     setEnquiries(cmsService.getEnquiries());
+    setCorporateCount(cmsService.getCorporateTrainingServices().length);
   };
 
   useEffect(() => {
     loadData();
+    const handleStorageUpdate = () => {
+      setCorporateCount(cmsService.getCorporateTrainingServices().length);
+    };
+    window.addEventListener('cms-update', handleStorageUpdate);
+    window.addEventListener('app-storage-update', handleStorageUpdate);
+    return () => {
+      window.removeEventListener('cms-update', handleStorageUpdate);
+      window.removeEventListener('app-storage-update', handleStorageUpdate);
+    };
   }, []);
 
   // --- Banner Actions (PUB-022) ---
@@ -539,7 +552,15 @@ export const AdminWebsiteCMSPage: React.FC = () => {
             activeTab === 'partnerships' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-800'
           }`}
         >
-          College MoUs & Corporate
+          College MoUs
+        </button>
+        <button
+          onClick={() => setActiveTab('corporate')}
+          className={`pb-2.5 px-3 font-bold transition-colors cursor-pointer border-b-2 -mb-1.5 whitespace-nowrap ${
+            activeTab === 'corporate' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          Corporate Training ({corporateCount})
         </button>
         <button
           onClick={() => setActiveTab('banners')}
@@ -631,6 +652,7 @@ export const AdminWebsiteCMSPage: React.FC = () => {
       {activeTab === 'about' && <CMSAboutUsTab />}
       {activeTab === 'partners' && <CMSHiringPartnersTab />}
       {activeTab === 'partnerships' && <CMSPartnershipsTab />}
+      {activeTab === 'corporate' && <CMSCorporateTrainingTab />}
       {activeTab === 'contact-header' && <CMSContactHeaderFooterTab />}
       {activeTab === 'seo-media' && <CMSSEOAndMediaTab />}
 

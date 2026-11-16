@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { MapPin, Clock, CheckCircle2, Award, Users, HeartHandshake } from 'lucide-react';
 import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
@@ -11,8 +11,22 @@ import { cmsService, type CareerOpening } from '../../services/cmsService';
 import { analytics } from '../../utils/analytics';
 
 export const CareersPage: React.FC = () => {
-  const [openings] = useState<CareerOpening[]>(() => cmsService.getCareers());
+  const [openings, setOpenings] = useState<CareerOpening[]>(() =>
+    cmsService.getCareers().filter((c) => c.isActive !== false)
+  );
   const [selectedJob, setSelectedJob] = useState<CareerOpening | null>(null);
+
+  useEffect(() => {
+    const syncCareers = () => {
+      setOpenings(cmsService.getCareers().filter((c) => c.isActive !== false));
+    };
+    window.addEventListener('cms-update', syncCareers);
+    window.addEventListener('storage', syncCareers);
+    return () => {
+      window.removeEventListener('cms-update', syncCareers);
+      window.removeEventListener('storage', syncCareers);
+    };
+  }, []);
   const [applyModalJob, setApplyModalJob] = useState<CareerOpening | null>(null);
   const [applicationForm, setApplicationForm] = useState({
     name: '',

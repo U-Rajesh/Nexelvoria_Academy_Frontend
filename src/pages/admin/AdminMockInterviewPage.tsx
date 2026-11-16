@@ -245,7 +245,7 @@ export const AdminMockInterviewPage: React.FC = () => {
           </p>
         </div>
 
-        {activeTab === 'schedules' && (
+        {activeTab === 'schedules' && user?.role !== 'teacher' && (user?.role === 'admin' || user?.role === 'super_admin') && (
           <Button
             variant="primary"
             size="sm"
@@ -456,8 +456,8 @@ export const AdminMockInterviewPage: React.FC = () => {
         </div>
       )}
 
-      {/* Schedule Modal */}
-      {isScheduleModalOpen && (
+      {/* Schedule Modal (Restricted strictly from teachers) */}
+      {isScheduleModalOpen && user?.role !== 'teacher' && (user?.role === 'admin' || user?.role === 'super_admin') && (
         <Modal
           isOpen={isScheduleModalOpen}
           onClose={() => setIsScheduleModalOpen(false)}
