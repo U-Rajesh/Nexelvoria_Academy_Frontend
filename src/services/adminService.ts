@@ -1,3 +1,30 @@
+import { apiClient } from './api';
+import {
+  toApiFailure,
+  toApiSuccess,
+  type BackendFailureBody,
+  type BackendSuccessBody,
+} from './apiErrors';
+
+/**
+ * Whether the localStorage auth mock is active.
+ *
+ * ===========================================================================
+ * SCOPE OF REAL API USE IN THIS FILE.
+ *
+ * `adminService` has 61 operations and all but THREE remain mock-backed.
+ * Only the Student Approval operations were approved for wiring:
+ *
+ *   - getStudentsForApproval      GET   /students
+ *   - approveStudentRegistration  POST  /students/:id/approve
+ *   - rejectStudentRegistration   POST  /students/:id/reject
+ *
+ * Everything else in this file is untouched and still reads and writes
+ * localStorage, so the other 24 admin pages behave exactly as before.
+ * ===========================================================================
+ */
+const USE_MOCK_AUTH = import.meta.env.VITE_USE_MOCK_AUTH === 'true';
+
 import { STORAGE_KEYS, APP_CONFIG } from '../constants/appConfig';
 import { getStorageItem, setStorageItem } from '../utils/storage';
 import {
@@ -160,6 +187,96 @@ export const adminService = {
     return { success: true, data: students };
   },
 
+  /**
+   * The student list backing the APPROVAL QUEUE. Live in real mode.
+   *
+   *   GET /api/v1/students?approvalStatus=pending
+   *
+   * Separate from `getStudents` on purpose: that method is shared by other
+   * admin pages which remain mock-backed, and Decision B scoped this change
+   * to the approval operations alone.
+   *
+   * The backend returns `PaginatedResult`, so the items are unwrapped here
+   * to keep the page's existing array-shaped contract.
+   */
+  async getStudentsForApproval(
+    approvalStatus?: 'pending' | 'approved' | 'rejected'
+  ): Promise<ApiResponse<StudentProfile[]>> {
+    if (!USE_MOCK_AUTH) {
+      const fallback = 'The student list could not be loaded. Please try again.';
+
+      try {
+        const response = await apiClient.get<
+          | BackendSuccessBody<{ items: StudentProfile[]; total: number }>
+          | BackendFailureBody
+        >('/students', {
+          params: {
+            pageSize: 100,
+            ...(approvalStatus === undefined ? {} : { approvalStatus }),
+          },
+        });
+
+        const page = toApiSuccess<{ items: StudentProfile[]; total: number }>(
+          response.data,
+          fallback
+        );
+
+        return page.success && page.data
+          ? { success: true, data: page.data.items }
+          : { success: false, data: [], error: page.error ?? fallback };
+      } catch (err) {
+        const failed = toApiFailure<StudentProfile[]>(err, fallback);
+
+        return { ...failed, data: [] };
+      }
+    }
+
+    return adminService.getStudents();
+  },
+
+  /**
+   * How many registrations are awaiting a decision.
+   *
+   * ===========================================================================
+   * SAME SOURCE AS THE APPROVAL PAGE, deliberately.
+   *
+   * The admin sidebar badge used to come from `getDashboardStats()`, which
+   * counts localStorage seed data. Once the approval page started reading the
+   * real backend the two disagreed: the sidebar said "1 Pending" from the
+   * mock while the page showed 0 from the API. A badge that contradicts the
+   * screen it links to is worse than no badge.
+   *
+   * Asks for `pageSize=1` and reads `total`: the count is all that is needed,
+   * so there is no reason to transfer a hundred records for it.
+   * ===========================================================================
+   */
+  async getPendingApprovalCount(): Promise<ApiResponse<number>> {
+    if (!USE_MOCK_AUTH) {
+      const fallback = 'The pending approval count could not be loaded.';
+
+      try {
+        const response = await apiClient.get<
+          BackendSuccessBody<{ total: number }> | BackendFailureBody
+        >('/students', { params: { approvalStatus: 'pending', pageSize: 1 } });
+
+        const page = toApiSuccess<{ total: number }>(response.data, fallback);
+
+        return page.success && page.data
+          ? { success: true, data: page.data.total }
+          : { success: false, data: 0, error: page.error ?? fallback };
+      } catch (err) {
+        return { ...toApiFailure<number>(err, fallback), data: 0 };
+      }
+    }
+
+    // Mock mode keeps the original behaviour, counting seeded students.
+    const stats = await adminService.getDashboardStats();
+
+    return stats.success
+      ? { success: true, data: stats.data.pendingApprovals }
+      : { success: false, data: 0, error: stats.error };
+  },
+
   async addStudent(
     admin: { id: string; name: string },
     data: Omit<StudentProfile, 'id' | 'createdAt' | 'isEmailVerified' | 'isMobileVerified' | 'enrolledCourseIds' | 'role'> & {
@@ -266,11 +383,42 @@ export const adminService = {
     return { success: true, data: students[idx], message: `Account unlocked for ${students[idx].name}.` };
   },
 
+  /**
+   * Approves a pending registration (BR-002). LIVE BACKEND CALL in real mode.
+   *
+   *   POST /api/v1/students/:studentId/approve
+   *
+   * `admin` is kept in the signature so the mock path and every existing
+   * caller still work, but IT IS IGNORED by the real endpoint: the deciding
+   * administrator is read from the session token server-side, never from the
+   * request body. A client that could name the approver could forge the
+   * audit trail.
+   *
+   * THIS DOES NOT ACTIVATE THE ACCOUNT. BR-002 gates payment, not sign-in,
+   * so the student remains `pending` until an administrator activates them
+   * separately via `updateStudentStatus`.
+   */
   async approveStudentRegistration(
     admin: { id: string; name: string },
     studentId: string,
     remarks?: string
   ): Promise<ApiResponse<StudentProfile>> {
+    if (!USE_MOCK_AUTH) {
+      const fallback = 'The approval could not be recorded. Please try again.';
+
+      try {
+        const response = await apiClient.post<
+          BackendSuccessBody<StudentProfile> | BackendFailureBody
+        >(`/students/${encodeURIComponent(studentId)}/approve`, {
+          ...(remarks === undefined ? {} : { remarks }),
+        });
+
+        return toApiSuccess<StudentProfile>(response.data, fallback);
+      } catch (err) {
+        return toApiFailure<StudentProfile>(err, fallback);
+      }
+    }
+
     await sleep(250);
     const students = getStorageItem<StudentProfile[]>(STORAGE_KEYS.STUDENTS, []);
     const idx = students.findIndex((s) => s.id === studentId);
@@ -297,11 +445,34 @@ export const adminService = {
     };
   },
 
+  /**
+   * Rejects a pending registration. LIVE BACKEND CALL in real mode.
+   *
+   *   POST /api/v1/students/:studentId/reject
+   *
+   * `remarks` are MANDATORY server-side and must carry real content - the
+   * backend trims and requires at least 5 characters, so a blank string is a
+   * 422. A rejection a student cannot see a reason for is a support ticket.
+   */
   async rejectStudentRegistration(
     admin: { id: string; name: string },
     studentId: string,
     remarks: string
   ): Promise<ApiResponse<StudentProfile>> {
+    if (!USE_MOCK_AUTH) {
+      const fallback = 'The rejection could not be recorded. Please try again.';
+
+      try {
+        const response = await apiClient.post<
+          BackendSuccessBody<StudentProfile> | BackendFailureBody
+        >(`/students/${encodeURIComponent(studentId)}/reject`, { remarks });
+
+        return toApiSuccess<StudentProfile>(response.data, fallback);
+      } catch (err) {
+        return toApiFailure<StudentProfile>(err, fallback);
+      }
+    }
+
     await sleep(250);
     const students = getStorageItem<StudentProfile[]>(STORAGE_KEYS.STUDENTS, []);
     const idx = students.findIndex((s) => s.id === studentId);

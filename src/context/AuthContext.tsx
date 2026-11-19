@@ -1,10 +1,16 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { STORAGE_KEYS } from '../constants/appConfig';
 import { getStorageItem } from '../utils/storage';
-import { authService } from '../services/authService';
+import {
+  ACCOUNT_STATE_BY_CODE,
+  authService,
+  type AccountStateCode,
+  type EmailVerificationStatus,
+  type OtpResendStatus,
+} from '../services/authService';
 import { initializeMockDatabase } from '../mocks/mockStorage';
 import type { User, UserRole, AccountState } from '../types';
-import type { LoginFormData, StudentRegistrationFormData, DualOtpFormData } from '../utils/validators';
+import type { LoginFormData, StudentRegistrationFormData } from '../utils/validators';
 
 interface AuthContextType {
   user: User | null;
@@ -14,21 +20,38 @@ interface AuthContextType {
   login: (credentials: LoginFormData) => Promise<{
     success: boolean;
     error?: string;
+    /** The `ACCOUNT_*` refusal code, when the account state was the reason. */
+    code?: AccountStateCode;
+    /** `code` mapped onto the state the banner renders. */
     accountState?: AccountState;
-    studentId?: string;
+    /** Only with ACCOUNT_PENDING_VERIFICATION. */
+    verificationTicket?: string;
   }>;
   register: (data: StudentRegistrationFormData) => Promise<{
     success: boolean;
     tempStudentId?: string;
+    verificationTicket?: string;
     email?: string;
     mobile?: string;
     error?: string;
   }>;
-  verifyDualOtp: (studentId: string, otps: DualOtpFormData) => Promise<{ success: boolean; error?: string }>;
-  verifyEmailOtp: (studentId: string, otp: string) => Promise<{ success: boolean; error?: string }>;
-  verifyMobileOtp: (studentId: string, otp: string) => Promise<{ success: boolean; error?: string }>;
-  resendEmailOtp: (studentId: string) => Promise<{ success: boolean; error?: string }>;
-  resendMobileOtp: (studentId: string) => Promise<{ success: boolean; error?: string }>;
+  /**
+   * Verifies the email OTP against the backend.
+   *
+   * Returns the account STATUS and deliberately does not set the current
+   * user: verifying an email is not a login, and the endpoint issues no
+   * token. The student signs in afterwards.
+   *
+   * Mobile and dual-OTP variants are absent because mobile OTP is descoped
+   * (BR-014 disables SMS) - see authService for the full note.
+   */
+  verifyEmailOtp: (
+    studentId: string,
+    otp: string
+  ) => Promise<{ success: boolean; error?: string; status?: EmailVerificationStatus }>;
+  resendEmailOtp: (
+    studentId: string
+  ) => Promise<{ success: boolean; error?: string; status?: OtpResendStatus }>;
   logout: () => void;
   switchRole: (newRole: UserRole) => void;
   refreshCurrentUser: () => void;
@@ -66,8 +89,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return {
       success: false,
       error: res.error,
-      accountState: res.accountState,
-      studentId: res.studentId,
+      /**
+       * The machine-readable refusal code, and the state it maps to.
+       *
+       * Replaces the old `accountState` + `studentId` pair. The code is what
+       * the page branches on; `accountState` is derived from it purely so the
+       * existing `AccountStatusBanner` - which switches on `AccountState` -
+       * needs no rewrite. `ACCOUNT_PENDING` maps to `undefined`, because
+       * there is no honest state for "we could not tell which".
+       */
+      code: res.code,
+      accountState: res.code === undefined ? undefined : ACCOUNT_STATE_BY_CODE[res.code],
+      /**
+       * Present only with ACCOUNT_PENDING_VERIFICATION. Opaque and
+       * short-lived; it identifies the account for the OTP endpoints so no
+       * student id has to travel in a URL.
+       */
+      verificationTicket: res.verificationTicket,
     };
   };
 
@@ -78,21 +116,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (res.success && res.data) {
       return {
         success: true,
+        /** DEPRECATED, retained for compatibility. Never put it in a URL. */
         tempStudentId: res.data.tempStudentId,
+        /** What the OTP screen should carry forward. */
+        verificationTicket: res.data.verificationTicket,
         email: res.data.email,
         mobile: res.data.mobile,
       };
-    }
-    return { success: false, error: res.error };
-  };
-
-  const verifyDualOtp = async (studentId: string, otps: DualOtpFormData) => {
-    setIsLoading(true);
-    const res = await authService.verifyDualOtp(studentId, otps);
-    setIsLoading(false);
-    if (res.success && res.data) {
-      setUser(res.data);
-      return { success: true };
     }
     return { success: false, error: res.error };
   };
@@ -101,32 +131,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsLoading(true);
     const res = await authService.verifyEmailOtp(studentId, otp);
     setIsLoading(false);
-    if (res.success && res.data) {
-      setUser(res.data);
-      return { success: true };
-    }
-    return { success: false, error: res.error };
-  };
 
-  const verifyMobileOtp = async (studentId: string, otp: string) => {
-    setIsLoading(true);
-    const res = await authService.verifyMobileOtp(studentId, otp);
-    setIsLoading(false);
+    // NO setUser HERE, on purpose. The previous mock called
+    // `setUser(res.data)` with a full StudentProfile, which turned holding a
+    // six-digit code into a session with no password. The real endpoint
+    // returns status only and issues no token.
     if (res.success && res.data) {
-      setUser(res.data);
-      return { success: true };
+      return { success: true, status: res.data };
     }
+
     return { success: false, error: res.error };
   };
 
   const resendEmailOtp = async (studentId: string) => {
     const res = await authService.resendEmailOtp(studentId);
-    return { success: res.success, error: res.error };
-  };
 
-  const resendMobileOtp = async (studentId: string) => {
-    const res = await authService.resendMobileOtp(studentId);
-    return { success: res.success, error: res.error };
+    if (res.success && res.data) {
+      return { success: true, status: res.data };
+    }
+
+    return { success: false, error: res.error };
   };
 
   const logout = () => {
@@ -151,11 +175,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isLoading,
         login,
         register,
-        verifyDualOtp,
         verifyEmailOtp,
-        verifyMobileOtp,
         resendEmailOtp,
-        resendMobileOtp,
         logout,
         switchRole,
         refreshCurrentUser,

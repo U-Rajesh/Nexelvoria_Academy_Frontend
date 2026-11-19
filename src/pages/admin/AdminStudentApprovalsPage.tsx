@@ -17,6 +17,7 @@ import {
   MapPin,
   Clock,
   Sparkles,
+  AlertCircle,
 } from 'lucide-react';
 import { getStorageItem } from '../../utils/storage';
 import { STORAGE_KEYS } from '../../constants/appConfig';
@@ -41,14 +42,31 @@ export const AdminStudentApprovalsPage: React.FC = () => {
   const [rejectRemarks, setRejectRemarks] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [activeTab, setActiveTab] = useState<'pending' | 'all'>('pending');
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  const loadStudents = () => {
-    const list = getStorageItem<StudentProfile[]>(STORAGE_KEYS.STUDENTS, []);
-    setStudents(list);
+  /**
+   * Loads the queue through the service, which talks to the real backend
+   * (`GET /students`) outside mock mode and falls back to localStorage
+   * inside it. The page no longer reads storage directly.
+   */
+  const loadStudents = async () => {
+    const res = await adminService.getStudentsForApproval();
+
+    if (res.success) {
+      setStudents(res.data);
+      setLoadError(null);
+      return;
+    }
+
+    // Surfaced rather than swallowed: a 401 or 403 here means the admin
+    // session has gone, and an empty queue would look like "no pending
+    // students" instead of "you are not signed in".
+    setStudents([]);
+    setLoadError(res.error ?? 'The approval queue could not be loaded.');
   };
 
   useEffect(() => {
-    loadStudents();
+    void loadStudents();
   }, []);
 
   const pendingStudents = students.filter(
@@ -72,7 +90,14 @@ export const AdminStudentApprovalsPage: React.FC = () => {
         title: 'Registration Approved',
         message: `${student.name} is now approved. Course selection and fee payment unlocked. (SRS Rule BR-002)`,
       });
-      loadStudents();
+      void loadStudents();
+    } else {
+      // A 409 (already decided) or 403 (wrong role) must not look like success.
+      showToast({
+        type: 'error',
+        title: 'Approval Not Recorded',
+        message: res.error ?? 'The approval could not be recorded.',
+      });
     }
   };
 
@@ -96,12 +121,29 @@ export const AdminStudentApprovalsPage: React.FC = () => {
         title: 'Registration Rejected',
         message: `Student application for ${rejectingStudent.name} has been rejected.`,
       });
-      loadStudents();
+      void loadStudents();
+    } else {
+      showToast({
+        type: 'error',
+        title: 'Rejection Not Recorded',
+        message: res.error ?? 'The rejection could not be recorded.',
+      });
     }
   };
 
   return (
     <div className="space-y-6">
+      {/* Queue could not be loaded - usually an expired admin session */}
+      {loadError && (
+        <div className="p-3.5 bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-xl flex items-start gap-2.5">
+          <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+          <div className="space-y-0.5">
+            <p className="font-semibold">The approval queue could not be loaded.</p>
+            <p>{loadError}</p>
+          </div>
+        </div>
+      )}
+
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
