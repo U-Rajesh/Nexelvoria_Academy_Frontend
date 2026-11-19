@@ -12,6 +12,9 @@ import {
   ShieldCheck,
   LogOut,
   Sparkles,
+  Presentation,
+  Building2,
+  ShieldAlert,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { APP_CONFIG } from '../constants/appConfig';
@@ -368,7 +371,7 @@ export const PublicLayout: React.FC = () => {
       {/* Comprehensive Footer */}
       <footer className="relative z-20 bg-slate-900 text-slate-300 border-t border-slate-800">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-14">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-10">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-10">
             {/* Institute Overview */}
             <div className="lg:col-span-2 space-y-4">
               <div className="flex items-center gap-3">
@@ -456,6 +459,59 @@ export const PublicLayout: React.FC = () => {
                 <li><Link to="/terms-and-conditions" className="hover:text-white transition-colors">Terms of Service</Link></li>
                 <li><Link to="/refund-policy" className="hover:text-white transition-colors">Refund Policy</Link></li>
               </ul>
+            </div>
+
+            {/*
+              Staff & faculty portals.
+
+              These are PUBLIC NAVIGATION ONLY. They reveal that the portals
+              exist - which the `/admin/*` and `/teacher/*` routes already
+              imply - and grant nothing. Every portal lands on the same
+              `/login` page, the same auth service and the same endpoint; the
+              `?portal=` hint only changes the heading. Authorization is
+              decided server-side from the signed token, so following any of
+              these links while unauthenticated simply leads to a sign-in
+              form, and signing in as the wrong role is refused by the
+              backend regardless of which link was used.
+            */}
+            <div>
+              <h4 className="text-sm font-semibold text-white uppercase tracking-wider mb-4">
+                Staff Portals
+              </h4>
+              <nav aria-label="Staff and faculty portal sign-in">
+                <ul className="space-y-2.5 text-sm text-slate-400">
+                  <li>
+                    <Link
+                      to="/login?portal=teacher"
+                      className="group inline-flex items-center gap-2 hover:text-white focus-visible:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 rounded transition-colors"
+                    >
+                      <Presentation className="h-4 w-4 shrink-0 text-slate-500 group-hover:text-indigo-400 transition-colors" />
+                      <span>Teacher Portal</span>
+                    </Link>
+                  </li>
+                  <li>
+                    <Link
+                      to="/login?portal=admin"
+                      className="group inline-flex items-center gap-2 hover:text-white focus-visible:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 rounded transition-colors"
+                    >
+                      <Building2 className="h-4 w-4 shrink-0 text-slate-500 group-hover:text-indigo-400 transition-colors" />
+                      <span>Admin Portal</span>
+                    </Link>
+                  </li>
+                  <li>
+                    <Link
+                      to="/login?portal=super-admin"
+                      className="group inline-flex items-center gap-2 hover:text-white focus-visible:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 rounded transition-colors"
+                    >
+                      <ShieldAlert className="h-4 w-4 shrink-0 text-slate-500 group-hover:text-indigo-400 transition-colors" />
+                      <span>Super Admin Portal</span>
+                    </Link>
+                  </li>
+                </ul>
+              </nav>
+              <p className="mt-3 text-[11px] text-slate-500 leading-relaxed">
+                Authorised staff only. Access is granted by role.
+              </p>
             </div>
           </div>
 

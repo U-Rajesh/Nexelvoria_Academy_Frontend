@@ -117,6 +117,26 @@ export const AccountStatusBanner: React.FC<AccountStatusBannerProps> = ({
         </div>
       );
 
+    case 'deactivated':
+      return (
+        <div className={`p-4 bg-slate-100 border border-slate-300 rounded-xl flex items-start gap-3 text-slate-900 text-xs ${className}`}>
+          <Lock className="h-5 w-5 text-slate-600 shrink-0 mt-0.5" />
+          <div className="flex-1 space-y-1">
+            <h4 className="font-bold">Account Deactivated</h4>
+            <p className="text-slate-700 leading-relaxed">
+              This account has been deactivated by Institute Administration and can no longer be
+              used to sign in. Deactivation is separate from a temporary suspension, so it is not
+              lifted automatically.
+            </p>
+            <div className="pt-1">
+              <Link to="/contact-us" className="font-bold text-slate-700 underline">
+                Contact Admissions to Discuss Reinstatement →
+              </Link>
+            </div>
+          </div>
+        </div>
+      );
+
     case 'locked':
       return (
         <div className={`p-4 bg-amber-50 border border-amber-300 rounded-xl flex items-start gap-3 text-amber-950 text-xs ${className}`}>

@@ -36,16 +36,24 @@ import { adminService } from '../services/adminService';
 
 export const AdminLayout: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [pendingApprovalsCount, setPendingApprovalsCount] = useState<number>(1);
+  /**
+   * Starts at 0, not 1.
+   *
+   * It was seeded with `1`, so the sidebar advertised "1 Pending" before any
+   * data had loaded - and kept saying it when the real queue was empty or
+   * could not be read.
+   */
+  const [pendingApprovalsCount, setPendingApprovalsCount] = useState<number>(0);
   const { user, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
 
   useEffect(() => {
-    adminService.getDashboardStats().then((res) => {
-      if (res.success) {
-        setPendingApprovalsCount(res.data.pendingApprovals);
-      }
+    // The SAME source the approval page reads, so the badge and the page can
+    // never disagree. On failure the badge drops to 0 rather than showing a
+    // stale mock number next to an error screen.
+    void adminService.getPendingApprovalCount().then((res) => {
+      setPendingApprovalsCount(res.success ? res.data : 0);
     });
   }, [location.pathname]);
 

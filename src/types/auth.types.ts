@@ -4,6 +4,16 @@ export type AccountState =
   | 'approved'
   | 'rejected'
   | 'suspended'
+  /**
+   * Deactivated by staff.
+   *
+   * Added during the Student Login integration. The backend derives
+   * `accountState` from `status` + `isEmailVerified` + `adminApprovalStatus`,
+   * and `UserStatus` has a `deactivated` value this union could not express -
+   * so a deactivated student previously came back with no `accountState` at
+   * all and the admin badge was simply blank for them.
+   */
+  | 'deactivated'
   | 'locked';
 
 export interface SessionItem {

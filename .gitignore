@@ -12,6 +12,14 @@ dist
 dist-ssr
 *.local
 
+# Environment variables. `.env.example` is the committed template; every real
+# env file stays local. Vite inlines VITE_ variables into the bundle, so these
+# must never hold a secret even when ignored - but an ignored file also stops
+# a local API URL or flag from being pushed by accident.
+.env
+.env.*
+!.env.example
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

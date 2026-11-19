@@ -20,6 +20,7 @@ import {
 import { studentRegistrationSchema, type StudentRegistrationFormData } from '../../utils/validators';
 import { SEED_COURSES } from '../../mocks/seedData';
 import { useAuth } from '../../context/AuthContext';
+import { storeVerificationTicket } from '../../utils/verificationTicket';
 import { useNotification } from '../../context/NotificationContext';
 import { Button } from '../../components/common/Button';
 import { PasswordStrengthIndicator } from '../../components/auth/PasswordStrengthIndicator';
@@ -118,15 +119,16 @@ export const RegisterPage: React.FC = () => {
       resumeDataUrl: resumeFile?.dataUrl || '',
     });
 
-    if (result.success && result.tempStudentId) {
+    if (result.success && result.verificationTicket) {
       showToast({
         type: 'info',
         title: 'Registration Initiated',
         message: 'Please complete dual email and mobile OTP verification (SRS Rule BR-001).',
       });
-      navigate(
-        `/verify-otp?studentId=${result.tempStudentId}&email=${encodeURIComponent(data.email)}&mobile=${data.mobile}`
-      );
+      // The ticket goes to sessionStorage, NOT the query string. The student
+      // id that used to travel here was a real internal identifier.
+      storeVerificationTicket(result.verificationTicket);
+      navigate(`/verify-otp?email=${encodeURIComponent(data.email)}`);
     } else {
       setFormError(result.error || 'Failed to submit registration. Please verify details.');
     }
