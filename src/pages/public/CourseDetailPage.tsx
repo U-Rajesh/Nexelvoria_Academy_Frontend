@@ -31,6 +31,7 @@ import { AmbientDarkGlow } from '../../components/public/AnimatedBackgroundLayer
 import { useAuth } from '../../context/AuthContext';
 import { useNotification } from '../../context/NotificationContext';
 import { cmsService } from '../../services/cmsService';
+import { courseService } from '../../services/courseService';
 import { analytics } from '../../utils/analytics';
 import { CourseEnrollmentModal } from '../../components/course/CourseEnrollmentModal';
 
@@ -46,17 +47,35 @@ export const CourseDetailPage: React.FC = () => {
   const [enrollmentModalOpen, setEnrollmentModalOpen] = useState(false);
   const [enquiryForm, setEnquiryForm] = useState({ name: '', email: '', phone: '', message: '' });
 
-  const [allCourses, setAllCourses] = useState<Course[]>(() =>
-    getStorageItem<Course[]>(STORAGE_KEYS.COURSES, SEED_COURSES)
-  );
+  const [course, setCourse] = useState<Course | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
 
-  const syncCourses = React.useCallback(() => {
-    setAllCourses(getStorageItem<Course[]>(STORAGE_KEYS.COURSES, SEED_COURSES));
-  }, []);
+  const syncCourse = React.useCallback(() => {
+    if (!courseSlug) return;
+    setIsLoading(true);
+    courseService.getCourseBySlug(courseSlug).then((res) => {
+      setIsLoading(false);
+      if (res.success && res.data) {
+        setCourse(res.data);
+      } else {
+        setCourse(null);
+      }
+    });
+  }, [courseSlug]);
 
-  useStorageSync(STORAGE_KEYS.COURSES, syncCourses);
+  React.useEffect(() => {
+    syncCourse();
+  }, [syncCourse]);
 
-  const course = allCourses.find((c) => c.slug === courseSlug || c.id === courseSlug);
+  useStorageSync(STORAGE_KEYS.COURSES, syncCourse);
+
+  if (isLoading) {
+    return (
+      <div className="max-w-4xl mx-auto px-4 py-20 text-center space-y-4">
+        <p className="text-sm text-slate-500">Loading course details...</p>
+      </div>
+    );
+  }
 
   if (!course) {
     return (

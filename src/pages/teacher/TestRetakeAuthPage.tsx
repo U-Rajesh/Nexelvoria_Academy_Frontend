@@ -23,10 +23,12 @@ import { Card } from '../../components/common/Card';
 import { Modal } from '../../components/feedback/Modal';
 import type { TestAttempt } from '../../types';
 
+const USE_DEV_MOCKS = import.meta.env.VITE_USE_DEV_MOCKS === 'true';
+
 export const TestRetakeAuthPage: React.FC = () => {
   const { user } = useAuth();
   const { showToast } = useNotification();
-  const [attempts, setAttempts] = useState<TestAttempt[]>(SEED_TEST_ATTEMPTS);
+  const [attempts, setAttempts] = useState<TestAttempt[]>(USE_DEV_MOCKS ? SEED_TEST_ATTEMPTS : []);
   const [activeTab, setActiveTab] = useState<'pending' | 'history'>('pending');
 
   // Reject Modal State
@@ -39,18 +41,21 @@ export const TestRetakeAuthPage: React.FC = () => {
       const teacherId = user?.id || 'user-tch-001';
       const res = await teacherService.getTestAttempts(teacherId);
       if (res.success) {
-        // Ensure mock attempts have realistic retake request states
-        const enriched = res.data.map((att, idx) => {
-          if (idx === 1 && !att.retakeRequestStatus) {
-            return {
-              ...att,
-              retakeRequestStatus: 'pending' as const,
-              retakeRequestedAt: '2026-11-09T14:30:00Z',
-            };
-          }
-          return att;
-        });
-        setAttempts(enriched);
+        if (USE_DEV_MOCKS && res.data.length > 0) {
+          const enriched = res.data.map((att, idx) => {
+            if (idx === 1 && !att.retakeRequestStatus) {
+              return {
+                ...att,
+                retakeRequestStatus: 'pending' as const,
+                retakeRequestedAt: '2026-11-09T14:30:00Z',
+              };
+            }
+            return att;
+          });
+          setAttempts(enriched);
+        } else {
+          setAttempts(res.data);
+        }
       }
     };
 

@@ -27,16 +27,18 @@ import { Card } from '../../components/common/Card';
 import { Modal } from '../../components/feedback/Modal';
 import type { Batch, StudentProfile } from '../../types';
 
+const USE_DEV_MOCKS = import.meta.env.VITE_USE_DEV_MOCKS === 'true';
+
 export const TeacherBatchesPage: React.FC = () => {
   const { user } = useAuth();
-  const [batches, setBatches] = useState<Batch[]>(SEED_BATCHES);
+  const [batches, setBatches] = useState<Batch[]>(USE_DEV_MOCKS ? SEED_BATCHES : []);
   const [rosterBatch, setRosterBatch] = useState<Batch | null>(null);
   const [rosterStudents, setRosterStudents] = useState<StudentProfile[]>([]);
 
   const loadBatches = useCallback(async () => {
     const teacherId = user?.id || 'user-tch-001';
     const res = await teacherService.getAssignedBatches(teacherId);
-    if (res.success && res.data.length > 0) {
+    if (res.success) {
       setBatches(res.data);
     }
   }, [user]);
@@ -53,8 +55,10 @@ export const TeacherBatchesPage: React.FC = () => {
       const res = await teacherService.getBatchStudents(rosterBatch.id);
       if (res.success && res.data.length > 0) {
         setRosterStudents(res.data);
-      } else {
+      } else if (USE_DEV_MOCKS) {
         setRosterStudents([SEED_USERS.student]);
+      } else {
+        setRosterStudents([]);
       }
     };
     loadRoster();
@@ -70,7 +74,14 @@ export const TeacherBatchesPage: React.FC = () => {
       </div>
 
       <div className="space-y-4">
-        {batches.map((batch) => {
+        {batches.length === 0 ? (
+          <Card className="p-12 text-center text-xs text-slate-400">
+            <Users className="h-10 w-10 mx-auto text-slate-300 mb-2" />
+            <p className="font-semibold text-slate-600">No Batches Assigned Yet</p>
+            <p className="mt-1">Administration has not assigned any active cohorts to your faculty account.</p>
+          </Card>
+        ) : (
+          batches.map((batch) => {
           const filled = batch.enrolledStudentIds?.length || 0;
           const capacity = batch.maxCapacity || 40;
           return (
@@ -167,7 +178,8 @@ export const TeacherBatchesPage: React.FC = () => {
               </div>
             </Card>
           );
-        })}
+        })
+        )}
       </div>
 
       {/* Roster Modal */}
@@ -184,7 +196,12 @@ export const TeacherBatchesPage: React.FC = () => {
             </p>
 
             <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden bg-white">
-              {rosterStudents.map((stu) => (
+              {rosterStudents.length === 0 ? (
+                <div className="p-8 text-center text-xs text-slate-400">
+                  No students currently enrolled in this batch roster.
+                </div>
+              ) : (
+                rosterStudents.map((stu) => (
                 <div key={stu.id} className="p-3.5 flex items-center justify-between text-xs">
                   <div className="flex items-center gap-3">
                     <img
@@ -202,7 +219,7 @@ export const TeacherBatchesPage: React.FC = () => {
                     <span className="block text-[10px] text-slate-400 mt-0.5">{stu.collegeName}</span>
                   </div>
                 </div>
-              ))}
+              )))}
             </div>
 
             <div className="pt-2 flex justify-end">

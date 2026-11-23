@@ -41,7 +41,7 @@ export const StudentAttendancePage: React.FC = () => {
 
   useStorageSync(STORAGE_KEYS.ATTENDANCE, loadAttendance);
 
-  const percentage = data ? data.percentage : 84;
+  const percentage = data ? data.percentage : 0;
   const isEligible = percentage >= BUSINESS_RULES.MIN_ATTENDANCE_FOR_CERTIFICATE;
 
   const columns: Column<AttendanceRow>[] = [

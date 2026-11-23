@@ -15,16 +15,24 @@ import { Card } from '../../components/common/Card';
 import { Modal } from '../../components/feedback/Modal';
 import type { AssignmentSubmission } from '../../types';
 
+const USE_DEV_MOCKS = import.meta.env.VITE_USE_DEV_MOCKS === 'true';
+
 export const AssignmentEvaluationPage: React.FC = () => {
   const { user } = useAuth();
   const { showToast } = useNotification();
 
   const [submissions, setSubmissions] = useState<AssignmentSubmission[]>(() =>
-    getStorageItem<AssignmentSubmission[]>(STORAGE_KEYS.SUBMISSIONS, SEED_ASSIGNMENT_SUBMISSIONS)
+    USE_DEV_MOCKS
+      ? getStorageItem<AssignmentSubmission[]>(STORAGE_KEYS.SUBMISSIONS, SEED_ASSIGNMENT_SUBMISSIONS)
+      : []
   );
 
-  const loadSubmissions = useCallback(() => {
-    setSubmissions(getStorageItem<AssignmentSubmission[]>(STORAGE_KEYS.SUBMISSIONS, SEED_ASSIGNMENT_SUBMISSIONS));
+  const loadSubmissions = useCallback(async () => {
+    if (USE_DEV_MOCKS) {
+      setSubmissions(getStorageItem<AssignmentSubmission[]>(STORAGE_KEYS.SUBMISSIONS, SEED_ASSIGNMENT_SUBMISSIONS));
+      return;
+    }
+    setSubmissions([]);
   }, []);
 
   useEffect(() => {
@@ -79,7 +87,14 @@ export const AssignmentEvaluationPage: React.FC = () => {
       </div>
 
       <div className="space-y-4">
-        {submissions.map((sub) => (
+        {submissions.length === 0 ? (
+          <Card className="p-12 text-center text-xs text-slate-400">
+            <CheckCircle2 className="h-8 w-8 mx-auto text-slate-300 mb-2" />
+            <p className="font-semibold text-slate-700">No Submissions to Evaluate</p>
+            <p className="mt-1">Students have not submitted any assignments for grading yet.</p>
+          </Card>
+        ) : (
+          submissions.map((sub) => (
           <Card key={sub.id} className="p-6 space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
@@ -131,7 +146,8 @@ export const AssignmentEvaluationPage: React.FC = () => {
               </div>
             )}
           </Card>
-        ))}
+        ))
+        )}
       </div>
 
       {/* Evaluation Modal */}

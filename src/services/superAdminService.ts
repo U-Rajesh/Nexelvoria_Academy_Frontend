@@ -1,3 +1,4 @@
+import { apiClient } from './api';
 import { STORAGE_KEYS } from '../constants/appConfig';
 import { getStorageItem, setStorageItem } from '../utils/storage';
 import { SEED_USERS, SEED_COURSES, SEED_BATCHES, SEED_PAYMENTS, SEED_REFUNDS } from '../mocks/seedData';
@@ -12,6 +13,14 @@ import type {
   GlobalRole,
   SuperAdminDashboardStats,
 } from '../types';
+
+/**
+ * Explicit development-only mock toggle.
+ * Defaults to false (production mode): uses live backend APIs and returns
+ * genuine empty states / error states with zero silent fallback to seed data.
+ * Set VITE_USE_DEV_MOCKS=true in .env.local to enable offline mock fallbacks.
+ */
+const USE_DEV_MOCKS = import.meta.env.VITE_USE_DEV_MOCKS === 'true';
 
 const sleep = (ms: number = 200) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -355,91 +364,143 @@ export const superAdminService = {
    * 1. Dashboard Overview Stats & Aggregations
    */
   async getDashboardStats(): Promise<ApiResponse<SuperAdminDashboardStats>> {
-    await sleep(200);
-    const admins = getStorageItem<AdminProfile[]>(STORAGE_KEYS.ADMINS, SEED_ADMINS);
-    const refunds = getStorageItem<RefundRequest[]>(STORAGE_KEYS.REFUNDS, SEED_REFUNDS);
-    const overrides = getStorageItem<FinancialOverrideRequest[]>(STORAGE_KEYS.FINANCIAL_OVERRIDES, SEED_FINANCIAL_OVERRIDES);
-    const payments = getStorageItem<PaymentTransaction[]>(STORAGE_KEYS.PAYMENTS, SEED_PAYMENTS);
+    if (USE_DEV_MOCKS) {
+      await sleep(200);
+      const admins = getStorageItem<AdminProfile[]>(STORAGE_KEYS.ADMINS, SEED_ADMINS);
+      const refunds = getStorageItem<RefundRequest[]>(STORAGE_KEYS.REFUNDS, SEED_REFUNDS);
+      const overrides = getStorageItem<FinancialOverrideRequest[]>(STORAGE_KEYS.FINANCIAL_OVERRIDES, SEED_FINANCIAL_OVERRIDES);
+      const payments = getStorageItem<PaymentTransaction[]>(STORAGE_KEYS.PAYMENTS, SEED_PAYMENTS);
 
-    const pendingRefunds = refunds.filter((r) => r.status === 'pending_super_admin');
-    const pendingRefundsAmount = pendingRefunds.reduce((sum, r) => sum + r.amountINR, 0);
+      const pendingRefunds = refunds.filter((r) => r.status === 'pending_super_admin');
+      const pendingRefundsAmount = pendingRefunds.reduce((sum, r) => sum + r.amountINR, 0);
 
-    const pendingOverrides = overrides.filter((o) => o.status === 'pending');
-    const pendingOverridesAmount = pendingOverrides.reduce((sum, o) => sum + o.discountOrWaiverINR, 0);
+      const pendingOverrides = overrides.filter((o) => o.status === 'pending');
+      const pendingOverridesAmount = pendingOverrides.reduce((sum, o) => sum + o.discountOrWaiverINR, 0);
 
-    const successfulPayments = payments.filter((p) => p.status === 'successful');
-    const totalRevenue = successfulPayments.reduce((sum, p) => sum + p.finalAmountINR, 0);
+      const successfulPayments = payments.filter((p) => p.status === 'successful');
+      const totalRevenue = successfulPayments.reduce((sum, p) => sum + p.finalAmountINR, 0);
 
-    const stats: SuperAdminDashboardStats = {
-      totalStudents: 48,
-      totalAdmins: admins.length,
-      totalTeachers: 6,
-      totalCourses: SEED_COURSES.length,
-      totalBatches: SEED_BATCHES.length,
-      totalEnrollments: 52,
-      totalRevenueINR: totalRevenue || 485000,
-      outstandingFeesINR: 112000,
-      pendingRefundsCount: pendingRefunds.length,
-      pendingRefundsAmountINR: pendingRefundsAmount,
-      pendingOverridesCount: pendingOverrides.length,
-      pendingOverridesAmountINR: pendingOverridesAmount,
-      placementRatePercentage: 92.4,
-      totalPlacedStudents: 38,
-      activeHiringPartners: 14,
-      averageAttendancePercentage: 86.8,
-    };
+      const stats: SuperAdminDashboardStats = {
+        totalStudents: 48,
+        totalAdmins: admins.length,
+        totalTeachers: 6,
+        totalCourses: SEED_COURSES.length,
+        totalBatches: SEED_BATCHES.length,
+        totalEnrollments: 52,
+        totalRevenueINR: totalRevenue || 485000,
+        outstandingFeesINR: 112000,
+        pendingRefundsCount: pendingRefunds.length,
+        pendingRefundsAmountINR: pendingRefundsAmount,
+        pendingOverridesCount: pendingOverrides.length,
+        pendingOverridesAmountINR: pendingOverridesAmount,
+        placementRatePercentage: 92.4,
+        totalPlacedStudents: 38,
+        activeHiringPartners: 14,
+        averageAttendancePercentage: 86.8,
+      };
 
-    return { success: true, data: stats };
+      return { success: true, data: stats };
+    }
+
+    try {
+      const res = await apiClient.get('/super-admin/stats');
+      return { success: true, data: res.data?.data };
+    } catch (err: any) {
+      const message = err?.response?.data?.message || err?.message || 'Failed to fetch super admin dashboard statistics.';
+      return {
+        success: false,
+        data: {
+          totalStudents: 0,
+          totalAdmins: 0,
+          totalTeachers: 0,
+          totalCourses: 0,
+          totalBatches: 0,
+          totalEnrollments: 0,
+          totalRevenueINR: 0,
+          outstandingFeesINR: 0,
+          pendingRefundsCount: 0,
+          pendingRefundsAmountINR: 0,
+          pendingOverridesCount: 0,
+          pendingOverridesAmountINR: 0,
+          placementRatePercentage: 0,
+          totalPlacedStudents: 0,
+          activeHiringPartners: 0,
+          averageAttendancePercentage: 0,
+        },
+        error: message,
+      };
+    }
   },
 
   /**
    * 2. Admin Account Management
    */
   async getAdmins(): Promise<ApiResponse<AdminProfile[]>> {
-    await sleep(150);
-    const admins = getStorageItem<AdminProfile[]>(STORAGE_KEYS.ADMINS, SEED_ADMINS);
-    return { success: true, data: admins };
+    if (USE_DEV_MOCKS) {
+      await sleep(150);
+      const admins = getStorageItem<AdminProfile[]>(STORAGE_KEYS.ADMINS, SEED_ADMINS);
+      return { success: true, data: admins };
+    }
+
+    try {
+      const res = await apiClient.get('/super-admin/admins');
+      const items = res.data?.data?.items ?? res.data?.data ?? [];
+      return { success: true, data: Array.isArray(items) ? items : [] };
+    } catch (err: any) {
+      const message = err?.response?.data?.message || err?.message || 'Failed to fetch admin accounts.';
+      return { success: false, data: [], error: message };
+    }
   },
 
   async createAdmin(
     superAdmin: { id: string; name: string },
     data: { name: string; email: string; mobile: string; department: string; permissions: string[] }
   ): Promise<ApiResponse<AdminProfile>> {
-    await sleep(300);
-    const admins = getStorageItem<AdminProfile[]>(STORAGE_KEYS.ADMINS, SEED_ADMINS);
+    if (USE_DEV_MOCKS) {
+      await sleep(300);
+      const admins = getStorageItem<AdminProfile[]>(STORAGE_KEYS.ADMINS, SEED_ADMINS);
 
-    // Validate email uniqueness
-    const exists = admins.some((a) => a.email.toLowerCase() === data.email.toLowerCase());
-    if (exists) {
-      return { success: false, data: null as any, error: 'An admin account with this email address already exists.' };
+      // Validate email uniqueness
+      const exists = admins.some((a) => a.email.toLowerCase() === data.email.toLowerCase());
+      if (exists) {
+        return { success: false, data: null as any, error: 'An admin account with this email address already exists.' };
+      }
+
+      const newAdmin: AdminProfile = {
+        id: `user-adm-${Date.now()}`,
+        name: data.name,
+        email: data.email,
+        mobile: data.mobile,
+        role: 'admin',
+        status: 'active',
+        department: data.department,
+        permissions: data.permissions,
+        createdAt: new Date().toISOString(),
+        lastLoginIp: 'Not logged in yet',
+      };
+
+      const updated = [newAdmin, ...admins];
+      setStorageItem(STORAGE_KEYS.ADMINS, updated);
+
+      this.recordSystemAuditLog(
+        superAdmin,
+        'ADMIN_ACCOUNT_CREATED',
+        'admins',
+        `Admin: ${newAdmin.name} (${newAdmin.email})`,
+        `Created admin for department "${newAdmin.department}" with ${data.permissions.length} active permissions.`,
+        'SUCCESS'
+      );
+
+      return { success: true, data: newAdmin, message: 'Admin account created successfully.' };
     }
 
-    const newAdmin: AdminProfile = {
-      id: `user-adm-${Date.now()}`,
-      name: data.name,
-      email: data.email,
-      mobile: data.mobile,
-      role: 'admin',
-      status: 'active',
-      department: data.department,
-      permissions: data.permissions,
-      createdAt: new Date().toISOString(),
-      lastLoginIp: 'Not logged in yet',
-    };
-
-    const updated = [newAdmin, ...admins];
-    setStorageItem(STORAGE_KEYS.ADMINS, updated);
-
-    this.recordSystemAuditLog(
-      superAdmin,
-      'ADMIN_ACCOUNT_CREATED',
-      'admins',
-      `Admin: ${newAdmin.name} (${newAdmin.email})`,
-      `Created admin for department "${newAdmin.department}" with ${data.permissions.length} active permissions.`,
-      'SUCCESS'
-    );
-
-    return { success: true, data: newAdmin, message: 'Admin account created successfully.' };
+    try {
+      const res = await apiClient.post('/super-admin/admins', data);
+      return { success: true, data: res.data?.data, message: res.data?.message || 'Admin account created successfully.' };
+    } catch (err: any) {
+      const message = err?.response?.data?.message || err?.message || 'Failed to create admin account.';
+      return { success: false, data: null as any, error: message };
+    }
   },
 
   async updateAdmin(
@@ -447,24 +508,34 @@ export const superAdminService = {
     adminId: string,
     updates: Partial<AdminProfile>
   ): Promise<ApiResponse<AdminProfile>> {
-    await sleep(250);
-    const admins = getStorageItem<AdminProfile[]>(STORAGE_KEYS.ADMINS, SEED_ADMINS);
-    const idx = admins.findIndex((a) => a.id === adminId);
-    if (idx === -1) return { success: false, data: null as any, error: 'Admin account not found.' };
+    if (USE_DEV_MOCKS) {
+      await sleep(250);
+      const admins = getStorageItem<AdminProfile[]>(STORAGE_KEYS.ADMINS, SEED_ADMINS);
+      const idx = admins.findIndex((a) => a.id === adminId);
+      if (idx === -1) return { success: false, data: null as any, error: 'Admin account not found.' };
 
-    admins[idx] = { ...admins[idx], ...updates };
-    setStorageItem(STORAGE_KEYS.ADMINS, admins);
+      admins[idx] = { ...admins[idx], ...updates };
+      setStorageItem(STORAGE_KEYS.ADMINS, admins);
 
-    this.recordSystemAuditLog(
-      superAdmin,
-      'ADMIN_ACCOUNT_UPDATED',
-      'admins',
-      `Admin: ${admins[idx].name} (${admins[idx].id})`,
-      `Updated admin profile details and permissions.`,
-      'SUCCESS'
-    );
+      this.recordSystemAuditLog(
+        superAdmin,
+        'ADMIN_ACCOUNT_UPDATED',
+        'admins',
+        `Admin: ${admins[idx].name} (${admins[idx].id})`,
+        `Updated admin profile details and permissions.`,
+        'SUCCESS'
+      );
 
-    return { success: true, data: admins[idx], message: 'Admin details updated successfully.' };
+      return { success: true, data: admins[idx], message: 'Admin details updated successfully.' };
+    }
+
+    try {
+      const res = await apiClient.put(`/super-admin/admins/${encodeURIComponent(adminId)}`, updates);
+      return { success: true, data: res.data?.data, message: res.data?.message || 'Admin details updated successfully.' };
+    } catch (err: any) {
+      const message = err?.response?.data?.message || err?.message || 'Failed to update admin account.';
+      return { success: false, data: null as any, error: message };
+    }
   },
 
   async toggleAdminStatus(
@@ -473,129 +544,201 @@ export const superAdminService = {
     newStatus: 'active' | 'suspended' | 'deactivated',
     reason?: string
   ): Promise<ApiResponse<AdminProfile>> {
-    await sleep(250);
-    const admins = getStorageItem<AdminProfile[]>(STORAGE_KEYS.ADMINS, SEED_ADMINS);
-    const idx = admins.findIndex((a) => a.id === adminId);
-    if (idx === -1) return { success: false, data: null as any, error: 'Admin account not found.' };
+    if (USE_DEV_MOCKS) {
+      await sleep(250);
+      const admins = getStorageItem<AdminProfile[]>(STORAGE_KEYS.ADMINS, SEED_ADMINS);
+      const idx = admins.findIndex((a) => a.id === adminId);
+      if (idx === -1) return { success: false, data: null as any, error: 'Admin account not found.' };
 
-    const oldStatus = admins[idx].status;
-    admins[idx].status = newStatus;
-    setStorageItem(STORAGE_KEYS.ADMINS, admins);
+      const oldStatus = admins[idx].status;
+      admins[idx].status = newStatus;
+      setStorageItem(STORAGE_KEYS.ADMINS, admins);
 
-    this.recordSystemAuditLog(
-      superAdmin,
-      `ADMIN_ACCOUNT_${newStatus.toUpperCase()}`,
-      'admins',
-      `Admin: ${admins[idx].name} (${admins[idx].id})`,
-      `Status changed from ${oldStatus} to ${newStatus}. Reason: ${reason || 'Administrative action'}`,
-      'SUCCESS'
-    );
+      this.recordSystemAuditLog(
+        superAdmin,
+        `ADMIN_ACCOUNT_${newStatus.toUpperCase()}`,
+        'admins',
+        `Admin: ${admins[idx].name} (${admins[idx].id})`,
+        `Status changed from ${oldStatus} to ${newStatus}. Reason: ${reason || 'Administrative action'}`,
+        'SUCCESS'
+      );
 
-    return {
-      success: true,
-      data: admins[idx],
-      message: `Admin account has been ${newStatus}.`,
-    };
+      return {
+        success: true,
+        data: admins[idx],
+        message: `Admin account has been ${newStatus}.`,
+      };
+    }
+
+    try {
+      const res = await apiClient.patch(`/super-admin/admins/${encodeURIComponent(adminId)}/status`, {
+        status: newStatus,
+        reason,
+      });
+      return {
+        success: true,
+        data: res.data?.data,
+        message: res.data?.message || `Admin account has been ${newStatus}.`,
+      };
+    } catch (err: any) {
+      const message = err?.response?.data?.message || err?.message || 'Failed to update admin status.';
+      return { success: false, data: null as any, error: message };
+    }
   },
 
   async resetAdminPassword(
     superAdmin: { id: string; name: string },
     adminId: string
   ): Promise<ApiResponse<{ temporaryPassword: string; resetLink: string }>> {
-    await sleep(300);
-    const admins = getStorageItem<AdminProfile[]>(STORAGE_KEYS.ADMINS, SEED_ADMINS);
-    const admin = admins.find((a) => a.id === adminId);
-    if (!admin) return { success: false, data: null as any, error: 'Admin account not found.' };
+    if (USE_DEV_MOCKS) {
+      await sleep(300);
+      const admins = getStorageItem<AdminProfile[]>(STORAGE_KEYS.ADMINS, SEED_ADMINS);
+      const admin = admins.find((a) => a.id === adminId);
+      if (!admin) return { success: false, data: null as any, error: 'Admin account not found.' };
 
-    const temporaryPassword = `NexPass#${Math.floor(1000 + Math.random() * 9000)}!${admin.name.slice(0, 3)}`;
-    const resetLink = `https://nexelvoria.edu.in/reset-password?token=sec_${Date.now()}`;
+      const temporaryPassword = `NexPass#${Math.floor(1000 + Math.random() * 9000)}!${admin.name.slice(0, 3)}`;
+      const resetLink = `https://nexelvoria.edu.in/reset-password?token=sec_${Date.now()}`;
 
-    this.recordSystemAuditLog(
-      superAdmin,
-      'ADMIN_PASSWORD_RESET_DISPATCHED',
-      'security',
-      `Admin: ${admin.name} (${admin.email})`,
-      `Super Admin issued credential reset. Temporary password generated.`,
-      'SUCCESS'
-    );
+      this.recordSystemAuditLog(
+        superAdmin,
+        'ADMIN_PASSWORD_RESET_DISPATCHED',
+        'security',
+        `Admin: ${admin.name} (${admin.email})`,
+        `Super Admin issued credential reset. Temporary password generated.`,
+        'SUCCESS'
+      );
 
-    return {
-      success: true,
-      data: { temporaryPassword, resetLink },
-      message: 'Temporary password generated successfully.',
-    };
+      return {
+        success: true,
+        data: { temporaryPassword, resetLink },
+        message: 'Temporary password generated successfully.',
+      };
+    }
+
+    try {
+      const res = await apiClient.post(`/super-admin/admins/${encodeURIComponent(adminId)}/reset-password`);
+      return {
+        success: true,
+        data: res.data?.data,
+        message: res.data?.message || 'Temporary password generated successfully.',
+      };
+    } catch (err: any) {
+      const message = err?.response?.data?.message || err?.message || 'Failed to reset admin password.';
+      return { success: false, data: null as any, error: message };
+    }
   },
 
   /**
    * 3. System Configuration
    */
   async getSystemConfig(): Promise<ApiResponse<SystemConfig>> {
-    await sleep(100);
-    const config = getStorageItem<SystemConfig>(STORAGE_KEYS.SYSTEM_CONFIG, DEFAULT_SYSTEM_CONFIG);
-    return { success: true, data: config };
+    if (USE_DEV_MOCKS) {
+      await sleep(100);
+      const config = getStorageItem<SystemConfig>(STORAGE_KEYS.SYSTEM_CONFIG, DEFAULT_SYSTEM_CONFIG);
+      return { success: true, data: config };
+    }
+
+    try {
+      const res = await apiClient.get('/super-admin/system-config');
+      return { success: true, data: res.data?.data };
+    } catch (err: any) {
+      const message = err?.response?.data?.message || err?.message || 'Failed to fetch system configuration.';
+      return { success: false, data: null as any, error: message };
+    }
   },
 
   async updateSystemConfig(
     superAdmin: { id: string; name: string },
     updates: Partial<SystemConfig>
   ): Promise<ApiResponse<SystemConfig>> {
-    await sleep(350);
-    const current = getStorageItem<SystemConfig>(STORAGE_KEYS.SYSTEM_CONFIG, DEFAULT_SYSTEM_CONFIG);
-    const merged: SystemConfig = {
-      ...current,
-      ...updates,
-      institute: { ...current.institute, ...updates.institute },
-      branding: { ...current.branding, ...updates.branding },
-      academic: { ...current.academic, ...updates.academic },
-      paymentGateway: { ...current.paymentGateway, ...updates.paymentGateway },
-      emailSms: { ...current.emailSms, ...updates.emailSms },
-      notifications: { ...current.notifications, ...updates.notifications },
-      security: { ...current.security, ...updates.security },
-      maintenance: { ...current.maintenance, ...updates.maintenance },
-      preferences: { ...current.preferences, ...updates.preferences },
-    };
+    if (USE_DEV_MOCKS) {
+      await sleep(350);
+      const current = getStorageItem<SystemConfig>(STORAGE_KEYS.SYSTEM_CONFIG, DEFAULT_SYSTEM_CONFIG);
+      const merged: SystemConfig = {
+        ...current,
+        ...updates,
+        institute: { ...current.institute, ...updates.institute },
+        branding: { ...current.branding, ...updates.branding },
+        academic: { ...current.academic, ...updates.academic },
+        paymentGateway: { ...current.paymentGateway, ...updates.paymentGateway },
+        emailSms: { ...current.emailSms, ...updates.emailSms },
+        notifications: { ...current.notifications, ...updates.notifications },
+        security: { ...current.security, ...updates.security },
+        maintenance: { ...current.maintenance, ...updates.maintenance },
+        preferences: { ...current.preferences, ...updates.preferences },
+      };
 
-    setStorageItem(STORAGE_KEYS.SYSTEM_CONFIG, merged);
+      setStorageItem(STORAGE_KEYS.SYSTEM_CONFIG, merged);
 
-    this.recordSystemAuditLog(
-      superAdmin,
-      'SYSTEM_CONFIG_UPDATED',
-      'system_config',
-      'Global System Configuration',
-      'Modified system parameters, security policies, and institutional settings.',
-      'SUCCESS'
-    );
+      this.recordSystemAuditLog(
+        superAdmin,
+        'SYSTEM_CONFIG_UPDATED',
+        'system_config',
+        'Global System Configuration',
+        'Modified system parameters, security policies, and institutional settings.',
+        'SUCCESS'
+      );
 
-    return { success: true, data: merged, message: 'System configuration updated successfully.' };
+      return { success: true, data: merged, message: 'System configuration updated successfully.' };
+    }
+
+    try {
+      const res = await apiClient.put('/super-admin/system-config', updates);
+      return { success: true, data: res.data?.data, message: res.data?.message || 'System configuration updated successfully.' };
+    } catch (err: any) {
+      const message = err?.response?.data?.message || err?.message || 'Failed to update system configuration.';
+      return { success: false, data: null as any, error: message };
+    }
   },
 
   async testEmailConfiguration(
     superAdmin: { id: string; name: string },
     recipientEmail: string
   ): Promise<ApiResponse<{ sentTo: string; timestamp: string }>> {
-    await sleep(500);
-    this.recordSystemAuditLog(
-      superAdmin,
-      'TEST_EMAIL_DISPATCHED',
-      'system_config',
-      `Email Test to ${recipientEmail}`,
-      'Verified SMTP server connectivity and handshake.',
-      'SUCCESS'
-    );
-    return {
-      success: true,
-      data: { sentTo: recipientEmail, timestamp: new Date().toISOString() },
-      message: `Test email sent to ${recipientEmail}. SMTP handshake verified.`,
-    };
+    if (USE_DEV_MOCKS) {
+      await sleep(500);
+      this.recordSystemAuditLog(
+        superAdmin,
+        'TEST_EMAIL_DISPATCHED',
+        'system_config',
+        `Email Test to ${recipientEmail}`,
+        'Verified SMTP server connectivity and handshake.',
+        'SUCCESS'
+      );
+      return {
+        success: true,
+        data: { sentTo: recipientEmail, timestamp: new Date().toISOString() },
+        message: `Test email sent to ${recipientEmail}. SMTP handshake verified.`,
+      };
+    }
+
+    try {
+      const res = await apiClient.post('/super-admin/system-config/test-email', { recipientEmail });
+      return { success: true, data: res.data?.data, message: res.data?.message || 'Test email dispatched successfully.' };
+    } catch (err: any) {
+      const message = err?.response?.data?.message || err?.message || 'Failed to send test email.';
+      return { success: false, data: null as any, error: message };
+    }
   },
 
   /**
    * 4. Refund Approvals (BR-006)
    */
   async getRefundRequests(): Promise<ApiResponse<RefundRequest[]>> {
-    await sleep(150);
-    const refunds = getStorageItem<RefundRequest[]>(STORAGE_KEYS.REFUNDS, SEED_REFUNDS);
-    return { success: true, data: refunds };
+    if (USE_DEV_MOCKS) {
+      await sleep(150);
+      const refunds = getStorageItem<RefundRequest[]>(STORAGE_KEYS.REFUNDS, SEED_REFUNDS);
+      return { success: true, data: refunds };
+    }
+
+    try {
+      const res = await apiClient.get('/super-admin/refunds');
+      const items = res.data?.data?.items ?? res.data?.data ?? [];
+      return { success: true, data: Array.isArray(items) ? items : [] };
+    } catch (err: any) {
+      const message = err?.response?.data?.message || err?.message || 'Failed to fetch refund requests.';
+      return { success: false, data: [], error: message };
+    }
   },
 
   async approveRefund(
@@ -603,40 +746,54 @@ export const superAdminService = {
     refundId: string,
     remarks?: string
   ): Promise<ApiResponse<RefundRequest>> {
-    await sleep(350);
-    const refunds = getStorageItem<RefundRequest[]>(STORAGE_KEYS.REFUNDS, SEED_REFUNDS);
-    const payments = getStorageItem<PaymentTransaction[]>(STORAGE_KEYS.PAYMENTS, SEED_PAYMENTS);
-    const idx = refunds.findIndex((r) => r.id === refundId);
+    if (USE_DEV_MOCKS) {
+      await sleep(350);
+      const refunds = getStorageItem<RefundRequest[]>(STORAGE_KEYS.REFUNDS, SEED_REFUNDS);
+      const payments = getStorageItem<PaymentTransaction[]>(STORAGE_KEYS.PAYMENTS, SEED_PAYMENTS);
+      const idx = refunds.findIndex((r) => r.id === refundId);
 
-    if (idx === -1) return { success: false, data: null as any, error: 'Refund request not found.' };
+      if (idx === -1) return { success: false, data: null as any, error: 'Refund request not found.' };
 
-    refunds[idx].status = 'approved';
-    refunds[idx].decidedAt = new Date().toISOString();
-    refunds[idx].decidedBySuperAdminId = superAdmin.id;
-    refunds[idx].superAdminRemarks = remarks || 'Approved by Super Admin after compliance verification.';
-    setStorageItem(STORAGE_KEYS.REFUNDS, refunds);
+      refunds[idx].status = 'approved';
+      refunds[idx].decidedAt = new Date().toISOString();
+      refunds[idx].decidedBySuperAdminId = superAdmin.id;
+      refunds[idx].superAdminRemarks = remarks || 'Approved by Super Admin after compliance verification.';
+      setStorageItem(STORAGE_KEYS.REFUNDS, refunds);
 
-    // Update payment record to refunded
-    const pIdx = payments.findIndex((p) => p.id === refunds[idx].transactionId);
-    if (pIdx >= 0) {
-      payments[pIdx].status = 'refunded';
-      setStorageItem(STORAGE_KEYS.PAYMENTS, payments);
+      // Update payment record to refunded
+      const pIdx = payments.findIndex((p) => p.id === refunds[idx].transactionId);
+      if (pIdx >= 0) {
+        payments[pIdx].status = 'refunded';
+        setStorageItem(STORAGE_KEYS.PAYMENTS, payments);
+      }
+
+      this.recordSystemAuditLog(
+        superAdmin,
+        'REFUND_APPROVED',
+        'refunds',
+        `Refund: ${refundId} | Student: ${refunds[idx].studentName}`,
+        `Authorized tuition refund of ₹${refunds[idx].amountINR.toLocaleString('en-IN')}. Note: ${refunds[idx].superAdminRemarks}`,
+        'SUCCESS'
+      );
+
+      return {
+        success: true,
+        data: refunds[idx],
+        message: 'Refund approved. Internal financial authorization recorded. Gateway disbursement pending integration.',
+      };
     }
 
-    this.recordSystemAuditLog(
-      superAdmin,
-      'REFUND_APPROVED',
-      'refunds',
-      `Refund: ${refundId} | Student: ${refunds[idx].studentName}`,
-      `Authorized tuition refund of ₹${refunds[idx].amountINR.toLocaleString('en-IN')}. Note: ${refunds[idx].superAdminRemarks}`,
-      'SUCCESS'
-    );
-
-    return {
-      success: true,
-      data: refunds[idx],
-      message: 'Refund approved. Internal financial authorization recorded. Gateway disbursement pending integration.',
-    };
+    try {
+      const res = await apiClient.post(`/super-admin/refunds/${encodeURIComponent(refundId)}/approve`, { remarks });
+      return {
+        success: true,
+        data: res.data?.data,
+        message: res.data?.message || 'Refund approved. Internal financial authorization recorded.',
+      };
+    } catch (err: any) {
+      const message = err?.response?.data?.message || err?.message || 'Failed to approve refund.';
+      return { success: false, data: null as any, error: message };
+    }
   },
 
   async rejectRefund(
@@ -644,47 +801,72 @@ export const superAdminService = {
     refundId: string,
     mandatoryReason: string
   ): Promise<ApiResponse<RefundRequest>> {
-    await sleep(350);
-    if (!mandatoryReason || mandatoryReason.trim().length < 5) {
-      return { success: false, data: null as any, error: 'A valid mandatory rejection reason must be provided.' };
+    if (USE_DEV_MOCKS) {
+      await sleep(350);
+      if (!mandatoryReason || mandatoryReason.trim().length < 5) {
+        return { success: false, data: null as any, error: 'A valid mandatory rejection reason must be provided.' };
+      }
+
+      const refunds = getStorageItem<RefundRequest[]>(STORAGE_KEYS.REFUNDS, SEED_REFUNDS);
+      const idx = refunds.findIndex((r) => r.id === refundId);
+      if (idx === -1) return { success: false, data: null as any, error: 'Refund request not found.' };
+
+      refunds[idx].status = 'rejected';
+      refunds[idx].decidedAt = new Date().toISOString();
+      refunds[idx].decidedBySuperAdminId = superAdmin.id;
+      refunds[idx].superAdminRemarks = mandatoryReason;
+      setStorageItem(STORAGE_KEYS.REFUNDS, refunds);
+
+      this.recordSystemAuditLog(
+        superAdmin,
+        'REFUND_REJECTED',
+        'refunds',
+        `Refund: ${refundId} | Student: ${refunds[idx].studentName}`,
+        `Rejected refund of ₹${refunds[idx].amountINR.toLocaleString('en-IN')}. Reason: ${mandatoryReason}`,
+        'SUCCESS'
+      );
+
+      return {
+        success: true,
+        data: refunds[idx],
+        message: 'Refund request rejected. Mandatory justification recorded in audit log.',
+      };
     }
 
-    const refunds = getStorageItem<RefundRequest[]>(STORAGE_KEYS.REFUNDS, SEED_REFUNDS);
-    const idx = refunds.findIndex((r) => r.id === refundId);
-    if (idx === -1) return { success: false, data: null as any, error: 'Refund request not found.' };
-
-    refunds[idx].status = 'rejected';
-    refunds[idx].decidedAt = new Date().toISOString();
-    refunds[idx].decidedBySuperAdminId = superAdmin.id;
-    refunds[idx].superAdminRemarks = mandatoryReason;
-    setStorageItem(STORAGE_KEYS.REFUNDS, refunds);
-
-    this.recordSystemAuditLog(
-      superAdmin,
-      'REFUND_REJECTED',
-      'refunds',
-      `Refund: ${refundId} | Student: ${refunds[idx].studentName}`,
-      `Rejected refund of ₹${refunds[idx].amountINR.toLocaleString('en-IN')}. Reason: ${mandatoryReason}`,
-      'SUCCESS'
-    );
-
-    return {
-      success: true,
-      data: refunds[idx],
-      message: 'Refund request rejected. Mandatory justification recorded in audit log.',
-    };
+    try {
+      const res = await apiClient.post(`/super-admin/refunds/${encodeURIComponent(refundId)}/reject`, { mandatoryReason });
+      return {
+        success: true,
+        data: res.data?.data,
+        message: res.data?.message || 'Refund request rejected.',
+      };
+    } catch (err: any) {
+      const message = err?.response?.data?.message || err?.message || 'Failed to reject refund.';
+      return { success: false, data: null as any, error: message };
+    }
   },
 
   /**
    * 5. Financial Override Management (BR-007)
    */
   async getFinancialOverrides(): Promise<ApiResponse<FinancialOverrideRequest[]>> {
-    await sleep(150);
-    const overrides = getStorageItem<FinancialOverrideRequest[]>(
-      STORAGE_KEYS.FINANCIAL_OVERRIDES,
-      SEED_FINANCIAL_OVERRIDES
-    );
-    return { success: true, data: overrides };
+    if (USE_DEV_MOCKS) {
+      await sleep(150);
+      const overrides = getStorageItem<FinancialOverrideRequest[]>(
+        STORAGE_KEYS.FINANCIAL_OVERRIDES,
+        SEED_FINANCIAL_OVERRIDES
+      );
+      return { success: true, data: overrides };
+    }
+
+    try {
+      const res = await apiClient.get('/super-admin/financial-overrides');
+      const items = res.data?.data?.items ?? res.data?.data ?? [];
+      return { success: true, data: Array.isArray(items) ? items : [] };
+    } catch (err: any) {
+      const message = err?.response?.data?.message || err?.message || 'Failed to fetch financial overrides.';
+      return { success: false, data: [], error: message };
+    }
   },
 
   async approveFinancialOverride(
@@ -692,34 +874,48 @@ export const superAdminService = {
     overrideId: string,
     remarks?: string
   ): Promise<ApiResponse<FinancialOverrideRequest>> {
-    await sleep(350);
-    const overrides = getStorageItem<FinancialOverrideRequest[]>(
-      STORAGE_KEYS.FINANCIAL_OVERRIDES,
-      SEED_FINANCIAL_OVERRIDES
-    );
-    const idx = overrides.findIndex((o) => o.id === overrideId);
-    if (idx === -1) return { success: false, data: null as any, error: 'Financial override request not found.' };
+    if (USE_DEV_MOCKS) {
+      await sleep(350);
+      const overrides = getStorageItem<FinancialOverrideRequest[]>(
+        STORAGE_KEYS.FINANCIAL_OVERRIDES,
+        SEED_FINANCIAL_OVERRIDES
+      );
+      const idx = overrides.findIndex((o) => o.id === overrideId);
+      if (idx === -1) return { success: false, data: null as any, error: 'Financial override request not found.' };
 
-    overrides[idx].status = 'approved';
-    overrides[idx].decidedAt = new Date().toISOString();
-    overrides[idx].decidedBySuperAdminId = superAdmin.id;
-    overrides[idx].superAdminRemarks = remarks || 'Authorized by Super Admin.';
-    setStorageItem(STORAGE_KEYS.FINANCIAL_OVERRIDES, overrides);
+      overrides[idx].status = 'approved';
+      overrides[idx].decidedAt = new Date().toISOString();
+      overrides[idx].decidedBySuperAdminId = superAdmin.id;
+      overrides[idx].superAdminRemarks = remarks || 'Authorized by Super Admin.';
+      setStorageItem(STORAGE_KEYS.FINANCIAL_OVERRIDES, overrides);
 
-    this.recordSystemAuditLog(
-      superAdmin,
-      'FINANCIAL_OVERRIDE_APPROVED',
-      'financial_overrides',
-      `Override: ${overrideId} | Student: ${overrides[idx].studentName}`,
-      `Authorized fee waiver/adjustment of ₹${overrides[idx].discountOrWaiverINR.toLocaleString('en-IN')} (Original: ₹${overrides[idx].originalAmountINR} -> Adjusted: ₹${overrides[idx].proposedAmountINR}). Remarks: ${overrides[idx].superAdminRemarks}`,
-      'SUCCESS'
-    );
+      this.recordSystemAuditLog(
+        superAdmin,
+        'FINANCIAL_OVERRIDE_APPROVED',
+        'financial_overrides',
+        `Override: ${overrideId} | Student: ${overrides[idx].studentName}`,
+        `Authorized fee waiver/adjustment of ₹${overrides[idx].discountOrWaiverINR.toLocaleString('en-IN')} (Original: ₹${overrides[idx].originalAmountINR} -> Adjusted: ₹${overrides[idx].proposedAmountINR}). Remarks: ${overrides[idx].superAdminRemarks}`,
+        'SUCCESS'
+      );
 
-    return {
-      success: true,
-      data: overrides[idx],
-      message: 'Financial override approved. Fee ledger updated accordingly.',
-    };
+      return {
+        success: true,
+        data: overrides[idx],
+        message: 'Financial override approved. Fee ledger updated accordingly.',
+      };
+    }
+
+    try {
+      const res = await apiClient.post(`/super-admin/financial-overrides/${encodeURIComponent(overrideId)}/approve`, { remarks });
+      return {
+        success: true,
+        data: res.data?.data,
+        message: res.data?.message || 'Financial override approved.',
+      };
+    } catch (err: any) {
+      const message = err?.response?.data?.message || err?.message || 'Failed to approve financial override.';
+      return { success: false, data: null as any, error: message };
+    }
   },
 
   async rejectFinancialOverride(
@@ -727,85 +923,124 @@ export const superAdminService = {
     overrideId: string,
     mandatoryReason: string
   ): Promise<ApiResponse<FinancialOverrideRequest>> {
-    await sleep(350);
-    if (!mandatoryReason || mandatoryReason.trim().length < 5) {
-      return { success: false, data: null as any, error: 'A valid mandatory rejection reason must be provided.' };
+    if (USE_DEV_MOCKS) {
+      await sleep(350);
+      if (!mandatoryReason || mandatoryReason.trim().length < 5) {
+        return { success: false, data: null as any, error: 'A valid mandatory rejection reason must be provided.' };
+      }
+
+      const overrides = getStorageItem<FinancialOverrideRequest[]>(
+        STORAGE_KEYS.FINANCIAL_OVERRIDES,
+        SEED_FINANCIAL_OVERRIDES
+      );
+      const idx = overrides.findIndex((o) => o.id === overrideId);
+      if (idx === -1) return { success: false, data: null as any, error: 'Financial override request not found.' };
+
+      overrides[idx].status = 'rejected';
+      overrides[idx].decidedAt = new Date().toISOString();
+      overrides[idx].decidedBySuperAdminId = superAdmin.id;
+      overrides[idx].superAdminRemarks = mandatoryReason;
+      setStorageItem(STORAGE_KEYS.FINANCIAL_OVERRIDES, overrides);
+
+      this.recordSystemAuditLog(
+        superAdmin,
+        'FINANCIAL_OVERRIDE_REJECTED',
+        'financial_overrides',
+        `Override: ${overrideId} | Student: ${overrides[idx].studentName}`,
+        `Rejected proposed fee waiver of ₹${overrides[idx].discountOrWaiverINR.toLocaleString('en-IN')}. Reason: ${mandatoryReason}`,
+        'SUCCESS'
+      );
+
+      return {
+        success: true,
+        data: overrides[idx],
+        message: 'Financial override rejected. Mandatory justification recorded in audit log.',
+      };
     }
 
-    const overrides = getStorageItem<FinancialOverrideRequest[]>(
-      STORAGE_KEYS.FINANCIAL_OVERRIDES,
-      SEED_FINANCIAL_OVERRIDES
-    );
-    const idx = overrides.findIndex((o) => o.id === overrideId);
-    if (idx === -1) return { success: false, data: null as any, error: 'Financial override request not found.' };
-
-    overrides[idx].status = 'rejected';
-    overrides[idx].decidedAt = new Date().toISOString();
-    overrides[idx].decidedBySuperAdminId = superAdmin.id;
-    overrides[idx].superAdminRemarks = mandatoryReason;
-    setStorageItem(STORAGE_KEYS.FINANCIAL_OVERRIDES, overrides);
-
-    this.recordSystemAuditLog(
-      superAdmin,
-      'FINANCIAL_OVERRIDE_REJECTED',
-      'financial_overrides',
-      `Override: ${overrideId} | Student: ${overrides[idx].studentName}`,
-      `Rejected proposed fee waiver of ₹${overrides[idx].discountOrWaiverINR.toLocaleString('en-IN')}. Reason: ${mandatoryReason}`,
-      'SUCCESS'
-    );
-
-    return {
-      success: true,
-      data: overrides[idx],
-      message: 'Financial override rejected. Mandatory justification recorded in audit log.',
-    };
+    try {
+      const res = await apiClient.post(`/super-admin/financial-overrides/${encodeURIComponent(overrideId)}/reject`, { mandatoryReason });
+      return {
+        success: true,
+        data: res.data?.data,
+        message: res.data?.message || 'Financial override rejected.',
+      };
+    } catch (err: any) {
+      const message = err?.response?.data?.message || err?.message || 'Failed to reject financial override.';
+      return { success: false, data: null as any, error: message };
+    }
   },
 
   /**
    * 6. Global Roles and Permissions Management
    */
   async getGlobalRoles(): Promise<ApiResponse<GlobalRole[]>> {
-    await sleep(150);
-    const roles = getStorageItem<GlobalRole[]>(STORAGE_KEYS.GLOBAL_ROLES, SEED_GLOBAL_ROLES);
-    return { success: true, data: roles };
+    if (USE_DEV_MOCKS) {
+      await sleep(150);
+      const roles = getStorageItem<GlobalRole[]>(STORAGE_KEYS.GLOBAL_ROLES, SEED_GLOBAL_ROLES);
+      return { success: true, data: roles };
+    }
+
+    try {
+      const res = await apiClient.get('/super-admin/roles');
+      const items = res.data?.data?.items ?? res.data?.data ?? [];
+      return { success: true, data: Array.isArray(items) ? items : [] };
+    } catch (err: any) {
+      const message = err?.response?.data?.message || err?.message || 'Failed to fetch global roles.';
+      return { success: false, data: [], error: message };
+    }
   },
 
   async createGlobalRole(
     superAdmin: { id: string; name: string },
     data: { name: string; slug: string; description: string; permissions: string[] }
   ): Promise<ApiResponse<GlobalRole>> {
-    await sleep(300);
-    const roles = getStorageItem<GlobalRole[]>(STORAGE_KEYS.GLOBAL_ROLES, SEED_GLOBAL_ROLES);
-    const slug = data.slug.toLowerCase().replace(/\s+/g, '_');
+    if (USE_DEV_MOCKS) {
+      await sleep(300);
+      const roles = getStorageItem<GlobalRole[]>(STORAGE_KEYS.GLOBAL_ROLES, SEED_GLOBAL_ROLES);
+      const slug = data.slug.toLowerCase().replace(/\s+/g, '_');
 
-    if (roles.some((r) => r.slug === slug)) {
-      return { success: false, data: null as any, error: 'A role with this identifier already exists.' };
+      if (roles.some((r) => r.slug === slug)) {
+        return { success: false, data: null as any, error: 'A role with this identifier already exists.' };
+      }
+
+      const newRole: GlobalRole = {
+        id: `role-${Date.now()}`,
+        name: data.name,
+        slug,
+        description: data.description,
+        isSystemRole: false,
+        userCount: 0,
+        permissions: data.permissions,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      setStorageItem(STORAGE_KEYS.GLOBAL_ROLES, [...roles, newRole]);
+
+      this.recordSystemAuditLog(
+        superAdmin,
+        'GLOBAL_ROLE_CREATED',
+        'roles_permissions',
+        `Role: ${newRole.name} (${newRole.slug})`,
+        `Created custom role with ${data.permissions.length} initial permissions.`,
+        'SUCCESS'
+      );
+
+      return { success: true, data: newRole, message: 'Custom role created successfully.' };
     }
 
-    const newRole: GlobalRole = {
-      id: `role-${Date.now()}`,
-      name: data.name,
-      slug,
-      description: data.description,
-      isSystemRole: false,
-      userCount: 0,
-      permissions: data.permissions,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-    setStorageItem(STORAGE_KEYS.GLOBAL_ROLES, [...roles, newRole]);
-
-    this.recordSystemAuditLog(
-      superAdmin,
-      'GLOBAL_ROLE_CREATED',
-      'roles_permissions',
-      `Role: ${newRole.name} (${newRole.slug})`,
-      `Created custom role with ${data.permissions.length} initial permissions.`,
-      'SUCCESS'
-    );
-
-    return { success: true, data: newRole, message: 'Custom role created successfully.' };
+    try {
+      const res = await apiClient.post('/super-admin/roles', data);
+      return {
+        success: true,
+        data: res.data?.data,
+        message: res.data?.message || 'Custom role created successfully.',
+      };
+    } catch (err: any) {
+      const message = err?.response?.data?.message || err?.message || 'Failed to create global role.';
+      return { success: false, data: null as any, error: message };
+    }
   },
 
   async updateRolePermissions(
@@ -813,42 +1048,67 @@ export const superAdminService = {
     roleSlug: string,
     permissions: string[]
   ): Promise<ApiResponse<GlobalRole>> {
-    await sleep(350);
-    const roles = getStorageItem<GlobalRole[]>(STORAGE_KEYS.GLOBAL_ROLES, SEED_GLOBAL_ROLES);
-    const idx = roles.findIndex((r) => r.slug === roleSlug);
-    if (idx === -1) return { success: false, data: null as any, error: 'Role not found.' };
+    if (USE_DEV_MOCKS) {
+      await sleep(350);
+      const roles = getStorageItem<GlobalRole[]>(STORAGE_KEYS.GLOBAL_ROLES, SEED_GLOBAL_ROLES);
+      const idx = roles.findIndex((r) => r.slug === roleSlug);
+      if (idx === -1) return { success: false, data: null as any, error: 'Role not found.' };
 
-    if (roleSlug === 'super_admin') {
-      return {
-        success: false,
-        data: null as any,
-        error: 'Super Administrator root permissions cannot be revoked to safeguard administrative lockout.',
-      };
+      if (roleSlug === 'super_admin') {
+        return {
+          success: false,
+          data: null as any,
+          error: 'Super Administrator root permissions cannot be revoked to safeguard administrative lockout.',
+        };
+      }
+
+      roles[idx].permissions = permissions;
+      roles[idx].updatedAt = new Date().toISOString();
+      setStorageItem(STORAGE_KEYS.GLOBAL_ROLES, roles);
+
+      this.recordSystemAuditLog(
+        superAdmin,
+        'ROLE_PERMISSIONS_UPDATED',
+        'roles_permissions',
+        `Role: ${roles[idx].name} (${roles[idx].slug})`,
+        `Updated permission matrix (${permissions.length} actions enabled).`,
+        'SUCCESS'
+      );
+
+      return { success: true, data: roles[idx], message: `Permissions for ${roles[idx].name} updated successfully.` };
     }
 
-    roles[idx].permissions = permissions;
-    roles[idx].updatedAt = new Date().toISOString();
-    setStorageItem(STORAGE_KEYS.GLOBAL_ROLES, roles);
-
-    this.recordSystemAuditLog(
-      superAdmin,
-      'ROLE_PERMISSIONS_UPDATED',
-      'roles_permissions',
-      `Role: ${roles[idx].name} (${roles[idx].slug})`,
-      `Updated permission matrix (${permissions.length} actions enabled).`,
-      'SUCCESS'
-    );
-
-    return { success: true, data: roles[idx], message: `Permissions for ${roles[idx].name} updated successfully.` };
+    try {
+      const res = await apiClient.put(`/super-admin/roles/${encodeURIComponent(roleSlug)}/permissions`, { permissions });
+      return {
+        success: true,
+        data: res.data?.data,
+        message: res.data?.message || `Permissions for ${roleSlug} updated successfully.`,
+      };
+    } catch (err: any) {
+      const message = err?.response?.data?.message || err?.message || 'Failed to update role permissions.';
+      return { success: false, data: null as any, error: message };
+    }
   },
 
   /**
    * 7. System Audit Logs
    */
   async getAuditLogs(): Promise<ApiResponse<AuditLog[]>> {
-    await sleep(150);
-    const logs = getStorageItem<AuditLog[]>(STORAGE_KEYS.AUDIT_LOGS, SEED_RICH_AUDIT_LOGS);
-    return { success: true, data: logs };
+    if (USE_DEV_MOCKS) {
+      await sleep(150);
+      const logs = getStorageItem<AuditLog[]>(STORAGE_KEYS.AUDIT_LOGS, SEED_RICH_AUDIT_LOGS);
+      return { success: true, data: logs };
+    }
+
+    try {
+      const res = await apiClient.get('/super-admin/audit-logs');
+      const items = res.data?.data?.items ?? res.data?.data ?? [];
+      return { success: true, data: Array.isArray(items) ? items : [] };
+    } catch (err: any) {
+      const message = err?.response?.data?.message || err?.message || 'Failed to fetch audit logs.';
+      return { success: false, data: [], error: message };
+    }
   },
 
   recordSystemAuditLog(

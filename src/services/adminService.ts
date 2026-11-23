@@ -24,6 +24,7 @@ import {
  * ===========================================================================
  */
 const USE_MOCK_AUTH = import.meta.env.VITE_USE_MOCK_AUTH === 'true';
+const USE_DEV_MOCKS = import.meta.env.VITE_USE_DEV_MOCKS === 'true';
 
 import { STORAGE_KEYS, APP_CONFIG } from '../constants/appConfig';
 import { getStorageItem, setStorageItem } from '../utils/storage';
@@ -118,61 +119,91 @@ export const adminService = {
    * 1. Dashboard Overview Statistics (ADM-001)
    */
   async getDashboardStats(): Promise<ApiResponse<DashboardStatsData>> {
-    await sleep();
-    const students = getStorageItem<StudentProfile[]>(STORAGE_KEYS.STUDENTS, [
-      SEED_USERS.student,
-      SEED_USERS.studentPending,
-    ]);
-    const teachers = getStorageItem<TeacherProfile[]>(STORAGE_KEYS.TEACHERS, [SEED_USERS.teacher]);
-    const courses = getStorageItem<Course[]>(STORAGE_KEYS.COURSES, SEED_COURSES);
-    const batches = getStorageItem<Batch[]>(STORAGE_KEYS.BATCHES, SEED_BATCHES);
-    const enrollments = getStorageItem<Enrollment[]>(STORAGE_KEYS.ENROLLMENTS, SEED_ENROLLMENTS);
-    const payments = getStorageItem<PaymentTransaction[]>(STORAGE_KEYS.PAYMENTS, SEED_PAYMENTS);
-    const certificates = getStorageItem<CertificateRecord[]>(STORAGE_KEYS.CERTIFICATES, SEED_CERTIFICATES);
-    const applications = getStorageItem<JobApplication[]>(STORAGE_KEYS.APPLICATIONS, SEED_APPLICATIONS);
-    const tickets = getStorageItem<SupportTicket[]>(STORAGE_KEYS.TICKETS, SEED_TICKETS);
+    if (USE_DEV_MOCKS) {
+      await sleep();
+      const students = getStorageItem<StudentProfile[]>(STORAGE_KEYS.STUDENTS, [
+        SEED_USERS.student,
+        SEED_USERS.studentPending,
+      ]);
+      const teachers = getStorageItem<TeacherProfile[]>(STORAGE_KEYS.TEACHERS, [SEED_USERS.teacher]);
+      const courses = getStorageItem<Course[]>(STORAGE_KEYS.COURSES, SEED_COURSES);
+      const batches = getStorageItem<Batch[]>(STORAGE_KEYS.BATCHES, SEED_BATCHES);
+      const enrollments = getStorageItem<Enrollment[]>(STORAGE_KEYS.ENROLLMENTS, SEED_ENROLLMENTS);
+      const payments = getStorageItem<PaymentTransaction[]>(STORAGE_KEYS.PAYMENTS, SEED_PAYMENTS);
+      const certificates = getStorageItem<CertificateRecord[]>(STORAGE_KEYS.CERTIFICATES, SEED_CERTIFICATES);
+      const applications = getStorageItem<JobApplication[]>(STORAGE_KEYS.APPLICATIONS, SEED_APPLICATIONS);
+      const tickets = getStorageItem<SupportTicket[]>(STORAGE_KEYS.TICKETS, SEED_TICKETS);
 
-    const totalStudents = students.length;
-    const activeStudents = students.filter((s) => s.status === 'active').length;
-    const pendingApprovals = students.filter((s) => s.adminApprovalStatus === 'pending').length;
-    const totalCourses = courses.length;
-    const activeBatches = batches.filter((b) => b.status === 'ongoing').length;
-    const totalTeachers = teachers.length;
+      const totalStudents = students.length;
+      const activeStudents = students.filter((s) => s.status === 'active').length;
+      const pendingApprovals = students.filter((s) => s.adminApprovalStatus === 'pending').length;
+      const totalCourses = courses.length;
+      const activeBatches = batches.filter((b) => b.status === 'ongoing').length;
+      const totalTeachers = teachers.length;
 
-    const totalRevenueINR = payments
-      .filter((p) => p.status === 'successful')
-      .reduce((sum, p) => sum + p.finalAmountINR, 0);
+      const totalRevenueINR = payments
+        .filter((p) => p.status === 'successful')
+        .reduce((sum, p) => sum + p.finalAmountINR, 0);
 
-    // Approximate pending fees for enrolled students without full payment
-    const pendingFeesINR = 45000;
+      // Approximate pending fees for enrolled students without full payment
+      const pendingFeesINR = 45000;
 
-    const certificatesIssued = certificates.filter((c) => c.status === 'valid').length;
-    const placementsCount = applications.filter((a) => a.status === 'offered').length;
-    const placementRate = totalStudents > 0 ? Math.round((placementsCount / Math.max(1, activeStudents)) * 100) : 85;
-    const activePlacements = applications.filter((a) => a.status !== 'rejected').length;
-    const supportTicketsCount = tickets.filter((t) => t.status === 'open' || t.status === 'in_progress').length;
-    const systemAlertsCount = pendingApprovals + (supportTicketsCount > 0 ? 1 : 0);
+      const certificatesIssued = certificates.filter((c) => c.status === 'valid').length;
+      const placementsCount = applications.filter((a) => a.status === 'offered').length;
+      const placementRate = totalStudents > 0 ? Math.round((placementsCount / Math.max(1, activeStudents)) * 100) : 85;
+      const activePlacements = applications.filter((a) => a.status !== 'rejected').length;
+      const supportTicketsCount = tickets.filter((t) => t.status === 'open' || t.status === 'in_progress').length;
+      const systemAlertsCount = pendingApprovals + (supportTicketsCount > 0 ? 1 : 0);
 
-    return {
-      success: true,
-      data: {
-        totalStudents,
-        activeStudents,
-        pendingApprovals,
-        totalCourses,
-        activeBatches,
-        totalTeachers,
-        totalRevenueINR,
-        pendingFeesINR,
-        certificatesIssued,
-        placementRate,
-        activePlacements,
-        supportTicketsCount,
-        systemAlertsCount,
-        totalEnrollments: enrollments.length,
-        placementsCount,
-      },
-    };
+      return {
+        success: true,
+        data: {
+          totalStudents,
+          activeStudents,
+          pendingApprovals,
+          totalCourses,
+          activeBatches,
+          totalTeachers,
+          totalRevenueINR,
+          pendingFeesINR,
+          certificatesIssued,
+          placementRate,
+          activePlacements,
+          supportTicketsCount,
+          systemAlertsCount,
+          totalEnrollments: enrollments.length,
+          placementsCount,
+        },
+      };
+    }
+
+    try {
+      const res = await apiClient.get('/admin/stats');
+      return { success: true, data: res.data?.data };
+    } catch (err: any) {
+      const message = err?.response?.data?.message || err?.message || 'Failed to fetch dashboard statistics.';
+      return {
+        success: false,
+        data: {
+          totalStudents: 0,
+          activeStudents: 0,
+          pendingApprovals: 0,
+          totalCourses: 0,
+          activeBatches: 0,
+          totalTeachers: 0,
+          totalRevenueINR: 0,
+          pendingFeesINR: 0,
+          certificatesIssued: 0,
+          placementRate: 0,
+          activePlacements: 0,
+          supportTicketsCount: 0,
+          systemAlertsCount: 0,
+          totalEnrollments: 0,
+          placementsCount: 0,
+        },
+        error: message,
+      };
+    }
   },
 
   /**
@@ -364,23 +395,33 @@ export const adminService = {
     admin: { id: string; name: string },
     studentId: string
   ): Promise<ApiResponse<StudentProfile>> {
-    await sleep(200);
-    const students = getStorageItem<StudentProfile[]>(STORAGE_KEYS.STUDENTS, []);
-    const idx = students.findIndex((s) => s.id === studentId);
-    if (idx === -1) return { success: false, data: null as any, error: 'Student not found.' };
+    if (USE_DEV_MOCKS) {
+      await sleep(200);
+      const students = getStorageItem<StudentProfile[]>(STORAGE_KEYS.STUDENTS, []);
+      const idx = students.findIndex((s) => s.id === studentId);
+      if (idx === -1) return { success: false, data: null as any, error: 'Student not found.' };
 
-    students[idx].failedLoginAttempts = 0;
-    students[idx].accountState = students[idx].adminApprovalStatus === 'approved' ? 'approved' : 'pending_approval';
-    setStorageItem(STORAGE_KEYS.STUDENTS, students);
+      students[idx].failedLoginAttempts = 0;
+      students[idx].accountState = students[idx].adminApprovalStatus === 'approved' ? 'approved' : 'pending_approval';
+      setStorageItem(STORAGE_KEYS.STUDENTS, students);
 
-    recordAuditLog(
-      { id: admin.id, name: admin.name, role: 'admin' },
-      'ACCOUNT_UNLOCKED_BY_ADMIN',
-      `Student: ${students[idx].name} (${studentId})`,
-      'Account lockout cleared and login attempts reset.'
-    );
+      recordAuditLog(
+        { id: admin.id, name: admin.name, role: 'admin' },
+        'ACCOUNT_UNLOCKED_BY_ADMIN',
+        `Student: ${students[idx].name} (${studentId})`,
+        'Account lockout cleared and login attempts reset.'
+      );
 
-    return { success: true, data: students[idx], message: `Account unlocked for ${students[idx].name}.` };
+      return { success: true, data: students[idx], message: `Account unlocked for ${students[idx].name}.` };
+    }
+
+    try {
+      const res = await apiClient.post(`/admin/students/${encodeURIComponent(studentId)}/unlock`);
+      return { success: true, data: res.data?.data, message: res.data?.message || 'Account unlocked successfully.' };
+    } catch (err: any) {
+      const message = err?.response?.data?.message || err?.message || 'Failed to unlock account.';
+      return { success: false, data: null as any, error: message };
+    }
   },
 
   /**
@@ -497,9 +538,20 @@ export const adminService = {
    * 3. Enrollment Management (ADM-005)
    */
   async getEnrollments(): Promise<ApiResponse<Enrollment[]>> {
-    await sleep();
-    const enrollments = getStorageItem<Enrollment[]>(STORAGE_KEYS.ENROLLMENTS, SEED_ENROLLMENTS);
-    return { success: true, data: enrollments };
+    if (USE_DEV_MOCKS) {
+      await sleep();
+      const enrollments = getStorageItem<Enrollment[]>(STORAGE_KEYS.ENROLLMENTS, SEED_ENROLLMENTS);
+      return { success: true, data: enrollments };
+    }
+
+    try {
+      const res = await apiClient.get('/admin/enrollments');
+      const items = res.data?.data?.items ?? res.data?.data ?? [];
+      return { success: true, data: Array.isArray(items) ? items : [] };
+    } catch (err: any) {
+      const message = err?.response?.data?.message || err?.message || 'Failed to fetch enrollments.';
+      return { success: false, data: [], error: message };
+    }
   },
 
   async createEnrollment(
@@ -513,50 +565,60 @@ export const adminService = {
       paymentStatus?: 'active' | 'pending_approval' | 'approved_unpaid';
     }
   ): Promise<ApiResponse<Enrollment>> {
-    await sleep(300);
-    const enrollments = getStorageItem<Enrollment[]>(STORAGE_KEYS.ENROLLMENTS, SEED_ENROLLMENTS);
-    const students = getStorageItem<StudentProfile[]>(STORAGE_KEYS.STUDENTS, []);
+    if (USE_DEV_MOCKS) {
+      await sleep(300);
+      const enrollments = getStorageItem<Enrollment[]>(STORAGE_KEYS.ENROLLMENTS, SEED_ENROLLMENTS);
+      const students = getStorageItem<StudentProfile[]>(STORAGE_KEYS.STUDENTS, []);
 
-    // Check existing
-    let enr = enrollments.find((e) => e.studentId === data.studentId && e.courseId === data.courseId);
-    if (enr) {
-      enr.batchId = data.batchId || enr.batchId;
-      enr.status = data.paymentStatus || 'active';
-      setStorageItem(STORAGE_KEYS.ENROLLMENTS, enrollments);
-      return { success: true, data: enr, message: 'Existing enrollment updated.' };
-    }
-
-    const newEnr: Enrollment = {
-      id: `enr-${Date.now()}`,
-      studentId: data.studentId,
-      courseId: data.courseId,
-      batchId: data.batchId,
-      status: data.paymentStatus || 'active',
-      enrolledAt: new Date().toISOString(),
-      progressPercentage: 0,
-      completedLessonIds: [],
-      bookmarkedLessonIds: [],
-    };
-
-    setStorageItem(STORAGE_KEYS.ENROLLMENTS, [newEnr, ...enrollments]);
-
-    // Update student's enrolled courses list
-    const stuIdx = students.findIndex((s) => s.id === data.studentId);
-    if (stuIdx !== -1) {
-      if (!students[stuIdx].enrolledCourseIds.includes(data.courseId)) {
-        students[stuIdx].enrolledCourseIds.push(data.courseId);
-        setStorageItem(STORAGE_KEYS.STUDENTS, students);
+      // Check existing
+      let enr = enrollments.find((e) => e.studentId === data.studentId && e.courseId === data.courseId);
+      if (enr) {
+        enr.batchId = data.batchId || enr.batchId;
+        enr.status = data.paymentStatus || 'active';
+        setStorageItem(STORAGE_KEYS.ENROLLMENTS, enrollments);
+        return { success: true, data: enr, message: 'Existing enrollment updated.' };
       }
+
+      const newEnr: Enrollment = {
+        id: `enr-${Date.now()}`,
+        studentId: data.studentId,
+        courseId: data.courseId,
+        batchId: data.batchId,
+        status: data.paymentStatus || 'active',
+        enrolledAt: new Date().toISOString(),
+        progressPercentage: 0,
+        completedLessonIds: [],
+        bookmarkedLessonIds: [],
+      };
+
+      setStorageItem(STORAGE_KEYS.ENROLLMENTS, [newEnr, ...enrollments]);
+
+      // Update student's enrolled courses list
+      const stuIdx = students.findIndex((s) => s.id === data.studentId);
+      if (stuIdx !== -1) {
+        if (!students[stuIdx].enrolledCourseIds.includes(data.courseId)) {
+          students[stuIdx].enrolledCourseIds.push(data.courseId);
+          setStorageItem(STORAGE_KEYS.STUDENTS, students);
+        }
+      }
+
+      recordAuditLog(
+        { id: admin.id, name: admin.name, role: 'admin' },
+        'STUDENT_ENROLLED',
+        `Student ID: ${data.studentId} Course: ${data.courseId}`,
+        `Enrolled into Course: ${data.courseId}, Batch: ${data.batchId || 'Default'}. Discount Applied: ₹${data.discountAmountINR || 0}.`
+      );
+
+      return { success: true, data: newEnr, message: 'Student successfully enrolled.' };
     }
 
-    recordAuditLog(
-      { id: admin.id, name: admin.name, role: 'admin' },
-      'STUDENT_ENROLLED',
-      `Student ID: ${data.studentId} Course: ${data.courseId}`,
-      `Enrolled into Course: ${data.courseId}, Batch: ${data.batchId || 'Default'}. Discount Applied: ₹${data.discountAmountINR || 0}.`
-    );
-
-    return { success: true, data: newEnr, message: 'Student successfully enrolled.' };
+    try {
+      const res = await apiClient.post('/admin/enrollments', data);
+      return { success: true, data: res.data?.data, message: res.data?.message || 'Student successfully enrolled.' };
+    } catch (err: any) {
+      const message = err?.response?.data?.message || err?.message || 'Failed to create enrollment.';
+      return { success: false, data: null as any, error: message };
+    }
   },
 
   async updateEnrollmentStatus(
@@ -564,22 +626,32 @@ export const adminService = {
     enrollmentId: string,
     status: 'active' | 'completed' | 'cancelled' | 'suspended' | 'pending_approval' | 'approved_unpaid'
   ): Promise<ApiResponse<Enrollment>> {
-    await sleep(200);
-    const enrollments = getStorageItem<Enrollment[]>(STORAGE_KEYS.ENROLLMENTS, SEED_ENROLLMENTS);
-    const idx = enrollments.findIndex((e) => e.id === enrollmentId);
-    if (idx === -1) return { success: false, data: null as any, error: 'Enrollment not found.' };
+    if (USE_DEV_MOCKS) {
+      await sleep(200);
+      const enrollments = getStorageItem<Enrollment[]>(STORAGE_KEYS.ENROLLMENTS, SEED_ENROLLMENTS);
+      const idx = enrollments.findIndex((e) => e.id === enrollmentId);
+      if (idx === -1) return { success: false, data: null as any, error: 'Enrollment not found.' };
 
-    enrollments[idx].status = status;
-    setStorageItem(STORAGE_KEYS.ENROLLMENTS, enrollments);
+      enrollments[idx].status = status;
+      setStorageItem(STORAGE_KEYS.ENROLLMENTS, enrollments);
 
-    recordAuditLog(
-      { id: admin.id, name: admin.name, role: 'admin' },
-      'ENROLLMENT_STATUS_CHANGED',
-      `Enrollment ID: ${enrollmentId}`,
-      `Status changed to: ${status.toUpperCase()}`
-    );
+      recordAuditLog(
+        { id: admin.id, name: admin.name, role: 'admin' },
+        'ENROLLMENT_STATUS_CHANGED',
+        `Enrollment ID: ${enrollmentId}`,
+        `Status changed to: ${status.toUpperCase()}`
+      );
 
-    return { success: true, data: enrollments[idx], message: `Enrollment status updated to ${status}.` };
+      return { success: true, data: enrollments[idx], message: `Enrollment status updated to ${status}.` };
+    }
+
+    try {
+      const res = await apiClient.patch(`/admin/enrollments/${encodeURIComponent(enrollmentId)}/status`, { status });
+      return { success: true, data: res.data?.data, message: res.data?.message || 'Enrollment status updated.' };
+    } catch (err: any) {
+      const message = err?.response?.data?.message || err?.message || 'Failed to update enrollment status.';
+      return { success: false, data: null as any, error: message };
+    }
   },
 
   /**
@@ -707,73 +779,125 @@ export const adminService = {
    * 5. Batch Management (ADM-007)
    */
   async getBatches(): Promise<ApiResponse<Batch[]>> {
-    await sleep();
-    const batches = getStorageItem<Batch[]>(STORAGE_KEYS.BATCHES, SEED_BATCHES);
-    return { success: true, data: batches };
+    if (USE_DEV_MOCKS) {
+      await sleep();
+      const batches = getStorageItem<Batch[]>(STORAGE_KEYS.BATCHES, SEED_BATCHES);
+      return { success: true, data: batches };
+    }
+
+    try {
+      const res = await apiClient.get('/admin/batches');
+      const items = res.data?.data?.items ?? res.data?.data ?? [];
+      return { success: true, data: Array.isArray(items) ? items : [] };
+    } catch (err: any) {
+      const message = err?.response?.data?.message || err?.message || 'Failed to fetch batches.';
+      return { success: false, data: [], error: message };
+    }
   },
 
   async getBatchById(batchId: string): Promise<ApiResponse<Batch>> {
-    await sleep(100);
-    const batches = getStorageItem<Batch[]>(STORAGE_KEYS.BATCHES, SEED_BATCHES);
-    const batch = batches.find((b) => b.id === batchId);
-    if (!batch) return { success: false, data: null as any, error: 'Batch not found.' };
-    return { success: true, data: batch };
+    if (USE_DEV_MOCKS) {
+      await sleep(100);
+      const batches = getStorageItem<Batch[]>(STORAGE_KEYS.BATCHES, SEED_BATCHES);
+      const batch = batches.find((b) => b.id === batchId);
+      if (!batch) return { success: false, data: null as any, error: 'Batch not found.' };
+      return { success: true, data: batch };
+    }
+
+    try {
+      const res = await apiClient.get(`/admin/batches/${encodeURIComponent(batchId)}`);
+      return { success: true, data: res.data?.data };
+    } catch (err: any) {
+      const message = err?.response?.data?.message || err?.message || 'Batch not found.';
+      return { success: false, data: null as any, error: message };
+    }
   },
 
   async getBatchStudents(batchId: string): Promise<ApiResponse<{ student: StudentProfile; enrollment: Enrollment }[]>> {
-    await sleep(150);
-    const enrollments = getStorageItem<Enrollment[]>(STORAGE_KEYS.ENROLLMENTS, SEED_ENROLLMENTS);
-    const students = getStorageItem<StudentProfile[]>(STORAGE_KEYS.STUDENTS, [SEED_USERS.student]);
+    if (USE_DEV_MOCKS) {
+      await sleep(150);
+      const enrollments = getStorageItem<Enrollment[]>(STORAGE_KEYS.ENROLLMENTS, SEED_ENROLLMENTS);
+      const students = getStorageItem<StudentProfile[]>(STORAGE_KEYS.STUDENTS, [SEED_USERS.student]);
 
-    const batchEnrollments = enrollments.filter((e) => e.batchId === batchId);
-    const roster = batchEnrollments
-      .map((enr) => {
-        const student = students.find((s) => s.id === enr.studentId);
-        if (!student) return null;
-        return { student, enrollment: enr };
-      })
-      .filter(Boolean) as { student: StudentProfile; enrollment: Enrollment }[];
+      const batchEnrollments = enrollments.filter((e) => e.batchId === batchId);
+      const roster = batchEnrollments
+        .map((enr) => {
+          const student = students.find((s) => s.id === enr.studentId);
+          if (!student) return null;
+          return { student, enrollment: enr };
+        })
+        .filter(Boolean) as { student: StudentProfile; enrollment: Enrollment }[];
 
-    return { success: true, data: roster };
+      return { success: true, data: roster };
+    }
+
+    try {
+      const res = await apiClient.get(`/admin/batches/${encodeURIComponent(batchId)}/students`);
+      const items = res.data?.data?.items ?? res.data?.data ?? [];
+      return { success: true, data: Array.isArray(items) ? items : [] };
+    } catch (err: any) {
+      const message = err?.response?.data?.message || err?.message || 'Failed to fetch batch students.';
+      return { success: false, data: [], error: message };
+    }
   },
 
   async createBatch(admin: { id: string; name: string }, batchData: Omit<Batch, 'id' | 'enrolledStudentIds'>): Promise<ApiResponse<Batch>> {
-    await sleep(250);
-    const batches = getStorageItem<Batch[]>(STORAGE_KEYS.BATCHES, SEED_BATCHES);
-    const newBatch: Batch = {
-      ...batchData,
-      id: `batch-${Date.now().toString().slice(-4)}`,
-      enrolledStudentIds: [],
-    };
-    setStorageItem(STORAGE_KEYS.BATCHES, [newBatch, ...batches]);
+    if (USE_DEV_MOCKS) {
+      await sleep(250);
+      const batches = getStorageItem<Batch[]>(STORAGE_KEYS.BATCHES, SEED_BATCHES);
+      const newBatch: Batch = {
+        ...batchData,
+        id: `batch-${Date.now().toString().slice(-4)}`,
+        enrolledStudentIds: [],
+      };
+      setStorageItem(STORAGE_KEYS.BATCHES, [newBatch, ...batches]);
 
-    recordAuditLog(
-      { id: admin.id, name: admin.name, role: 'admin' },
-      'BATCH_CREATED',
-      `Batch: ${newBatch.name} (${newBatch.batchCode})`,
-      `Created cohort for Course: ${newBatch.courseName}. Capacity: ${newBatch.maxCapacity}. Meeting: ${newBatch.meetingUrl || 'TBD'}.`
-    );
+      recordAuditLog(
+        { id: admin.id, name: admin.name, role: 'admin' },
+        'BATCH_CREATED',
+        `Batch: ${newBatch.name} (${newBatch.batchCode})`,
+        `Created cohort for Course: ${newBatch.courseName}. Capacity: ${newBatch.maxCapacity}. Meeting: ${newBatch.meetingUrl || 'TBD'}.`
+      );
 
-    return { success: true, data: newBatch, message: 'New batch cohort created successfully.' };
+      return { success: true, data: newBatch, message: 'New batch cohort created successfully.' };
+    }
+
+    try {
+      const res = await apiClient.post('/admin/batches', batchData);
+      return { success: true, data: res.data?.data, message: res.data?.message || 'New batch cohort created successfully.' };
+    } catch (err: any) {
+      const message = err?.response?.data?.message || err?.message || 'Failed to create batch cohort.';
+      return { success: false, data: null as any, error: message };
+    }
   },
 
   async updateBatch(admin: { id: string; name: string }, batchId: string, updates: Partial<Batch>): Promise<ApiResponse<Batch>> {
-    await sleep(200);
-    const batches = getStorageItem<Batch[]>(STORAGE_KEYS.BATCHES, SEED_BATCHES);
-    const idx = batches.findIndex((b) => b.id === batchId);
-    if (idx === -1) return { success: false, data: null as any, error: 'Batch not found.' };
+    if (USE_DEV_MOCKS) {
+      await sleep(200);
+      const batches = getStorageItem<Batch[]>(STORAGE_KEYS.BATCHES, SEED_BATCHES);
+      const idx = batches.findIndex((b) => b.id === batchId);
+      if (idx === -1) return { success: false, data: null as any, error: 'Batch not found.' };
 
-    batches[idx] = { ...batches[idx], ...updates };
-    setStorageItem(STORAGE_KEYS.BATCHES, batches);
+      batches[idx] = { ...batches[idx], ...updates };
+      setStorageItem(STORAGE_KEYS.BATCHES, batches);
 
-    recordAuditLog(
-      { id: admin.id, name: admin.name, role: 'admin' },
-      'BATCH_UPDATED',
-      `Batch: ${batches[idx].name} (${batchId})`,
-      'Updated batch cohort details, timing or faculty assignment.'
-    );
+      recordAuditLog(
+        { id: admin.id, name: admin.name, role: 'admin' },
+        'BATCH_UPDATED',
+        `Batch: ${batches[idx].name} (${batchId})`,
+        'Updated batch cohort details, timing or faculty assignment.'
+      );
 
-    return { success: true, data: batches[idx], message: 'Batch cohort updated.' };
+      return { success: true, data: batches[idx], message: 'Batch cohort updated.' };
+    }
+
+    try {
+      const res = await apiClient.put(`/admin/batches/${encodeURIComponent(batchId)}`, updates);
+      return { success: true, data: res.data?.data, message: res.data?.message || 'Batch cohort updated.' };
+    } catch (err: any) {
+      const message = err?.response?.data?.message || err?.message || 'Failed to update batch.';
+      return { success: false, data: null as any, error: message };
+    }
   },
 
   async updateBatchStatus(
@@ -781,45 +905,76 @@ export const adminService = {
     batchId: string,
     status: BatchStatus
   ): Promise<ApiResponse<Batch>> {
-    return this.updateBatch(admin, batchId, { status });
+    if (USE_DEV_MOCKS) {
+      return this.updateBatch(admin, batchId, { status });
+    }
+
+    try {
+      const res = await apiClient.patch(`/admin/batches/${encodeURIComponent(batchId)}/status`, { status });
+      return { success: true, data: res.data?.data, message: res.data?.message || 'Batch status updated.' };
+    } catch (err: any) {
+      const message = err?.response?.data?.message || err?.message || 'Failed to update batch status.';
+      return { success: false, data: null as any, error: message };
+    }
   },
 
   /**
    * 6. Teacher Management & Allocation (ADM-008)
    */
   async getTeachers(): Promise<ApiResponse<TeacherProfile[]>> {
-    await sleep();
-    const teachers = getStorageItem<TeacherProfile[]>(STORAGE_KEYS.TEACHERS, [SEED_USERS.teacher]);
-    return { success: true, data: teachers };
+    if (USE_DEV_MOCKS) {
+      await sleep();
+      const teachers = getStorageItem<TeacherProfile[]>(STORAGE_KEYS.TEACHERS, [SEED_USERS.teacher]);
+      return { success: true, data: teachers };
+    }
+
+    try {
+      const res = await apiClient.get('/admin/teachers');
+      const items = res.data?.data?.items ?? res.data?.data ?? [];
+      return { success: true, data: Array.isArray(items) ? items : [] };
+    } catch (err: any) {
+      const message = err?.response?.data?.message || err?.message || 'Failed to fetch teachers.';
+      return { success: false, data: [], error: message };
+    }
   },
 
   async addTeacher(admin: { id: string; name: string }, teacherData: Omit<TeacherProfile, 'id' | 'createdAt' | 'role' | 'status' | 'assignedCourseIds' | 'assignedBatchIds' | 'rating'>): Promise<ApiResponse<TeacherProfile>> {
-    await sleep(250);
-    const teachers = getStorageItem<TeacherProfile[]>(STORAGE_KEYS.TEACHERS, [SEED_USERS.teacher]);
-    const newId = `user-tch-${Date.now().toString().slice(-4)}`;
+    if (USE_DEV_MOCKS) {
+      await sleep(250);
+      const teachers = getStorageItem<TeacherProfile[]>(STORAGE_KEYS.TEACHERS, [SEED_USERS.teacher]);
+      const newId = `user-tch-${Date.now().toString().slice(-4)}`;
 
-    const newTeacher: TeacherProfile = {
-      ...teacherData,
-      id: newId,
-      createdAt: new Date().toISOString(),
-      role: 'teacher',
-      status: 'active',
-      assignedCourseIds: [],
-      assignedBatchIds: [],
-      rating: 5.0,
-      avatarUrl: teacherData.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80',
-    };
+      const newTeacher: TeacherProfile = {
+        ...teacherData,
+        id: newId,
+        createdAt: new Date().toISOString(),
+        role: 'teacher',
+        status: 'active',
+        assignedCourseIds: [],
+        assignedBatchIds: [],
+        rating: 5.0,
+        avatarUrl: teacherData.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80',
+      };
 
-    setStorageItem(STORAGE_KEYS.TEACHERS, [newTeacher, ...teachers]);
+      setStorageItem(STORAGE_KEYS.TEACHERS, [newTeacher, ...teachers]);
 
-    recordAuditLog(
-      { id: admin.id, name: admin.name, role: 'admin' },
-      'TEACHER_ADDED',
-      `Teacher: ${newTeacher.name} (${newId})`,
-      `Specialization: ${newTeacher.specialization}. Experience: ${newTeacher.experienceYears} Years.`
-    );
+      recordAuditLog(
+        { id: admin.id, name: admin.name, role: 'admin' },
+        'TEACHER_ADDED',
+        `Teacher: ${newTeacher.name} (${newId})`,
+        `Specialization: ${newTeacher.specialization}. Experience: ${newTeacher.experienceYears} Years.`
+      );
 
-    return { success: true, data: newTeacher, message: 'Faculty member onboarded successfully.' };
+      return { success: true, data: newTeacher, message: 'Faculty member onboarded successfully.' };
+    }
+
+    try {
+      const res = await apiClient.post('/admin/teachers', teacherData);
+      return { success: true, data: res.data?.data, message: res.data?.message || 'Faculty member onboarded successfully.' };
+    } catch (err: any) {
+      const message = err?.response?.data?.message || err?.message || 'Failed to add faculty member.';
+      return { success: false, data: null as any, error: message };
+    }
   },
 
   async allocateTeacher(
@@ -828,43 +983,60 @@ export const adminService = {
     courseId: string,
     batchId: string
   ): Promise<ApiResponse<{ teacher: TeacherProfile; batch: Batch }>> {
-    await sleep(250);
-    const teachers = getStorageItem<TeacherProfile[]>(STORAGE_KEYS.TEACHERS, [SEED_USERS.teacher]);
-    const batches = getStorageItem<Batch[]>(STORAGE_KEYS.BATCHES, SEED_BATCHES);
+    if (USE_DEV_MOCKS) {
+      await sleep(250);
+      const teachers = getStorageItem<TeacherProfile[]>(STORAGE_KEYS.TEACHERS, [SEED_USERS.teacher]);
+      const batches = getStorageItem<Batch[]>(STORAGE_KEYS.BATCHES, SEED_BATCHES);
 
-    const tIdx = teachers.findIndex((t) => t.id === teacherId);
-    const bIdx = batches.findIndex((b) => b.id === batchId);
+      const tIdx = teachers.findIndex((t) => t.id === teacherId);
+      const bIdx = batches.findIndex((b) => b.id === batchId);
 
-    if (tIdx === -1 || bIdx === -1) {
-      return { success: false, data: null as any, error: 'Teacher or Batch record not found.' };
+      if (tIdx === -1 || bIdx === -1) {
+        return { success: false, data: null as any, error: 'Teacher or Batch record not found.' };
+      }
+
+      if (!teachers[tIdx].assignedCourseIds.includes(courseId)) {
+        teachers[tIdx].assignedCourseIds.push(courseId);
+      }
+      if (!teachers[tIdx].assignedBatchIds.includes(batchId)) {
+        teachers[tIdx].assignedBatchIds.push(batchId);
+      }
+
+      if (!batches[bIdx].assignedTeacherIds.includes(teacherId)) {
+        batches[bIdx].assignedTeacherIds.push(teacherId);
+      }
+
+      setStorageItem(STORAGE_KEYS.TEACHERS, teachers);
+      setStorageItem(STORAGE_KEYS.BATCHES, batches);
+
+      recordAuditLog(
+        { id: admin.id, name: admin.name, role: 'admin' },
+        'TEACHER_ALLOCATED_TO_BATCH',
+        `Teacher: ${teachers[tIdx].name} -> Batch: ${batches[bIdx].name}`,
+        `Assigned instructor to Course: ${courseId}, Batch: ${batchId}.`
+      );
+
+      return {
+        success: true,
+        data: { teacher: teachers[tIdx], batch: batches[bIdx] },
+        message: `${teachers[tIdx].name} successfully allocated to ${batches[bIdx].name}.`,
+      };
     }
 
-    if (!teachers[tIdx].assignedCourseIds.includes(courseId)) {
-      teachers[tIdx].assignedCourseIds.push(courseId);
+    try {
+      const res = await apiClient.post(`/admin/batches/${encodeURIComponent(batchId)}/allocations`, {
+        teacherId,
+        courseId,
+      });
+      return {
+        success: true,
+        data: res.data?.data,
+        message: res.data?.message || 'Teacher successfully allocated to batch cohort.',
+      };
+    } catch (err: any) {
+      const message = err?.response?.data?.message || err?.message || 'Failed to allocate teacher to batch.';
+      return { success: false, data: null as any, error: message };
     }
-    if (!teachers[tIdx].assignedBatchIds.includes(batchId)) {
-      teachers[tIdx].assignedBatchIds.push(batchId);
-    }
-
-    if (!batches[bIdx].assignedTeacherIds.includes(teacherId)) {
-      batches[bIdx].assignedTeacherIds.push(teacherId);
-    }
-
-    setStorageItem(STORAGE_KEYS.TEACHERS, teachers);
-    setStorageItem(STORAGE_KEYS.BATCHES, batches);
-
-    recordAuditLog(
-      { id: admin.id, name: admin.name, role: 'admin' },
-      'TEACHER_ALLOCATED_TO_BATCH',
-      `Teacher: ${teachers[tIdx].name} -> Batch: ${batches[bIdx].name}`,
-      `Assigned instructor to Course: ${courseId}, Batch: ${batchId}.`
-    );
-
-    return {
-      success: true,
-      data: { teacher: teachers[tIdx], batch: batches[bIdx] },
-      message: `${teachers[tIdx].name} successfully allocated to ${batches[bIdx].name}.`,
-    };
   },
 
   async unallocateTeacher(
@@ -872,31 +1044,41 @@ export const adminService = {
     teacherId: string,
     batchId: string
   ): Promise<ApiResponse<boolean>> {
-    await sleep(200);
-    const teachers = getStorageItem<TeacherProfile[]>(STORAGE_KEYS.TEACHERS, [SEED_USERS.teacher]);
-    const batches = getStorageItem<Batch[]>(STORAGE_KEYS.BATCHES, SEED_BATCHES);
+    if (USE_DEV_MOCKS) {
+      await sleep(200);
+      const teachers = getStorageItem<TeacherProfile[]>(STORAGE_KEYS.TEACHERS, [SEED_USERS.teacher]);
+      const batches = getStorageItem<Batch[]>(STORAGE_KEYS.BATCHES, SEED_BATCHES);
 
-    const tIdx = teachers.findIndex((t) => t.id === teacherId);
-    const bIdx = batches.findIndex((b) => b.id === batchId);
+      const tIdx = teachers.findIndex((t) => t.id === teacherId);
+      const bIdx = batches.findIndex((b) => b.id === batchId);
 
-    if (tIdx !== -1) {
-      teachers[tIdx].assignedBatchIds = teachers[tIdx].assignedBatchIds.filter((b) => b !== batchId);
-      setStorageItem(STORAGE_KEYS.TEACHERS, teachers);
+      if (tIdx !== -1) {
+        teachers[tIdx].assignedBatchIds = teachers[tIdx].assignedBatchIds.filter((b) => b !== batchId);
+        setStorageItem(STORAGE_KEYS.TEACHERS, teachers);
+      }
+
+      if (bIdx !== -1) {
+        batches[bIdx].assignedTeacherIds = batches[bIdx].assignedTeacherIds.filter((t) => t !== teacherId);
+        setStorageItem(STORAGE_KEYS.BATCHES, batches);
+      }
+
+      recordAuditLog(
+        { id: admin.id, name: admin.name, role: 'admin' },
+        'TEACHER_UNALLOCATED_FROM_BATCH',
+        `Teacher ID: ${teacherId} Batch ID: ${batchId}`,
+        'Instructor assignment removed from cohort.'
+      );
+
+      return { success: true, data: true, message: 'Teacher assignment removed.' };
     }
 
-    if (bIdx !== -1) {
-      batches[bIdx].assignedTeacherIds = batches[bIdx].assignedTeacherIds.filter((t) => t !== teacherId);
-      setStorageItem(STORAGE_KEYS.BATCHES, batches);
+    try {
+      await apiClient.delete(`/admin/batches/${encodeURIComponent(batchId)}/allocations/${encodeURIComponent(teacherId)}`);
+      return { success: true, data: true, message: 'Teacher assignment removed.' };
+    } catch (err: any) {
+      const message = err?.response?.data?.message || err?.message || 'Failed to unallocate teacher.';
+      return { success: false, data: false, error: message };
     }
-
-    recordAuditLog(
-      { id: admin.id, name: admin.name, role: 'admin' },
-      'TEACHER_UNALLOCATED_FROM_BATCH',
-      `Teacher ID: ${teacherId} Batch ID: ${batchId}`,
-      'Instructor assignment removed from cohort.'
-    );
-
-    return { success: true, data: true, message: 'Teacher assignment removed.' };
   },
 
   /**
@@ -1429,9 +1611,20 @@ export const adminService = {
    * 14. Activity Logs (ADM-016)
    */
   async getActivityLogs(): Promise<ApiResponse<AuditLog[]>> {
-    await sleep();
-    const logs = getStorageItem<AuditLog[]>(STORAGE_KEYS.AUDIT_LOGS, SEED_AUDIT_LOGS);
-    return { success: true, data: logs };
+    if (USE_DEV_MOCKS) {
+      await sleep();
+      const logs = getStorageItem<AuditLog[]>(STORAGE_KEYS.AUDIT_LOGS, SEED_AUDIT_LOGS);
+      return { success: true, data: logs };
+    }
+
+    try {
+      const res = await apiClient.get('/admin/activity-logs');
+      const items = res.data?.data?.items ?? res.data?.data ?? [];
+      return { success: true, data: Array.isArray(items) ? items : [] };
+    } catch (err: any) {
+      const message = err?.response?.data?.message || err?.message || 'Failed to fetch activity logs.';
+      return { success: false, data: [], error: message };
+    }
   },
 
   /**
@@ -1559,42 +1752,62 @@ export const adminService = {
    * 16. Institute Settings (ADM-016)
    */
   async getInstituteSettings(): Promise<ApiResponse<InstituteSettings>> {
-    await sleep();
-    const defaultSettings: InstituteSettings = {
-      instituteName: APP_CONFIG.name,
-      tagline: APP_CONFIG.tagline,
-      supportEmail: APP_CONFIG.supportEmail,
-      supportPhone: APP_CONFIG.supportPhone,
-      whatsappNumber: APP_CONFIG.whatsappNumber,
-      address: APP_CONFIG.address,
-      academicSession: '2026-27 Cohort',
-      minAttendancePercentage: 75,
-      minExamPassPercentage: 60,
-      defaultMaxBatchCapacity: 40,
-      paymentGatewayMode: 'test',
-      currency: 'INR (₹)',
-      receiptPrefix: 'REC-NEX',
-    };
+    if (USE_DEV_MOCKS) {
+      await sleep();
+      const defaultSettings: InstituteSettings = {
+        instituteName: APP_CONFIG.name,
+        tagline: APP_CONFIG.tagline,
+        supportEmail: APP_CONFIG.supportEmail,
+        supportPhone: APP_CONFIG.supportPhone,
+        whatsappNumber: APP_CONFIG.whatsappNumber,
+        address: APP_CONFIG.address,
+        academicSession: '2026-27 Cohort',
+        minAttendancePercentage: 75,
+        minExamPassPercentage: 60,
+        defaultMaxBatchCapacity: 40,
+        paymentGatewayMode: 'test',
+        currency: 'INR (₹)',
+        receiptPrefix: 'REC-NEX',
+      };
 
-    const settings = getStorageItem<InstituteSettings>(STORAGE_KEYS.SETTINGS, defaultSettings);
-    return { success: true, data: settings };
+      const settings = getStorageItem<InstituteSettings>(STORAGE_KEYS.SETTINGS, defaultSettings);
+      return { success: true, data: settings };
+    }
+
+    try {
+      const res = await apiClient.get('/admin/settings');
+      return { success: true, data: res.data?.data };
+    } catch (err: any) {
+      const message = err?.response?.data?.message || err?.message || 'Failed to fetch institute settings.';
+      return { success: false, data: null as any, error: message };
+    }
   },
 
   async saveInstituteSettings(
     admin: { id: string; name: string },
     settings: InstituteSettings
   ): Promise<ApiResponse<InstituteSettings>> {
-    await sleep(250);
-    setStorageItem(STORAGE_KEYS.SETTINGS, settings);
+    if (USE_DEV_MOCKS) {
+      await sleep(250);
+      setStorageItem(STORAGE_KEYS.SETTINGS, settings);
 
-    recordAuditLog(
-      { id: admin.id, name: admin.name, role: 'admin' },
-      'INSTITUTE_SETTINGS_SAVED',
-      'System Configuration',
-      `Academic Session: ${settings.academicSession}, Attendance Threshold: ${settings.minAttendancePercentage}%, Exam Gate: ${settings.minExamPassPercentage}%.`
-    );
+      recordAuditLog(
+        { id: admin.id, name: admin.name, role: 'admin' },
+        'INSTITUTE_SETTINGS_SAVED',
+        'System Configuration',
+        `Academic Session: ${settings.academicSession}, Attendance Threshold: ${settings.minAttendancePercentage}%, Exam Gate: ${settings.minExamPassPercentage}%.`
+      );
 
-    return { success: true, data: settings, message: 'Institute operational settings saved.' };
+      return { success: true, data: settings, message: 'Institute operational settings saved.' };
+    }
+
+    try {
+      const res = await apiClient.put('/admin/settings', settings);
+      return { success: true, data: res.data?.data, message: res.data?.message || 'Institute operational settings saved.' };
+    } catch (err: any) {
+      const message = err?.response?.data?.message || err?.message || 'Failed to save institute settings.';
+      return { success: false, data: null as any, error: message };
+    }
   },
 
   /**

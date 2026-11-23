@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Save, CheckCircle2 } from 'lucide-react';
+import { Save, CheckCircle2, Calendar } from 'lucide-react';
 import { SEED_BATCHES, SEED_USERS } from '../../mocks/seedData';
 import { teacherService } from '../../services/teacherService';
 import { STORAGE_KEYS } from '../../constants/appConfig';
@@ -10,12 +10,14 @@ import { Button } from '../../components/common/Button';
 import { Card } from '../../components/common/Card';
 import type { AttendanceStatus, Batch, StudentProfile } from '../../types';
 
+const USE_DEV_MOCKS = import.meta.env.VITE_USE_DEV_MOCKS === 'true';
+
 export const TeacherAttendancePage: React.FC = () => {
   const { user } = useAuth();
   const { showToast } = useNotification();
 
-  const [batches, setBatches] = useState<Batch[]>(SEED_BATCHES);
-  const [selectedBatchId, setSelectedBatchId] = useState(SEED_BATCHES[0]?.id || '');
+  const [batches, setBatches] = useState<Batch[]>(USE_DEV_MOCKS ? SEED_BATCHES : []);
+  const [selectedBatchId, setSelectedBatchId] = useState(USE_DEV_MOCKS ? (SEED_BATCHES[0]?.id || '') : '');
   const [sessionDate, setSessionDate] = useState('2026-11-09');
   const [topicCovered, setTopicCovered] = useState('Kafka Event-Driven Sagas & Distributed Transactions');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -32,10 +34,14 @@ export const TeacherAttendancePage: React.FC = () => {
   const loadBatches = useCallback(async () => {
     const teacherId = user?.id || 'user-tch-001';
     const res = await teacherService.getAssignedBatches(teacherId);
-    if (res.success && res.data.length > 0) {
+    if (res.success) {
       setBatches(res.data);
-      if (!selectedBatchId || !res.data.some((b) => b.id === selectedBatchId)) {
-        setSelectedBatchId(res.data[0].id);
+      if (res.data.length > 0) {
+        if (!selectedBatchId || !res.data.some((b) => b.id === selectedBatchId)) {
+          setSelectedBatchId(res.data[0].id);
+        }
+      } else {
+        setSelectedBatchId('');
       }
     }
   }, [user, selectedBatchId]);
@@ -48,7 +54,10 @@ export const TeacherAttendancePage: React.FC = () => {
 
   useEffect(() => {
     const loadStudents = async () => {
-      if (!selectedBatchId) return;
+      if (!selectedBatchId) {
+        setStudentEntries([]);
+        return;
+      }
       const res = await teacherService.getBatchStudents(selectedBatchId);
       if (res.success && res.data.length > 0) {
         setStudentEntries(
@@ -60,7 +69,7 @@ export const TeacherAttendancePage: React.FC = () => {
             note: '',
           }))
         );
-      } else {
+      } else if (USE_DEV_MOCKS) {
         // Fallback baseline students if batch has empty enrollments in demo
         setStudentEntries([
           {
@@ -71,6 +80,8 @@ export const TeacherAttendancePage: React.FC = () => {
             note: '',
           },
         ]);
+      } else {
+        setStudentEntries([]);
       }
     };
 
@@ -121,8 +132,15 @@ export const TeacherAttendancePage: React.FC = () => {
         </p>
       </div>
 
-      <Card className="p-6 space-y-6">
-        <form onSubmit={handleSubmitAttendance} className="space-y-6">
+      {batches.length === 0 ? (
+        <Card className="p-12 text-center text-slate-400 text-xs">
+          <Calendar className="h-10 w-10 mx-auto text-slate-300 mb-2" />
+          <p className="font-semibold text-slate-600">No Batches Assigned Yet</p>
+          <p className="mt-1">Administration has not assigned any active cohorts to your faculty account.</p>
+        </Card>
+      ) : (
+        <Card className="p-6 space-y-6">
+          <form onSubmit={handleSubmitAttendance} className="space-y-6">
           {/* Header Controls */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pb-4 border-b border-slate-100 text-xs">
             <div>
@@ -193,7 +211,14 @@ export const TeacherAttendancePage: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 bg-white">
-                {studentEntries.map((student) => (
+                {studentEntries.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-5 py-8 text-center text-slate-400">
+                      No students enrolled in this cohort yet.
+                    </td>
+                  </tr>
+                ) : (
+                  studentEntries.map((student) => (
                   <tr key={student.studentId} className="hover:bg-slate-50/60 transition-colors">
                     <td className="px-5 py-3.5">
                       <span className="font-bold text-slate-900 block">{student.studentName}</span>
@@ -254,7 +279,7 @@ export const TeacherAttendancePage: React.FC = () => {
                       />
                     </td>
                   </tr>
-                ))}
+                )))}
               </tbody>
             </table>
           </div>
@@ -276,6 +301,7 @@ export const TeacherAttendancePage: React.FC = () => {
           </div>
         </form>
       </Card>
+      )}
     </div>
   );
 };

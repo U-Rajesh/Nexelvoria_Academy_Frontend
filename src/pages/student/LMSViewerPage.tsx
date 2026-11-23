@@ -24,6 +24,7 @@ import { STORAGE_KEYS } from '../../constants/appConfig';
 import { getStorageItem } from '../../utils/storage';
 import { useStorageSync } from '../../hooks/useStorageSync';
 import { studentService } from '../../services/studentService';
+import { courseService } from '../../services/courseService';
 import { useAuth } from '../../context/AuthContext';
 import { useNotification } from '../../context/NotificationContext';
 import { Button } from '../../components/common/Button';
@@ -32,37 +33,56 @@ import { Card } from '../../components/common/Card';
 import { formatINR, formatDate } from '../../utils/formatters';
 import type { Course, Lesson, CourseModule, Chapter, StudentProfile, StudentDoubt } from '../../types';
 
+const USE_DEV_MOCKS = import.meta.env.VITE_USE_DEV_MOCKS === 'true';
+
 export const LMSViewerPage: React.FC = () => {
   const { courseId } = useParams<{ courseId: string }>();
   const { user } = useAuth();
   const { showToast } = useNotification();
 
   const [courses, setCourses] = useState<Course[]>(() =>
-    getStorageItem<Course[]>(STORAGE_KEYS.COURSES, SEED_COURSES)
+    USE_DEV_MOCKS ? getStorageItem<Course[]>(STORAGE_KEYS.COURSES, SEED_COURSES) : []
   );
 
-  const loadCourses = React.useCallback(() => {
-    setCourses(getStorageItem<Course[]>(STORAGE_KEYS.COURSES, SEED_COURSES));
+  const loadCourses = React.useCallback(async () => {
+    if (USE_DEV_MOCKS) {
+      setCourses(getStorageItem<Course[]>(STORAGE_KEYS.COURSES, SEED_COURSES));
+      return;
+    }
+    const res = await courseService.getAllCourses();
+    if (res.success) {
+      setCourses(res.data);
+    }
   }, []);
+
+  React.useEffect(() => {
+    loadCourses();
+  }, [loadCourses]);
 
   useStorageSync(STORAGE_KEYS.COURSES, loadCourses);
 
-  const course = courses.find((c) => c.id === courseId || c.slug === courseId) || courses[0] || SEED_COURSES[0];
+  const course = courses.find((c) => c.id === courseId || c.slug === courseId) || (USE_DEV_MOCKS ? (courses[0] || SEED_COURSES[0]) : null);
 
   const student = user as (StudentProfile | null);
   const isApproved = student?.adminApprovalStatus === 'approved';
   const enrolledCourseIds = student?.enrolledCourseIds || [];
   // Gating check: must be approved and have this course in enrolledCourseIds
-  const isEnrolled = isApproved && enrolledCourseIds.includes(course.id);
+  const isEnrolled = isApproved && (course ? enrolledCourseIds.includes(course.id) : false);
 
   // Initial lesson selection
-  const initialLesson = course.modules[0]?.chapters[0]?.lessons[0];
-  const [currentLesson, setCurrentLesson] = useState<Lesson>(initialLesson);
-  const [completedLessonIds, setCompletedLessonIds] = useState<string[]>(['les-1', 'les-2']);
-  const [bookmarkedLessonIds, setBookmarkedLessonIds] = useState<string[]>(['les-1']);
+  const initialLesson = course?.modules?.[0]?.chapters?.[0]?.lessons?.[0];
+  const [currentLesson, setCurrentLesson] = useState<Lesson | undefined>(initialLesson);
+  const [completedLessonIds, setCompletedLessonIds] = useState<string[]>(USE_DEV_MOCKS ? ['les-1', 'les-2'] : []);
+  const [bookmarkedLessonIds, setBookmarkedLessonIds] = useState<string[]>(USE_DEV_MOCKS ? ['les-1'] : []);
   const [activeTab, setActiveTab] = useState<'video' | 'notes' | 'doubts'>('video');
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [openModuleIds, setOpenModuleIds] = useState<string[]>([course.modules[0]?.id]);
+  const [openModuleIds, setOpenModuleIds] = useState<string[]>(course?.modules?.[0]?.id ? [course.modules[0].id] : []);
+
+  React.useEffect(() => {
+    if (!currentLesson && initialLesson) {
+      setCurrentLesson(initialLesson);
+    }
+  }, [initialLesson, currentLesson]);
 
   // Doubt submission and forum state (LMS-008)
   const [doubtText, setDoubtText] = useState('');
@@ -81,10 +101,36 @@ export const LMSViewerPage: React.FC = () => {
 
   useStorageSync(STORAGE_KEYS.TEACHER_DOUBTS, loadCourseDoubts);
 
+  if (!course) {
+    return (
+      <div className="p-12 text-center text-slate-500">
+        <AlertCircle className="h-10 w-10 mx-auto text-slate-400 mb-2" />
+        <h2 className="text-base font-bold text-slate-800">Course Not Found</h2>
+        <p className="text-xs text-slate-400 mt-1">The requested course could not be loaded or is not available.</p>
+        <Link to="/student/courses" className="mt-4 inline-block text-xs font-semibold text-teal-600 hover:underline">
+          Return to My Courses
+        </Link>
+      </div>
+    );
+  }
+
   // Flatten all lessons in sequential order for LMS-004 progression enforcement
-  const allCourseLessons: Lesson[] = course.modules.flatMap((m) =>
-    m.chapters.flatMap((c) => c.lessons)
+  const allCourseLessons: Lesson[] = (course.modules || []).flatMap((m) =>
+    (m.chapters || []).flatMap((c) => c.lessons || [])
   );
+
+  if (!currentLesson) {
+    return (
+      <div className="p-12 text-center text-slate-500">
+        <AlertCircle className="h-10 w-10 mx-auto text-slate-400 mb-2" />
+        <h2 className="text-base font-bold text-slate-800">No Lessons Available</h2>
+        <p className="text-xs text-slate-400 mt-1">This course does not currently have any published curriculum lessons.</p>
+        <Link to="/student/courses" className="mt-4 inline-block text-xs font-semibold text-teal-600 hover:underline">
+          Return to My Courses
+        </Link>
+      </div>
+    );
+  }
 
   const isLessonLocked = (les: Lesson): boolean => {
     // If student is not enrolled, only free preview lessons are unlocked

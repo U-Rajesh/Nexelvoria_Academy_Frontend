@@ -15,6 +15,7 @@ import { Modal } from '../../components/feedback/Modal';
 import { SEO } from '../../components/common/SEO';
 import { useNotification } from '../../context/NotificationContext';
 import { cmsService } from '../../services/cmsService';
+import { courseService } from '../../services/courseService';
 import { analytics } from '../../utils/analytics';
 
 export const CoursesPage: React.FC = () => {
@@ -29,13 +30,24 @@ export const CoursesPage: React.FC = () => {
   const categories = ['All', 'Software Development', 'Data & AI', 'Cloud & DevOps'];
   const levels = ['All', 'Beginner to Advanced', 'Intermediate', 'Advanced'];
 
-  const [allCourses, setAllCourses] = useState<Course[]>(() =>
-    getStorageItem<Course[]>(STORAGE_KEYS.COURSES, SEED_COURSES)
-  );
+  const [allCourses, setAllCourses] = useState<Course[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
 
   const syncCourses = useCallback(() => {
-    setAllCourses(getStorageItem<Course[]>(STORAGE_KEYS.COURSES, SEED_COURSES));
+    setIsLoading(true);
+    courseService.getAllCourses().then((res) => {
+      setIsLoading(false);
+      if (res.success && res.data) {
+        setAllCourses(res.data);
+      } else {
+        setAllCourses([]);
+      }
+    });
   }, []);
+
+  useEffect(() => {
+    syncCourses();
+  }, [syncCourses]);
 
   useStorageSync(STORAGE_KEYS.COURSES, syncCourses);
 
@@ -151,7 +163,15 @@ export const CoursesPage: React.FC = () => {
       </div>
 
       {/* Courses Grid */}
-      {filteredCourses.length === 0 ? (
+      {isLoading ? (
+        <div className="text-center py-16 text-slate-500 text-xs">Loading course catalogue...</div>
+      ) : allCourses.length === 0 ? (
+        <div className="text-center py-16 bg-white rounded-xl border border-slate-200/90 p-8 space-y-3">
+          <BookOpen className="h-10 w-10 mx-auto text-slate-300" />
+          <p className="text-base font-bold text-slate-800">No Courses Available</p>
+          <p className="text-xs text-slate-500">Upcoming training programs and course cohorts will be published here shortly.</p>
+        </div>
+      ) : filteredCourses.length === 0 ? (
         <div className="text-center py-16 bg-white rounded-xl border border-slate-200/90 p-8 space-y-3">
           <p className="text-base font-bold text-slate-800">No courses match your criteria</p>
           <p className="text-xs text-slate-500">Try adjusting your search terms or category filters.</p>

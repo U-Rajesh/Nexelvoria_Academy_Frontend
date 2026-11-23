@@ -28,6 +28,7 @@ import { Card } from '../../components/common/Card';
 import { PasswordStrengthIndicator } from '../../components/auth/PasswordStrengthIndicator';
 import { getStorageItem, setStorageItem } from '../../utils/storage';
 import { STORAGE_KEYS } from '../../constants/appConfig';
+import { studentService } from '../../services/studentService';
 
 interface StudentProfileFormData {
   mobile: string;
@@ -57,6 +58,23 @@ export const StudentProfilePage: React.FC = () => {
   const [initialData, setInitialData] = useState<StudentProfileFormData>(formData);
   const [errors, setErrors] = useState<Partial<Record<keyof StudentProfileFormData, string>>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    studentService.getStudentProfile().then((res) => {
+      if (res.success && res.data) {
+        const p = res.data;
+        const loaded: StudentProfileFormData = {
+          mobile: p.mobile || formData.mobile,
+          guardianPhone: (p as any).guardianPhone || (p as any).guardianContact || formData.guardianPhone,
+          fullAddress: p.fullAddress || formData.fullAddress,
+          linkedInUrl: p.linkedInUrl || formData.linkedInUrl,
+          githubUrl: p.githubUrl || formData.githubUrl,
+        };
+        setFormData(loaded);
+        setInitialData(loaded);
+      }
+    });
+  }, []);
 
   // Read-only system and academic registration details
   const academicDetails = {
@@ -113,54 +131,41 @@ export const StudentProfilePage: React.FC = () => {
     }
 
     setIsSubmitting(true);
-    setTimeout(() => {
-      // 1. Update local student profile storage
-      setStorageItem(storageKey, formData);
-      setInitialData(formData);
-
-      // 2. Synchronize with global students roster (STORAGE_KEYS.STUDENTS) so Admin Panel (/admin/students) reflects updates
-      if (user?.id) {
-        const students = getStorageItem<any[]>(STORAGE_KEYS.STUDENTS, []);
-        const idx = students.findIndex((s) => s.id === user.id);
-        if (idx !== -1) {
-          students[idx] = {
-            ...students[idx],
-            mobile: formData.mobile,
-            guardianPhone: formData.guardianPhone,
-            fullAddress: formData.fullAddress,
-            address: formData.fullAddress,
-            linkedInUrl: formData.linkedInUrl,
-            githubUrl: formData.githubUrl,
-          };
-          setStorageItem(STORAGE_KEYS.STUDENTS, students);
+    studentService
+      .updateStudentProfile({
+        fullAddress: formData.fullAddress,
+        linkedInUrl: formData.linkedInUrl,
+        githubUrl: formData.githubUrl,
+      })
+      .then((res) => {
+        setIsSubmitting(false);
+        if (res.success) {
+          setStorageItem(storageKey, formData);
+          setInitialData(formData);
+          if (refreshCurrentUser) {
+            refreshCurrentUser();
+          }
+          showToast({
+            type: 'success',
+            title: 'Profile Updated',
+            message: res.message || 'Your permitted contact details and portfolio links have been updated successfully (STD-006).',
+          });
+        } else {
+          showToast({
+            type: 'error',
+            title: 'Update Failed',
+            message: res.message || 'Unable to update profile. Please try again.',
+          });
         }
-
-        // 3. Synchronize CURRENT_USER session
-        const currentStored = getStorageItem<any>(STORAGE_KEYS.CURRENT_USER, null);
-        if (currentStored && currentStored.id === user.id) {
-          const updatedUser = {
-            ...currentStored,
-            mobile: formData.mobile,
-            guardianPhone: formData.guardianPhone,
-            fullAddress: formData.fullAddress,
-            address: formData.fullAddress,
-            linkedInUrl: formData.linkedInUrl,
-            githubUrl: formData.githubUrl,
-          };
-          setStorageItem(STORAGE_KEYS.CURRENT_USER, updatedUser);
-        }
-        if (refreshCurrentUser) {
-          refreshCurrentUser();
-        }
-      }
-
-      setIsSubmitting(false);
-      showToast({
-        type: 'success',
-        title: 'Profile Updated',
-        message: 'Your permitted contact details and portfolio links have been updated successfully (STD-006).',
+      })
+      .catch((err) => {
+        setIsSubmitting(false);
+        showToast({
+          type: 'error',
+          title: 'Update Failed',
+          message: err?.response?.data?.message || 'Network error occurred while saving profile.',
+        });
       });
-    }, 300);
   };
 
   const handleReset = () => {

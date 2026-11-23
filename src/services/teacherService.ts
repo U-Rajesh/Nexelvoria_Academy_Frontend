@@ -1,3 +1,4 @@
+import { apiClient } from './api';
 import { STORAGE_KEYS } from '../constants/appConfig';
 import { getStorageItem, setStorageItem } from '../utils/storage';
 import {
@@ -35,6 +36,14 @@ import type {
 
 const sleep = (ms: number = 200) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * Explicit development-only mock toggle.
+ * Defaults to false (production mode): uses live backend APIs and returns
+ * genuine empty states / error states with zero silent fallback to seed data.
+ * Set VITE_USE_DEV_MOCKS=true in .env.local to enable offline mock fallbacks.
+ */
+const USE_DEV_MOCKS = import.meta.env.VITE_USE_DEV_MOCKS === 'true';
+
 // Storage key helpers for teacher features
 const TEACHER_MATERIALS_KEY = STORAGE_KEYS.TEACHER_MATERIALS;
 const TEACHER_RECORDINGS_KEY = STORAGE_KEYS.TEACHER_RECORDINGS;
@@ -59,19 +68,36 @@ export const teacherService = {
    * Get courses allocated to this teacher by Admin (TCH-001)
    */
   async getAssignedCourses(teacherId: string): Promise<ApiResponse<Course[]>> {
-    await sleep();
-    const batches = getStorageItem<Batch[]>(STORAGE_KEYS.BATCHES, SEED_BATCHES);
-    const courses = getStorageItem<Course[]>(STORAGE_KEYS.COURSES, SEED_COURSES);
-    const teachers = getStorageItem<TeacherProfile[]>(STORAGE_KEYS.TEACHERS, [SEED_USERS.teacher]);
-    const teacher = teachers.find((t) => t.id === teacherId);
+    if (USE_DEV_MOCKS) {
+      await sleep();
+      const batches = getStorageItem<Batch[]>(STORAGE_KEYS.BATCHES, SEED_BATCHES);
+      const courses = getStorageItem<Course[]>(STORAGE_KEYS.COURSES, SEED_COURSES);
+      const teachers = getStorageItem<TeacherProfile[]>(STORAGE_KEYS.TEACHERS, [SEED_USERS.teacher]);
+      const teacher = teachers.find((t) => t.id === teacherId);
 
-    const assignedBatches = batches.filter((b) => b.assignedTeacherIds.includes(teacherId));
-    const batchCourseIds = assignedBatches.map((b) => b.courseId);
-    const directCourseIds = teacher?.assignedCourseIds || [];
-    const courseIds = Array.from(new Set([...batchCourseIds, ...directCourseIds]));
+      const assignedBatches = batches.filter((b) => b.assignedTeacherIds.includes(teacherId));
+      const batchCourseIds = assignedBatches.map((b) => b.courseId);
+      const directCourseIds = teacher?.assignedCourseIds || [];
+      const courseIds = Array.from(new Set([...batchCourseIds, ...directCourseIds]));
 
-    const assignedCourses = courses.filter((c) => courseIds.includes(c.id));
-    return { success: true, data: assignedCourses };
+      const assignedCourses = courses.filter((c) => courseIds.includes(c.id));
+      return { success: true, data: assignedCourses };
+    }
+
+    try {
+      const res = await apiClient.get('/teachers/me/courses');
+      const items = res.data?.data ?? [];
+      return {
+        success: true,
+        data: Array.isArray(items) ? items : [],
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        data: [],
+        message: err?.response?.data?.message || err?.message || 'Failed to fetch assigned courses.',
+      };
+    }
   },
 
   /**
@@ -91,58 +117,75 @@ export const teacherService = {
       modules?: CourseModule[];
     }
   ): Promise<ApiResponse<Course>> {
-    await sleep(200);
-    if (!this.isCourseAssigned(teacher.id, courseId)) {
+    if (USE_DEV_MOCKS) {
+      await sleep(200);
+      if (!this.isCourseAssigned(teacher.id, courseId)) {
+        return {
+          success: false,
+          data: null as any,
+          error: 'Unauthorized (SRS Rule TCH-001): You can only edit courses officially allocated to your instructional portfolio.',
+        };
+      }
+
+      const courses = getStorageItem<Course[]>(STORAGE_KEYS.COURSES, SEED_COURSES);
+      const idx = courses.findIndex((c) => c.id === courseId);
+      if (idx === -1) {
+        return { success: false, data: null as any, error: 'Course not found.' };
+      }
+
+      // Apply allowed pedagogical and instructional modifications only
+      if (updates.title !== undefined && updates.title.trim()) {
+        courses[idx].title = updates.title.trim();
+      }
+      if (updates.shortDescription !== undefined) {
+        courses[idx].shortDescription = updates.shortDescription;
+      }
+      if (updates.longDescription !== undefined) {
+        courses[idx].longDescription = updates.longDescription;
+      }
+      if (updates.technologies !== undefined) {
+        courses[idx].technologies = updates.technologies;
+      }
+      if (updates.prerequisites !== undefined) {
+        courses[idx].prerequisites = updates.prerequisites;
+      }
+      if (updates.learningOutcomes !== undefined) {
+        courses[idx].learningOutcomes = updates.learningOutcomes;
+      }
+      if (updates.modules !== undefined) {
+        courses[idx].modules = updates.modules;
+      }
+
+      setStorageItem(STORAGE_KEYS.COURSES, courses);
+
+      recordAuditLog(
+        { id: teacher.id, name: teacher.name, role: 'teacher' },
+        'COURSE_UPDATED_BY_FACULTY',
+        `Course: ${courses[idx].title} (${courseId})`,
+        `Faculty updated curriculum and instructional details. Modules: ${courses[idx].modules?.length || 0}.`
+      );
+
       return {
-        success: false,
-        data: null as any,
-        error: 'Unauthorized (SRS Rule TCH-001): You can only edit courses officially allocated to your instructional portfolio.',
+        success: true,
+        data: courses[idx],
+        message: `Course details for "${courses[idx].title}" updated successfully.`,
       };
     }
 
-    const courses = getStorageItem<Course[]>(STORAGE_KEYS.COURSES, SEED_COURSES);
-    const idx = courses.findIndex((c) => c.id === courseId);
-    if (idx === -1) {
-      return { success: false, data: null as any, error: 'Course not found.' };
+    try {
+      const res = await apiClient.put(`/courses/${encodeURIComponent(courseId)}`, updates);
+      return {
+        success: true,
+        data: res.data?.data,
+        message: res.data?.message || 'Course updated successfully.',
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        data: null as any,
+        error: err?.response?.data?.message || err?.message || 'Failed to update course.',
+      };
     }
-
-    // Apply allowed pedagogical and instructional modifications only
-    if (updates.title !== undefined && updates.title.trim()) {
-      courses[idx].title = updates.title.trim();
-    }
-    if (updates.shortDescription !== undefined) {
-      courses[idx].shortDescription = updates.shortDescription;
-    }
-    if (updates.longDescription !== undefined) {
-      courses[idx].longDescription = updates.longDescription;
-    }
-    if (updates.technologies !== undefined) {
-      courses[idx].technologies = updates.technologies;
-    }
-    if (updates.prerequisites !== undefined) {
-      courses[idx].prerequisites = updates.prerequisites;
-    }
-    if (updates.learningOutcomes !== undefined) {
-      courses[idx].learningOutcomes = updates.learningOutcomes;
-    }
-    if (updates.modules !== undefined) {
-      courses[idx].modules = updates.modules;
-    }
-
-    setStorageItem(STORAGE_KEYS.COURSES, courses);
-
-    recordAuditLog(
-      { id: teacher.id, name: teacher.name, role: 'teacher' },
-      'COURSE_UPDATED_BY_FACULTY',
-      `Course: ${courses[idx].title} (${courseId})`,
-      `Faculty updated curriculum and instructional details. Modules: ${courses[idx].modules?.length || 0}.`
-    );
-
-    return {
-      success: true,
-      data: courses[idx],
-      message: `Course details for "${courses[idx].title}" updated successfully.`,
-    };
   },
 
   /**
@@ -160,58 +203,109 @@ export const teacherService = {
    * Get batches assigned strictly to this teacher (TCH-001, BR-009)
    */
   async getAssignedBatches(teacherId: string): Promise<ApiResponse<Batch[]>> {
-    await sleep();
-    const batches = getStorageItem<Batch[]>(STORAGE_KEYS.BATCHES, SEED_BATCHES);
-    const assigned = batches.filter((b) => b.assignedTeacherIds.includes(teacherId));
-    return { success: true, data: assigned };
+    if (USE_DEV_MOCKS) {
+      await sleep();
+      const batches = getStorageItem<Batch[]>(STORAGE_KEYS.BATCHES, SEED_BATCHES);
+      const assigned = batches.filter((b) => b.assignedTeacherIds.includes(teacherId));
+      return { success: true, data: assigned };
+    }
+
+    try {
+      const res = await apiClient.get('/teachers/me/batches');
+      const items = res.data?.data ?? [];
+      return {
+        success: true,
+        data: Array.isArray(items) ? items : [],
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        data: [],
+        message: err?.response?.data?.message || err?.message || 'Failed to fetch assigned batches.',
+      };
+    }
   },
 
   /**
    * Get enrolled students for an assigned batch (TCH-002, BR-009)
    */
   async getBatchStudents(batchId: string): Promise<ApiResponse<StudentProfile[]>> {
-    await sleep();
-    const batches = getStorageItem<Batch[]>(STORAGE_KEYS.BATCHES, SEED_BATCHES);
-    const students = getStorageItem<StudentProfile[]>(STORAGE_KEYS.STUDENTS, [
-      SEED_USERS.student,
-      SEED_USERS.studentPending,
-    ]);
+    if (USE_DEV_MOCKS) {
+      await sleep();
+      const batches = getStorageItem<Batch[]>(STORAGE_KEYS.BATCHES, SEED_BATCHES);
+      const students = getStorageItem<StudentProfile[]>(STORAGE_KEYS.STUDENTS, [
+        SEED_USERS.student,
+        SEED_USERS.studentPending,
+      ]);
 
-    const batch = batches.find((b) => b.id === batchId);
-    if (!batch) return { success: true, data: [] };
+      const batch = batches.find((b) => b.id === batchId);
+      if (!batch) return { success: true, data: [] };
 
-    const enrolled = students.filter((s) => batch.enrolledStudentIds.includes(s.id));
-    return { success: true, data: enrolled };
+      const enrolled = students.filter((s) => batch.enrolledStudentIds.includes(s.id));
+      return { success: true, data: enrolled };
+    }
+
+    try {
+      const res = await apiClient.get(`/teachers/me/batches/${encodeURIComponent(batchId)}/students`);
+      const items = res.data?.data ?? [];
+      return {
+        success: true,
+        data: Array.isArray(items) ? items : [],
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        data: [],
+        message: err?.response?.data?.message || err?.message || 'Failed to fetch batch students.',
+      };
+    }
   },
 
   /**
    * Get all authorized students across all assigned batches (TCH-002)
    */
   async getAllAuthorizedStudents(teacherId: string): Promise<ApiResponse<{ student: StudentProfile; batchName: string; courseTitle: string }[]>> {
-    await sleep();
-    const batches = getStorageItem<Batch[]>(STORAGE_KEYS.BATCHES, SEED_BATCHES);
-    const courses = getStorageItem<Course[]>(STORAGE_KEYS.COURSES, SEED_COURSES);
-    const students = getStorageItem<StudentProfile[]>(STORAGE_KEYS.STUDENTS, [
-      SEED_USERS.student,
-      SEED_USERS.studentPending,
-    ]);
+    if (USE_DEV_MOCKS) {
+      await sleep();
+      const batches = getStorageItem<Batch[]>(STORAGE_KEYS.BATCHES, SEED_BATCHES);
+      const courses = getStorageItem<Course[]>(STORAGE_KEYS.COURSES, SEED_COURSES);
+      const students = getStorageItem<StudentProfile[]>(STORAGE_KEYS.STUDENTS, [
+        SEED_USERS.student,
+        SEED_USERS.studentPending,
+      ]);
 
-    const assignedBatches = batches.filter((b) => b.assignedTeacherIds.includes(teacherId));
-    const result: { student: StudentProfile; batchName: string; courseTitle: string }[] = [];
+      const assignedBatches = batches.filter((b) => b.assignedTeacherIds.includes(teacherId));
+      const result: { student: StudentProfile; batchName: string; courseTitle: string }[] = [];
 
-    assignedBatches.forEach((batch) => {
-      const course = courses.find((c) => c.id === batch.courseId);
-      const batchStudents = students.filter((s) => batch.enrolledStudentIds.includes(s.id));
-      batchStudents.forEach((student) => {
-        result.push({
-          student,
-          batchName: batch.name,
-          courseTitle: course?.title || batch.courseName,
+      assignedBatches.forEach((batch) => {
+        const course = courses.find((c) => c.id === batch.courseId);
+        const batchStudents = students.filter((s) => batch.enrolledStudentIds.includes(s.id));
+        batchStudents.forEach((student) => {
+          result.push({
+            student,
+            batchName: batch.name,
+            courseTitle: course?.title || batch.courseName,
+          });
         });
       });
-    });
 
-    return { success: true, data: result };
+      return { success: true, data: result };
+    }
+
+    try {
+      const res = await apiClient.get('/teachers/me/students');
+      const items = res.data?.data ?? [];
+      return {
+        success: true,
+        data: Array.isArray(items) ? items : [],
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        data: [],
+        message: err?.response?.data?.message || err?.message || 'Failed to fetch authorized students.',
+      };
+    }
   },
 
   /**
@@ -225,120 +319,189 @@ export const teacherService = {
     topicCovered: string,
     entries: { studentId: string; studentName: string; status: AttendanceStatus; note?: string }[]
   ): Promise<ApiResponse<AttendanceSession>> {
-    await sleep(300);
-    const sessions = getStorageItem<AttendanceSession[]>(STORAGE_KEYS.ATTENDANCE, SEED_ATTENDANCE_SESSIONS);
+    if (USE_DEV_MOCKS) {
+      await sleep(300);
+      const sessions = getStorageItem<AttendanceSession[]>(STORAGE_KEYS.ATTENDANCE, SEED_ATTENDANCE_SESSIONS);
 
-    // Prevent accidental duplicate attendance records for same batch and sessionDate
-    const existingIndex = sessions.findIndex((s) => s.batchId === batchId && s.sessionDate === sessionDate);
-    if (existingIndex !== -1) {
-      sessions[existingIndex].records = entries;
-      sessions[existingIndex].topicCovered = topicCovered;
-      sessions[existingIndex].markedByUserId = teacher.id;
-      setStorageItem(STORAGE_KEYS.ATTENDANCE, sessions);
+      // Prevent accidental duplicate attendance records for same batch and sessionDate
+      const existingIndex = sessions.findIndex((s) => s.batchId === batchId && s.sessionDate === sessionDate);
+      if (existingIndex !== -1) {
+        sessions[existingIndex].records = entries;
+        sessions[existingIndex].topicCovered = topicCovered;
+        sessions[existingIndex].markedByUserId = teacher.id;
+        setStorageItem(STORAGE_KEYS.ATTENDANCE, sessions);
+
+        recordAuditLog(
+          { id: teacher.id, name: teacher.name, role: 'teacher' },
+          'ATTENDANCE_UPDATED',
+          `Batch: ${batchId} Date: ${sessionDate}`,
+          `Updated attendance for ${entries.length} students. Present: ${entries.filter((e) => e.status === 'present').length}.`
+        );
+
+        return { success: true, data: sessions[existingIndex], message: 'Attendance record updated successfully.' };
+      }
+
+      const newSession: AttendanceSession = {
+        id: `att-sess-${Date.now()}`,
+        batchId,
+        courseId,
+        sessionDate,
+        topicCovered,
+        markedByUserId: teacher.id,
+        markedByRole: 'teacher',
+        records: entries,
+        createdAt: new Date().toISOString(),
+      };
+
+      setStorageItem(STORAGE_KEYS.ATTENDANCE, [newSession, ...sessions]);
 
       recordAuditLog(
         { id: teacher.id, name: teacher.name, role: 'teacher' },
-        'ATTENDANCE_UPDATED',
+        'ATTENDANCE_MARKED',
         `Batch: ${batchId} Date: ${sessionDate}`,
-        `Updated attendance for ${entries.length} students. Present: ${entries.filter((e) => e.status === 'present').length}.`
+        `Marked attendance for ${entries.length} students. Present: ${entries.filter((e) => e.status === 'present').length}.`
       );
 
-      return { success: true, data: sessions[existingIndex], message: 'Attendance record updated successfully.' };
+      return { success: true, data: newSession, message: 'Attendance recorded successfully.' };
     }
 
-    const newSession: AttendanceSession = {
-      id: `att-sess-${Date.now()}`,
-      batchId,
-      courseId,
-      sessionDate,
-      topicCovered,
-      markedByUserId: teacher.id,
-      markedByRole: 'teacher',
-      records: entries,
-      createdAt: new Date().toISOString(),
-    };
-
-    setStorageItem(STORAGE_KEYS.ATTENDANCE, [newSession, ...sessions]);
-
-    recordAuditLog(
-      { id: teacher.id, name: teacher.name, role: 'teacher' },
-      'ATTENDANCE_MARKED',
-      `Batch: ${batchId} Date: ${sessionDate}`,
-      `Marked attendance for ${entries.length} students. Present: ${entries.filter((e) => e.status === 'present').length}.`
-    );
-
-    return { success: true, data: newSession, message: 'Attendance recorded successfully.' };
+    try {
+      const payload = {
+        batchId,
+        courseId,
+        sessionDate,
+        topicCovered,
+        entries: entries.map((e) => ({
+          studentId: e.studentId,
+          studentName: e.studentName,
+          status: e.status,
+          note: e.note,
+        })),
+      };
+      const res = await apiClient.post('/teachers/attendance', payload);
+      return {
+        success: true,
+        data: res.data?.data,
+        message: res.data?.message || 'Attendance recorded successfully.',
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        data: null as any,
+        error: err?.response?.data?.message || err?.message || 'Failed to record attendance.',
+      };
+    }
   },
 
   /**
    * Get attendance history for assigned batches (TCH-003)
    */
   async getAttendanceHistory(teacherId: string, batchId?: string): Promise<ApiResponse<AttendanceSession[]>> {
-    await sleep();
-    const batches = getStorageItem<Batch[]>(STORAGE_KEYS.BATCHES, SEED_BATCHES);
-    const sessions = getStorageItem<AttendanceSession[]>(STORAGE_KEYS.ATTENDANCE, SEED_ATTENDANCE_SESSIONS);
+    if (USE_DEV_MOCKS) {
+      await sleep();
+      const batches = getStorageItem<Batch[]>(STORAGE_KEYS.BATCHES, SEED_BATCHES);
+      const sessions = getStorageItem<AttendanceSession[]>(STORAGE_KEYS.ATTENDANCE, SEED_ATTENDANCE_SESSIONS);
 
-    const assignedBatchIds = batches
-      .filter((b) => b.assignedTeacherIds.includes(teacherId))
-      .map((b) => b.id);
+      const assignedBatchIds = batches
+        .filter((b) => b.assignedTeacherIds.includes(teacherId))
+        .map((b) => b.id);
 
-    let filtered = sessions.filter((s) => assignedBatchIds.includes(s.batchId));
-    if (batchId && batchId !== 'all') {
-      filtered = filtered.filter((s) => s.batchId === batchId);
+      let filtered = sessions.filter((s) => assignedBatchIds.includes(s.batchId));
+      if (batchId && batchId !== 'all') {
+        filtered = filtered.filter((s) => s.batchId === batchId);
+      }
+
+      return { success: true, data: filtered };
     }
 
-    return { success: true, data: filtered };
+    try {
+      const params: Record<string, string> = {};
+      if (batchId && batchId !== 'all') {
+        params.batchId = batchId;
+      }
+      const res = await apiClient.get('/teachers/attendance/history', { params });
+      const items = res.data?.data ?? [];
+      return {
+        success: true,
+        data: Array.isArray(items) ? items : [],
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        data: [],
+        message: err?.response?.data?.message || err?.message || 'Failed to fetch attendance history.',
+      };
+    }
   },
 
   /**
    * Study Materials Management (TCH-004)
    */
-  async getStudyMaterials(teacherId: string): Promise<ApiResponse<StudyMaterial[]>> {
-    await sleep();
-    const defaultMaterials: StudyMaterial[] = [
-      {
-        id: 'mat-1',
-        courseId: 'course-fsd-01',
-        batchId: 'batch-jfs-01',
-        title: 'Spring Cloud Gateway & Resilience4j Architecture Blueprint',
-        description: 'Comprehensive system diagrams and route configuration templates.',
-        fileType: 'pdf',
-        fileUrl: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
-        fileSizeBytes: 4200000,
-        uploadedByTeacherId: teacherId,
-        uploadedAt: '2026-10-18T10:00:00Z',
-        isDownloadRestricted: false,
-      },
-      {
-        id: 'mat-2',
-        courseId: 'course-fsd-01',
-        batchId: 'batch-jfs-01',
-        title: 'Kafka Distributed Event Streaming Cheatsheet',
-        description: 'Command line reference, partition offsets, consumer group semantics.',
-        fileType: 'code',
-        fileUrl: 'https://github.com/nexelvoria-academy/kafka-cheatsheet',
-        fileSizeBytes: 1800000,
-        uploadedByTeacherId: teacherId,
-        uploadedAt: '2026-10-25T14:30:00Z',
-        isDownloadRestricted: false,
-      },
-      {
-        id: 'mat-3',
-        courseId: 'course-fsd-01',
-        batchId: 'batch-jfs-01',
-        title: 'Docker & Kubernetes Production Deployment Manifests',
-        description: 'Multi-stage dockerfiles and helm charts for microservices.',
-        fileType: 'zip',
-        fileUrl: 'https://example.com/k8s-manifests.zip',
-        fileSizeBytes: 8900000,
-        uploadedByTeacherId: teacherId,
-        uploadedAt: '2026-11-02T16:00:00Z',
-        isDownloadRestricted: false,
-      },
-    ];
+  async getStudyMaterials(teacherId: string, courseId?: string): Promise<ApiResponse<StudyMaterial[]>> {
+    if (USE_DEV_MOCKS) {
+      await sleep();
+      const defaultMaterials: StudyMaterial[] = [
+        {
+          id: 'mat-1',
+          courseId: 'course-fsd-01',
+          batchId: 'batch-jfs-01',
+          title: 'Spring Cloud Gateway & Resilience4j Architecture Blueprint',
+          description: 'Comprehensive system diagrams and route configuration templates.',
+          fileType: 'pdf',
+          fileUrl: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
+          fileSizeBytes: 4200000,
+          uploadedByTeacherId: teacherId,
+          uploadedAt: '2026-10-18T10:00:00Z',
+          isDownloadRestricted: false,
+        },
+        {
+          id: 'mat-2',
+          courseId: 'course-fsd-01',
+          batchId: 'batch-jfs-01',
+          title: 'Kafka Distributed Event Streaming Cheatsheet',
+          description: 'Command line reference, partition offsets, consumer group semantics.',
+          fileType: 'code',
+          fileUrl: 'https://github.com/nexelvoria-academy/kafka-cheatsheet',
+          fileSizeBytes: 1800000,
+          uploadedByTeacherId: teacherId,
+          uploadedAt: '2026-10-25T14:30:00Z',
+          isDownloadRestricted: false,
+        },
+        {
+          id: 'mat-3',
+          courseId: 'course-fsd-01',
+          batchId: 'batch-jfs-01',
+          title: 'Docker & Kubernetes Production Deployment Manifests',
+          description: 'Multi-stage dockerfiles and helm charts for microservices.',
+          fileType: 'zip',
+          fileUrl: 'https://example.com/k8s-manifests.zip',
+          fileSizeBytes: 8900000,
+          uploadedByTeacherId: teacherId,
+          uploadedAt: '2026-11-02T16:00:00Z',
+          isDownloadRestricted: false,
+        },
+      ];
 
-    const materials = getStorageItem<StudyMaterial[]>(TEACHER_MATERIALS_KEY, defaultMaterials);
-    return { success: true, data: materials };
+      const materials = getStorageItem<StudyMaterial[]>(TEACHER_MATERIALS_KEY, defaultMaterials);
+      return { success: true, data: materials };
+    }
+
+    try {
+      const params: Record<string, string> = {};
+      if (courseId) params.courseId = courseId;
+      const res = await apiClient.get('/teachers/materials', { params });
+      const items = res.data?.data ?? [];
+      return {
+        success: true,
+        data: Array.isArray(items) ? items : [],
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        data: [],
+        message: err?.response?.data?.message || err?.message || 'Failed to fetch study materials.',
+      };
+    }
   },
 
   async uploadStudyMaterial(
@@ -347,60 +510,98 @@ export const teacherService = {
     file?: File,
     onProgress?: (progressPercent: number) => void
   ): Promise<ApiResponse<StudyMaterial>> {
-    const materialId = `mat-${Date.now()}`;
+    if (USE_DEV_MOCKS) {
+      const materialId = `mat-${Date.now()}`;
+      if (onProgress) {
+        onProgress(25);
+        await sleep(80);
+        onProgress(65);
+        await sleep(80);
+        onProgress(95);
+        await sleep(60);
+        onProgress(100);
+      } else {
+        await sleep(250);
+      }
 
-    // Simulated progress transitions for mock frontend mode.
-    // In future backend integration, replace this block with real upload transfer events
-    // (e.g. axios onUploadProgress or XMLHttpRequest.upload.onprogress).
-    if (onProgress) {
-      onProgress(25);
-      await sleep(80);
-      onProgress(65);
-      await sleep(80);
-      onProgress(95);
-      await sleep(60);
-      onProgress(100);
-    } else {
-      await sleep(250);
+      let permanentFileUrl = data.fileUrl;
+      if (file) {
+        const sanitizedFilename = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+        permanentFileUrl = `/uploads/materials/${materialId}/${sanitizedFilename}`;
+      }
+
+      const newMaterial: StudyMaterial = {
+        ...data,
+        id: materialId,
+        fileUrl: permanentFileUrl,
+        fileSizeBytes: file ? file.size : data.fileSizeBytes || 102400,
+        uploadedByTeacherId: teacher.id,
+        uploadedAt: new Date().toISOString(),
+      };
+
+      try {
+        const materials = getStorageItem<StudyMaterial[]>(TEACHER_MATERIALS_KEY, []);
+        setStorageItem(TEACHER_MATERIALS_KEY, [newMaterial, ...materials]);
+        return { success: true, data: newMaterial, message: 'Study material uploaded successfully.' };
+      } catch (err: any) {
+        return {
+          success: false,
+          data: null as any,
+          error: err?.message || 'Storage persistence failed while uploading study material.',
+        };
+      }
     }
-
-    // Determine permanent persistent file URL.
-    // Object URLs (blob:...) are transient and expire on page refresh; therefore,
-    // we assign a permanent persistent endpoint identifier or preserve external documentation URLs.
-    let permanentFileUrl = data.fileUrl;
-    if (file) {
-      const sanitizedFilename = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-      permanentFileUrl = `/uploads/materials/${materialId}/${sanitizedFilename}`;
-    }
-
-    const newMaterial: StudyMaterial = {
-      ...data,
-      id: materialId,
-      fileUrl: permanentFileUrl,
-      fileSizeBytes: file ? file.size : data.fileSizeBytes || 102400,
-      uploadedByTeacherId: teacher.id,
-      uploadedAt: new Date().toISOString(),
-    };
 
     try {
-      const materials = getStorageItem<StudyMaterial[]>(TEACHER_MATERIALS_KEY, []);
-      setStorageItem(TEACHER_MATERIALS_KEY, [newMaterial, ...materials]);
-      return { success: true, data: newMaterial, message: 'Study material uploaded successfully.' };
+      const payload = {
+        lessonId: (data as any).lessonId || 'les-general',
+        title: data.title,
+        materialType: data.fileType || 'pdf',
+        externalUrl: data.fileUrl,
+        fileSizeBytes: file ? file.size : data.fileSizeBytes || 102400,
+        mimeType: file?.type || 'application/pdf',
+      };
+      const res = await apiClient.post('/teachers/materials', payload);
+      const returned = res.data?.data;
+      const resultObj: StudyMaterial = {
+        ...data,
+        id: returned?.materialId ? String(returned.materialId) : `mat-${Date.now()}`,
+        uploadedByTeacherId: teacher.id,
+        uploadedAt: new Date().toISOString(),
+      };
+      return {
+        success: true,
+        data: resultObj,
+        message: res.data?.message || 'Study material uploaded successfully.',
+      };
     } catch (err: any) {
       return {
         success: false,
         data: null as any,
-        error: err?.message || 'Storage persistence failed while uploading study material.',
+        error: err?.response?.data?.message || err?.message || 'Failed to upload study material.',
       };
     }
   },
 
   async deleteStudyMaterial(materialId: string): Promise<ApiResponse<boolean>> {
-    await sleep(200);
-    const materials = getStorageItem<StudyMaterial[]>(TEACHER_MATERIALS_KEY, []);
-    const filtered = materials.filter((m) => m.id !== materialId);
-    setStorageItem(TEACHER_MATERIALS_KEY, filtered);
-    return { success: true, data: true, message: 'Material removed.' };
+    if (USE_DEV_MOCKS) {
+      await sleep(200);
+      const materials = getStorageItem<StudyMaterial[]>(TEACHER_MATERIALS_KEY, []);
+      const filtered = materials.filter((m) => m.id !== materialId);
+      setStorageItem(TEACHER_MATERIALS_KEY, filtered);
+      return { success: true, data: true, message: 'Material removed.' };
+    }
+
+    try {
+      await apiClient.delete(`/teachers/materials/${encodeURIComponent(materialId)}`);
+      return { success: true, data: true, message: 'Material removed.' };
+    } catch (err: any) {
+      return {
+        success: false,
+        data: false,
+        error: err?.response?.data?.message || err?.message || 'Failed to delete material.',
+      };
+    }
   },
 
   /**
@@ -490,27 +691,81 @@ export const teacherService = {
   /**
    * Assignments Creation and Management (TCH-006)
    */
-  async getTeacherAssignments(_teacherId: string): Promise<ApiResponse<Assignment[]>> {
-    await sleep();
-    const assignments = getStorageItem<Assignment[]>(STORAGE_KEYS.ASSIGNMENTS, SEED_ASSIGNMENTS);
-    return { success: true, data: assignments };
+  async getTeacherAssignments(_teacherId: string, courseId?: string, batchId?: string): Promise<ApiResponse<Assignment[]>> {
+    if (USE_DEV_MOCKS) {
+      await sleep();
+      const assignments = getStorageItem<Assignment[]>(STORAGE_KEYS.ASSIGNMENTS, SEED_ASSIGNMENTS);
+      return { success: true, data: assignments };
+    }
+
+    try {
+      const params: Record<string, string> = {};
+      if (courseId) params.courseId = courseId;
+      if (batchId) params.batchId = batchId;
+      const res = await apiClient.get('/teachers/assignments', { params });
+      const items = res.data?.data ?? [];
+      return {
+        success: true,
+        data: Array.isArray(items) ? items : [],
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        data: [],
+        message: err?.response?.data?.message || err?.message || 'Failed to fetch assignments.',
+      };
+    }
   },
 
   async createAssignment(
     teacher: { id: string; name: string },
     data: Omit<Assignment, 'id' | 'createdByTeacherId' | 'createdAt'>
   ): Promise<ApiResponse<Assignment>> {
-    await sleep(300);
-    const assignments = getStorageItem<Assignment[]>(STORAGE_KEYS.ASSIGNMENTS, SEED_ASSIGNMENTS);
-    const newAssignment: Assignment = {
-      ...data,
-      id: `asg-${Date.now()}`,
-      createdByTeacherId: teacher.id,
-      createdAt: new Date().toISOString(),
-    };
+    if (USE_DEV_MOCKS) {
+      await sleep(300);
+      const assignments = getStorageItem<Assignment[]>(STORAGE_KEYS.ASSIGNMENTS, SEED_ASSIGNMENTS);
+      const newAssignment: Assignment = {
+        ...data,
+        id: `asg-${Date.now()}`,
+        createdByTeacherId: teacher.id,
+        createdAt: new Date().toISOString(),
+      };
 
-    setStorageItem(STORAGE_KEYS.ASSIGNMENTS, [newAssignment, ...assignments]);
-    return { success: true, data: newAssignment, message: 'Assignment created successfully.' };
+      setStorageItem(STORAGE_KEYS.ASSIGNMENTS, [newAssignment, ...assignments]);
+      return { success: true, data: newAssignment, message: 'Assignment created successfully.' };
+    }
+
+    try {
+      const payload = {
+        courseId: data.courseId,
+        batchId: data.batchId,
+        lessonId: (data as any).lessonId,
+        title: data.title,
+        instructions: data.instructions,
+        maximumMarks: data.maxMarks,
+        dueAt: (data as any).dueDate || (data as any).dueAt,
+        allowLateSubmission: true,
+      };
+      const res = await apiClient.post('/teachers/assignments', payload);
+      const returned = res.data?.data;
+      const resultObj: Assignment = {
+        ...data,
+        id: returned?.assignmentId ? String(returned.assignmentId) : `asg-${Date.now()}`,
+        createdByTeacherId: teacher.id,
+        createdAt: new Date().toISOString(),
+      };
+      return {
+        success: true,
+        data: resultObj,
+        message: res.data?.message || 'Assignment created successfully.',
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        data: null as any,
+        error: err?.response?.data?.message || err?.message || 'Failed to create assignment.',
+      };
+    }
   },
 
   /**
@@ -522,60 +777,156 @@ export const teacherService = {
     marksObtained: number,
     feedback: string
   ): Promise<ApiResponse<AssignmentSubmission>> {
-    await sleep(250);
-    const submissions = getStorageItem<AssignmentSubmission[]>(STORAGE_KEYS.SUBMISSIONS, SEED_ASSIGNMENT_SUBMISSIONS);
-    const subIndex = submissions.findIndex((s) => s.id === submissionId);
+    if (USE_DEV_MOCKS) {
+      await sleep(250);
+      const submissions = getStorageItem<AssignmentSubmission[]>(STORAGE_KEYS.SUBMISSIONS, SEED_ASSIGNMENT_SUBMISSIONS);
+      const subIndex = submissions.findIndex((s) => s.id === submissionId);
 
-    if (subIndex === -1) {
-      return { success: false, data: null as any, error: 'Submission not found.' };
+      if (subIndex === -1) {
+        return { success: false, data: null as any, error: 'Submission not found.' };
+      }
+
+      submissions[subIndex].marksObtained = marksObtained;
+      submissions[subIndex].teacherFeedback = feedback;
+      submissions[subIndex].status = 'graded';
+      submissions[subIndex].evaluatedByUserId = teacher.id;
+      submissions[subIndex].evaluatedAt = new Date().toISOString();
+
+      setStorageItem(STORAGE_KEYS.SUBMISSIONS, submissions);
+
+      return {
+        success: true,
+        data: submissions[subIndex],
+        message: 'Submission graded successfully.',
+      };
     }
 
-    submissions[subIndex].marksObtained = marksObtained;
-    submissions[subIndex].teacherFeedback = feedback;
-    submissions[subIndex].status = 'graded';
-    submissions[subIndex].evaluatedByUserId = teacher.id;
-    submissions[subIndex].evaluatedAt = new Date().toISOString();
-
-    setStorageItem(STORAGE_KEYS.SUBMISSIONS, submissions);
-
-    return {
-      success: true,
-      data: submissions[subIndex],
-      message: 'Submission graded successfully.',
-    };
+    try {
+      const payload = {
+        marksAwarded: marksObtained,
+        feedback,
+        assessmentType: 'assignment',
+      };
+      const res = await apiClient.post(
+        `/teachers/assignments/submissions/${encodeURIComponent(submissionId)}/evaluate`,
+        payload
+      );
+      return {
+        success: true,
+        data: res.data?.data,
+        message: res.data?.message || 'Submission graded successfully.',
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        data: null as any,
+        error: err?.response?.data?.message || err?.message || 'Failed to evaluate submission.',
+      };
+    }
   },
 
   /**
    * Online Tests Creation (TCH-008)
    */
-  async getTeacherTests(_teacherId: string): Promise<ApiResponse<OnlineTest[]>> {
-    await sleep();
-    const tests = getStorageItem<OnlineTest[]>(STORAGE_KEYS.TESTS, SEED_TESTS);
-    return { success: true, data: tests };
+  async getTeacherTests(_teacherId: string, courseId?: string, batchId?: string): Promise<ApiResponse<OnlineTest[]>> {
+    if (USE_DEV_MOCKS) {
+      await sleep();
+      const tests = getStorageItem<OnlineTest[]>(STORAGE_KEYS.TESTS, SEED_TESTS);
+      return { success: true, data: tests };
+    }
+
+    try {
+      const params: Record<string, string> = {};
+      if (courseId) params.courseId = courseId;
+      if (batchId) params.batchId = batchId;
+      const res = await apiClient.get('/teachers/tests', { params });
+      const items = res.data?.data ?? [];
+      return {
+        success: true,
+        data: Array.isArray(items) ? items : [],
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        data: [],
+        message: err?.response?.data?.message || err?.message || 'Failed to fetch online tests.',
+      };
+    }
   },
 
   async createOnlineTest(
     teacher: { id: string; name: string },
     data: Omit<OnlineTest, 'id'>
   ): Promise<ApiResponse<OnlineTest>> {
-    await sleep(300);
-    const tests = getStorageItem<OnlineTest[]>(STORAGE_KEYS.TESTS, SEED_TESTS);
-    const newTest: OnlineTest = {
-      ...data,
-      id: `test-${Date.now()}`,
-    };
+    if (USE_DEV_MOCKS) {
+      await sleep(300);
+      const tests = getStorageItem<OnlineTest[]>(STORAGE_KEYS.TESTS, SEED_TESTS);
+      const newTest: OnlineTest = {
+        ...data,
+        id: `test-${Date.now()}`,
+      };
 
-    setStorageItem(STORAGE_KEYS.TESTS, [newTest, ...tests]);
-    return { success: true, data: newTest, message: 'Online test published successfully.' };
+      setStorageItem(STORAGE_KEYS.TESTS, [newTest, ...tests]);
+      return { success: true, data: newTest, message: 'Online test published successfully.' };
+    }
+
+    try {
+      const payload = {
+        courseId: data.courseId,
+        batchId: data.batchId,
+        title: data.title,
+        instructions: data.description,
+        durationMinutes: data.durationMinutes,
+        maximumMarks: data.totalMarks,
+        passingMarks: Math.round((data.totalMarks * (data.passingPercentage || 50)) / 100),
+        startsAt: (data as any).startsAt || new Date().toISOString(),
+        endsAt: (data as any).endsAt || new Date(Date.now() + 7 * 86400000).toISOString(),
+        maxAttempts: (data as any).maxAttempts || 1,
+      };
+      const res = await apiClient.post('/teachers/tests', payload);
+      const returned = res.data?.data;
+      const resultObj: OnlineTest = {
+        ...data,
+        id: returned?.testId ? String(returned.testId) : `test-${Date.now()}`,
+      };
+      return {
+        success: true,
+        data: resultObj,
+        message: res.data?.message || 'Online test published successfully.',
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        data: null as any,
+        error: err?.response?.data?.message || err?.message || 'Failed to create test.',
+      };
+    }
   },
 
   /**
    * Test Evaluation (TCH-009)
    */
   async getTestAttempts(_teacherId: string): Promise<ApiResponse<TestAttempt[]>> {
-    await sleep();
-    const attempts = getStorageItem<TestAttempt[]>(STORAGE_KEYS.TEST_ATTEMPTS, SEED_TEST_ATTEMPTS);
-    return { success: true, data: attempts };
+    if (USE_DEV_MOCKS) {
+      await sleep();
+      const attempts = getStorageItem<TestAttempt[]>(STORAGE_KEYS.TEST_ATTEMPTS, SEED_TEST_ATTEMPTS);
+      return { success: true, data: attempts };
+    }
+
+    try {
+      const res = await apiClient.get('/teachers/tests/attempts');
+      const items = res.data?.data ?? [];
+      return {
+        success: true,
+        data: Array.isArray(items) ? items : [],
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        data: [],
+        message: err?.response?.data?.message || err?.message || 'Failed to fetch test attempts.',
+      };
+    }
   },
 
   /**
@@ -706,50 +1057,69 @@ export const teacherService = {
   /**
    * Student Doubts Management (TCH-012)
    */
-  async getStudentDoubts(teacherId: string): Promise<ApiResponse<StudentDoubt[]>> {
-    await sleep();
-    const defaultDoubts: StudentDoubt[] = [
-      {
-        id: 'dbt-1',
-        studentId: 'user-stu-001',
-        studentName: 'Rohan Sharma',
-        studentAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80',
-        courseId: 'course-fsd-01',
-        batchId: 'batch-jfs-01',
-        batchName: 'Oct 2026 Morning Cohort',
-        title: 'How does Resilience4j RateLimiter behave under high thread contention?',
-        description: 'When testing with JMeter at 500 concurrent users, I noticed RequestNotPermitted exceptions even before limitForPeriod was hit. Could this be related to timeoutDuration?',
-        codeSnippet: 'RateLimiterConfig config = RateLimiterConfig.custom()\n  .limitForPeriod(100)\n  .limitRefreshPeriod(Duration.ofSeconds(1))\n  .timeoutDuration(Duration.ofMillis(50))\n  .build();',
-        status: 'open',
-        createdAt: '2026-11-09T18:45:00Z',
-        replies: [],
-      },
-      {
-        id: 'dbt-2',
-        studentId: 'user-stu-003',
-        studentName: 'Karthik Varma',
-        courseId: 'course-fsd-01',
-        batchId: 'batch-jfs-01',
-        batchName: 'Oct 2026 Morning Cohort',
-        title: 'Kafka consumer rebalance during long database writes',
-        description: 'When consumer is committing offset manually, heartbeat thread seems to drop if batch takes more than max.poll.interval.ms.',
-        status: 'answered',
-        createdAt: '2026-11-07T14:10:00Z',
-        replies: [
-          {
-            id: 'rep-1',
-            authorId: teacherId,
-            authorName: 'Dr. Vikram Rao',
-            authorRole: 'teacher',
-            message: 'Increase max.poll.interval.ms or offload long database writes to a separate worker thread pool while sending heartbeats.',
-            createdAt: '2026-11-07T16:20:00Z',
-          },
-        ],
-      },
-    ];
+  async getStudentDoubts(teacherId: string, courseId?: string): Promise<ApiResponse<StudentDoubt[]>> {
+    if (USE_DEV_MOCKS) {
+      await sleep();
+      const defaultDoubts: StudentDoubt[] = [
+        {
+          id: 'dbt-1',
+          studentId: 'user-stu-001',
+          studentName: 'Rohan Sharma',
+          studentAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80',
+          courseId: 'course-fsd-01',
+          batchId: 'batch-jfs-01',
+          batchName: 'Oct 2026 Morning Cohort',
+          title: 'How does Resilience4j RateLimiter behave under high thread contention?',
+          description: 'When testing with JMeter at 500 concurrent users, I noticed RequestNotPermitted exceptions even before limitForPeriod was hit. Could this be related to timeoutDuration?',
+          codeSnippet: 'RateLimiterConfig config = RateLimiterConfig.custom()\n  .limitForPeriod(100)\n  .limitRefreshPeriod(Duration.ofSeconds(1))\n  .timeoutDuration(Duration.ofMillis(50))\n  .build();',
+          status: 'open',
+          createdAt: '2026-11-09T18:45:00Z',
+          replies: [],
+        },
+        {
+          id: 'dbt-2',
+          studentId: 'user-stu-003',
+          studentName: 'Karthik Varma',
+          courseId: 'course-fsd-01',
+          batchId: 'batch-jfs-01',
+          batchName: 'Oct 2026 Morning Cohort',
+          title: 'Kafka consumer rebalance during long database writes',
+          description: 'When consumer is committing offset manually, heartbeat thread seems to drop if batch takes more than max.poll.interval.ms.',
+          status: 'answered',
+          createdAt: '2026-11-07T14:10:00Z',
+          replies: [
+            {
+              id: 'rep-1',
+              authorId: teacherId,
+              authorName: 'Dr. Vikram Rao',
+              authorRole: 'teacher',
+              message: 'Increase max.poll.interval.ms or offload long database writes to a separate worker thread pool while sending heartbeats.',
+              createdAt: '2026-11-07T16:20:00Z',
+            },
+          ],
+        },
+      ];
 
-    const doubts = getStorageItem<StudentDoubt[]>(TEACHER_DOUBTS_KEY, defaultDoubts);
-    return { success: true, data: doubts };
+      const doubts = getStorageItem<StudentDoubt[]>(TEACHER_DOUBTS_KEY, defaultDoubts);
+      return { success: true, data: doubts };
+    }
+
+    try {
+      const params: Record<string, string> = {};
+      if (courseId) params.courseId = courseId;
+      const res = await apiClient.get('/teachers/doubts', { params });
+      const items = res.data?.data ?? [];
+      return {
+        success: true,
+        data: Array.isArray(items) ? items : [],
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        data: [],
+        message: err?.response?.data?.message || err?.message || 'Failed to fetch doubts.',
+      };
+    }
   },
 
   async replyToDoubt(
@@ -758,25 +1128,45 @@ export const teacherService = {
     message: string,
     newStatus: 'answered' | 'resolved' = 'answered'
   ): Promise<ApiResponse<StudentDoubt>> {
-    await sleep(250);
-    const doubts = getStorageItem<StudentDoubt[]>(TEACHER_DOUBTS_KEY, []);
-    const idx = doubts.findIndex((d) => d.id === doubtId);
-    if (idx === -1) return { success: false, data: null as any, error: 'Doubt not found.' };
+    if (USE_DEV_MOCKS) {
+      await sleep(250);
+      const doubts = getStorageItem<StudentDoubt[]>(TEACHER_DOUBTS_KEY, []);
+      const idx = doubts.findIndex((d) => d.id === doubtId);
+      if (idx === -1) return { success: false, data: null as any, error: 'Doubt not found.' };
 
-    const reply = {
-      id: `rep-${Date.now()}`,
-      authorId: teacher.id,
-      authorName: teacher.name,
-      authorRole: 'teacher' as const,
-      message,
-      createdAt: new Date().toISOString(),
-    };
+      const reply = {
+        id: `rep-${Date.now()}`,
+        authorId: teacher.id,
+        authorName: teacher.name,
+        authorRole: 'teacher' as const,
+        message,
+        createdAt: new Date().toISOString(),
+      };
 
-    doubts[idx].replies.push(reply);
-    doubts[idx].status = newStatus;
-    setStorageItem(TEACHER_DOUBTS_KEY, doubts);
+      doubts[idx].replies.push(reply);
+      doubts[idx].status = newStatus;
+      setStorageItem(TEACHER_DOUBTS_KEY, doubts);
 
-    return { success: true, data: doubts[idx], message: 'Reply sent to student.' };
+      return { success: true, data: doubts[idx], message: 'Reply sent to student.' };
+    }
+
+    try {
+      const res = await apiClient.post(`/teachers/doubts/${encodeURIComponent(doubtId)}/reply`, {
+        message,
+        newStatus,
+      });
+      return {
+        success: true,
+        data: res.data?.data,
+        message: res.data?.message || 'Reply sent to student.',
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        data: null as any,
+        error: err?.response?.data?.message || err?.message || 'Failed to reply to doubt.',
+      };
+    }
   },
 
   /**
@@ -810,8 +1200,52 @@ export const teacherService = {
    * Teacher Profile (Section 2)
    */
   async getTeacherProfile(_teacherId: string): Promise<ApiResponse<TeacherProfile>> {
-    await sleep();
-    return { success: true, data: SEED_USERS.teacher };
+    if (USE_DEV_MOCKS) {
+      await sleep();
+      return { success: true, data: SEED_USERS.teacher };
+    }
+
+    try {
+      const res = await apiClient.get('/teachers/me');
+      if (res.data?.data) {
+        return { success: true, data: res.data.data };
+      }
+      return { success: false, data: null as any, message: 'Teacher profile not found.' };
+    } catch (err: any) {
+      return {
+        success: false,
+        data: null as any,
+        message: err?.response?.data?.message || err?.message || 'Failed to fetch teacher profile.',
+      };
+    }
+  },
+
+  /**
+   * Update Teacher Profile
+   */
+  async updateTeacherProfile(updates: Partial<TeacherProfile>): Promise<ApiResponse<TeacherProfile>> {
+    if (USE_DEV_MOCKS) {
+      await sleep(200);
+      const current = getStorageItem<TeacherProfile>(STORAGE_KEYS.CURRENT_USER, SEED_USERS.teacher);
+      const updated = { ...current, ...updates };
+      setStorageItem(STORAGE_KEYS.CURRENT_USER, updated);
+      return { success: true, data: updated, message: 'Profile updated in local storage.' };
+    }
+
+    try {
+      const res = await apiClient.put('/teachers/me', updates);
+      return {
+        success: true,
+        data: res.data?.data,
+        message: res.data?.message || 'Profile updated successfully.',
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        data: null as any,
+        error: err?.response?.data?.message || err?.message || 'Failed to update teacher profile.',
+      };
+    }
   },
 
   /**

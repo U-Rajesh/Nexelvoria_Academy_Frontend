@@ -1,6 +1,16 @@
 
 import type { ApiResponse } from '../types/common.types';
+import { apiClient } from './api';
+
 export type { ApiResponse };
+
+/**
+ * Explicit development-only mock toggle.
+ * Defaults to false (production mode): uses live backend APIs and returns
+ * genuine empty states / error states with zero silent fallback to seed data.
+ * Set VITE_USE_DEV_MOCKS=true in .env.local to enable offline mock fallbacks.
+ */
+const USE_DEV_MOCKS = import.meta.env.VITE_USE_DEV_MOCKS === 'true';
 
 export interface WebsiteBanner {
   id: string;
@@ -314,6 +324,10 @@ export interface CorporateTrainingService {
   icon: string; // Lucide icon name or image URL / base64 data URL
   displayOrder: number;
   status: 'active' | 'inactive';
+  targetAudience?: string;
+  deliveryMode?: string;
+  duration?: string;
+  technologies?: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -1444,12 +1458,15 @@ class CMSService {
     try {
       const data = localStorage.getItem(key);
       if (!data) {
-        localStorage.setItem(key, JSON.stringify(defaultValue));
-        return defaultValue;
+        if (USE_DEV_MOCKS) {
+          localStorage.setItem(key, JSON.stringify(defaultValue));
+          return defaultValue;
+        }
+        return (Array.isArray(defaultValue) ? [] : defaultValue) as T;
       }
       return JSON.parse(data);
     } catch {
-      return defaultValue;
+      return (USE_DEV_MOCKS ? defaultValue : (Array.isArray(defaultValue) ? [] : defaultValue)) as T;
     }
   }
 
@@ -1496,11 +1513,21 @@ class CMSService {
 
   updateBanners(banners: WebsiteBanner[]): void {
     this.setStorageItem(STORAGE_KEYS.BANNERS, banners);
+    if (!USE_DEV_MOCKS) {
+      apiClient.put('/admin/cms/banners', { banners }).catch((err) => {
+        console.warn('Backend banners sync failed:', err?.message);
+      });
+    }
   }
 
   deleteBanner(id: string): void {
     const banners = this.getBanners().filter((b) => b.id !== id);
     this.setStorageItem(STORAGE_KEYS.BANNERS, banners);
+    if (!USE_DEV_MOCKS) {
+      apiClient.delete(`/admin/cms/banners/${encodeURIComponent(id)}`).catch((err) => {
+        console.warn('Backend banner delete failed:', err?.message);
+      });
+    }
   }
 
   // --- Blogs & Articles (PUB-013) ---
@@ -1516,17 +1543,29 @@ class CMSService {
   saveArticle(article: BlogArticle): void {
     const articles = this.getArticles();
     const index = articles.findIndex((a) => a.id === article.id);
-    if (index >= 0) {
+    const isExisting = index >= 0;
+    if (isExisting) {
       articles[index] = article;
     } else {
       articles.unshift(article);
     }
     this.setStorageItem(STORAGE_KEYS.BLOGS, articles);
+    if (!USE_DEV_MOCKS) {
+      const req = isExisting && article.id
+        ? apiClient.put(`/admin/cms/blogs/${encodeURIComponent(article.id)}`, article)
+        : apiClient.post('/admin/cms/blogs', article);
+      req.catch((err) => console.warn('Backend blog sync failed:', err?.message));
+    }
   }
 
   deleteArticle(id: string): void {
     const articles = this.getArticles().filter((a) => a.id !== id);
     this.setStorageItem(STORAGE_KEYS.BLOGS, articles);
+    if (!USE_DEV_MOCKS) {
+      apiClient.delete(`/admin/cms/blogs/${encodeURIComponent(id)}`).catch((err) => {
+        console.warn('Backend blog delete failed:', err?.message);
+      });
+    }
   }
 
   // --- FAQs (PUB-012) ---
@@ -1537,17 +1576,29 @@ class CMSService {
   saveFAQ(faq: FAQItem): void {
     const faqs = this.getFAQs();
     const index = faqs.findIndex((f) => f.id === faq.id);
-    if (index >= 0) {
+    const isExisting = index >= 0;
+    if (isExisting) {
       faqs[index] = faq;
     } else {
       faqs.push(faq);
     }
     this.setStorageItem(STORAGE_KEYS.FAQS, faqs);
+    if (!USE_DEV_MOCKS) {
+      const req = isExisting && faq.id
+        ? apiClient.put(`/admin/cms/faqs/${encodeURIComponent(faq.id)}`, faq)
+        : apiClient.post('/admin/cms/faqs', faq);
+      req.catch((err) => console.warn('Backend FAQ sync failed:', err?.message));
+    }
   }
 
   deleteFAQ(id: string): void {
     const faqs = this.getFAQs().filter((f) => f.id !== id);
     this.setStorageItem(STORAGE_KEYS.FAQS, faqs);
+    if (!USE_DEV_MOCKS) {
+      apiClient.delete(`/admin/cms/faqs/${encodeURIComponent(id)}`).catch((err) => {
+        console.warn('Backend FAQ delete failed:', err?.message);
+      });
+    }
   }
 
   // --- Testimonials & Achievements (PUB-009, PUB-010) ---
@@ -1558,14 +1609,26 @@ class CMSService {
   saveTestimonial(item: TestimonialItem): void {
     const items = this.getTestimonials();
     const idx = items.findIndex((t) => t.id === item.id);
-    if (idx >= 0) items[idx] = item;
+    const isExisting = idx >= 0;
+    if (isExisting) items[idx] = item;
     else items.unshift(item);
     this.setStorageItem(STORAGE_KEYS.TESTIMONIALS, items);
+    if (!USE_DEV_MOCKS) {
+      const req = isExisting && item.id
+        ? apiClient.put(`/admin/cms/testimonials/${encodeURIComponent(item.id)}`, item)
+        : apiClient.post('/admin/cms/testimonials', item);
+      req.catch((err) => console.warn('Backend testimonial sync failed:', err?.message));
+    }
   }
 
   deleteTestimonial(id: string): void {
     const items = this.getTestimonials().filter((t) => t.id !== id);
     this.setStorageItem(STORAGE_KEYS.TESTIMONIALS, items);
+    if (!USE_DEV_MOCKS) {
+      apiClient.delete(`/admin/cms/testimonials/${encodeURIComponent(id)}`).catch((err) => {
+        console.warn('Backend testimonial delete failed:', err?.message);
+      });
+    }
   }
 
   getAchievements(): AchievementItem[] {
@@ -1575,14 +1638,26 @@ class CMSService {
   saveAchievement(item: AchievementItem): void {
     const items = this.getAchievements();
     const idx = items.findIndex((a) => a.id === item.id);
-    if (idx >= 0) items[idx] = item;
+    const isExisting = idx >= 0;
+    if (isExisting) items[idx] = item;
     else items.unshift(item);
     this.setStorageItem(STORAGE_KEYS.ACHIEVEMENTS, items);
+    if (!USE_DEV_MOCKS) {
+      const req = isExisting && item.id
+        ? apiClient.put(`/admin/cms/achievements/${encodeURIComponent(item.id)}`, item)
+        : apiClient.post('/admin/cms/achievements', item);
+      req.catch((err) => console.warn('Backend achievement sync failed:', err?.message));
+    }
   }
 
   deleteAchievement(id: string): void {
     const items = this.getAchievements().filter((a) => a.id !== id);
     this.setStorageItem(STORAGE_KEYS.ACHIEVEMENTS, items);
+    if (!USE_DEV_MOCKS) {
+      apiClient.delete(`/admin/cms/achievements/${encodeURIComponent(id)}`).catch((err) => {
+        console.warn('Backend achievement delete failed:', err?.message);
+      });
+    }
   }
 
   // --- Trainers (PUB-006) ---
@@ -1593,14 +1668,26 @@ class CMSService {
   saveTrainer(trainer: TrainerProfile): void {
     const trainers = this.getTrainers();
     const idx = trainers.findIndex((t) => t.id === trainer.id);
-    if (idx >= 0) trainers[idx] = trainer;
+    const isExisting = idx >= 0;
+    if (isExisting) trainers[idx] = trainer;
     else trainers.push(trainer);
     this.setStorageItem(STORAGE_KEYS.TRAINERS, trainers);
+    if (!USE_DEV_MOCKS) {
+      const req = isExisting && trainer.id
+        ? apiClient.put(`/admin/cms/trainers/${encodeURIComponent(trainer.id)}`, trainer)
+        : apiClient.post('/admin/cms/trainers', trainer);
+      req.catch((err) => console.warn('Backend trainer sync failed:', err?.message));
+    }
   }
 
   deleteTrainer(id: string): void {
     const trainers = this.getTrainers().filter((t) => t.id !== id);
     this.setStorageItem(STORAGE_KEYS.TRAINERS, trainers);
+    if (!USE_DEV_MOCKS) {
+      apiClient.delete(`/admin/cms/trainers/${encodeURIComponent(id)}`).catch((err) => {
+        console.warn('Backend trainer delete failed:', err?.message);
+      });
+    }
   }
 
   // --- Careers (PUB-014) ---
@@ -1611,14 +1698,26 @@ class CMSService {
   saveCareer(career: CareerOpening): void {
     const careers = this.getCareers();
     const idx = careers.findIndex((c) => c.id === career.id);
-    if (idx >= 0) careers[idx] = career;
+    const isExisting = idx >= 0;
+    if (isExisting) careers[idx] = career;
     else careers.push(career);
     this.setStorageItem(STORAGE_KEYS.CAREERS, careers);
+    if (!USE_DEV_MOCKS) {
+      const req = isExisting && career.id
+        ? apiClient.put(`/admin/cms/careers/${encodeURIComponent(career.id)}`, career)
+        : apiClient.post('/admin/cms/careers', career);
+      req.catch((err) => console.warn('Backend career sync failed:', err?.message));
+    }
   }
 
   deleteCareer(id: string): void {
     const careers = this.getCareers().filter((c) => c.id !== id);
     this.setStorageItem(STORAGE_KEYS.CAREERS, careers);
+    if (!USE_DEV_MOCKS) {
+      apiClient.delete(`/admin/cms/careers/${encodeURIComponent(id)}`).catch((err) => {
+        console.warn('Backend career delete failed:', err?.message);
+      });
+    }
   }
 
   // --- Enquiries & Lead Capture (PUB-011, PUB-018, PUB-019) ---
@@ -1636,6 +1735,11 @@ class CMSService {
     };
     enquiries.unshift(newEnquiry);
     this.setStorageItem(STORAGE_KEYS.ENQUIRIES, enquiries);
+    if (!USE_DEV_MOCKS) {
+      apiClient.post('/public/enquiries', enquiry).catch((err) => {
+        console.warn('Backend enquiry submission failed:', err?.message);
+      });
+    }
     return newEnquiry;
   }
 
@@ -1646,6 +1750,11 @@ class CMSService {
       target.status = status;
       this.setStorageItem(STORAGE_KEYS.ENQUIRIES, enquiries);
     }
+    if (!USE_DEV_MOCKS) {
+      apiClient.patch(`/admin/cms/enquiries/${encodeURIComponent(id)}/status`, { status }).catch((err) => {
+        console.warn('Backend enquiry status update failed:', err?.message);
+      });
+    }
   }
 
   // --- 1. Home Page Configuration ---
@@ -1655,6 +1764,13 @@ class CMSService {
 
   saveHomePageConfig(config: HomePageConfig): void {
     this.setStorageItem(STORAGE_KEYS.HOMEPAGE_CONFIG, config);
+    if (!USE_DEV_MOCKS) {
+      apiClient.put('/admin/cms/content/homepage', {
+        title: 'Homepage Configuration',
+        content: config,
+        isPublished: true,
+      }).catch((err) => console.warn('Backend homepage sync failed:', err?.message));
+    }
   }
 
   // --- 2. About Us Configuration ---
@@ -1664,6 +1780,13 @@ class CMSService {
 
   saveAboutUsConfig(config: AboutUsConfig): void {
     this.setStorageItem(STORAGE_KEYS.ABOUT_CONFIG, config);
+    if (!USE_DEV_MOCKS) {
+      apiClient.put('/admin/cms/content/about_us', {
+        title: 'About Us Configuration',
+        content: config,
+        isPublished: true,
+      }).catch((err) => console.warn('Backend about us sync failed:', err?.message));
+    }
   }
 
   // --- 6. Hiring Partners & Marquee Controls ---
@@ -1678,17 +1801,29 @@ class CMSService {
   saveHiringPartner(partner: HiringPartnerCompany): void {
     const partners = this.getHiringPartners();
     const idx = partners.findIndex((p) => p.id === partner.id);
-    if (idx >= 0) {
+    const isExisting = idx >= 0;
+    if (isExisting) {
       partners[idx] = partner;
     } else {
       partners.push(partner);
     }
     this.setStorageItem(STORAGE_KEYS.HIRING_PARTNERS, partners);
+    if (!USE_DEV_MOCKS) {
+      const req = isExisting && partner.id
+        ? apiClient.put(`/admin/cms/partners/${encodeURIComponent(partner.id)}`, partner)
+        : apiClient.post('/admin/cms/partners', partner);
+      req.catch((err) => console.warn('Backend partner sync failed:', err?.message));
+    }
   }
 
   deleteHiringPartner(id: string): void {
     const partners = this.getHiringPartners().filter((p) => p.id !== id);
     this.setStorageItem(STORAGE_KEYS.HIRING_PARTNERS, partners);
+    if (!USE_DEV_MOCKS) {
+      apiClient.delete(`/admin/cms/partners/${encodeURIComponent(id)}`).catch((err) => {
+        console.warn('Backend partner delete failed:', err?.message);
+      });
+    }
   }
 
   getMarqueeConfig(): MarqueeAnimationConfig {
@@ -1842,6 +1977,25 @@ class CMSService {
     if (!res.success) {
       return { success: false, data: savedItem, error: res.error || 'Storage persistence failed while saving partnership.' };
     }
+    if (!USE_DEV_MOCKS) {
+      const isExisting = idx >= 0;
+      const req = isExisting && savedItem.id
+        ? apiClient.put(`/admin/cms/college-partners/${encodeURIComponent(savedItem.id)}`, {
+            collegeName: savedItem.collegeName,
+            partnershipType: savedItem.partnershipTypes?.[0] || 'Academic MOU',
+            location: savedItem.city || savedItem.state || savedItem.location,
+            logoUrl: savedItem.logoUrl,
+            status: savedItem.status || 'active',
+          })
+        : apiClient.post('/admin/cms/college-partners', {
+            collegeName: savedItem.collegeName,
+            partnershipType: savedItem.partnershipTypes?.[0] || 'Academic MOU',
+            location: savedItem.city || savedItem.state || savedItem.location,
+            logoUrl: savedItem.logoUrl,
+            status: savedItem.status || 'active',
+          });
+      req.catch((err) => console.warn('Backend college partner sync failed:', err?.message));
+    }
     return { success: true, data: savedItem, message: `${savedItem.collegeName} saved successfully.` };
   }
 
@@ -1871,6 +2025,11 @@ class CMSService {
     });
     if (!res.success) {
       return { success: false, data: false, error: res.error || 'Storage persistence failed while deleting partnership.' };
+    }
+    if (!USE_DEV_MOCKS) {
+      apiClient.delete(`/admin/cms/college-partners/${encodeURIComponent(id)}`).catch((err) => {
+        console.warn('Backend college partner delete failed:', err?.message);
+      });
     }
     return { success: true, data: true, message: 'Partnership removed successfully.' };
   }
@@ -2045,6 +2204,36 @@ class CMSService {
       return { success: false, data: normalizedService, error: res.error || 'Storage persistence failed while saving corporate training service.' };
     }
 
+    if (!USE_DEV_MOCKS) {
+      const isExisting = existingIdx >= 0;
+      const req = isExisting && normalizedService.id
+        ? apiClient.put(`/admin/cms/corporate-training/services/${encodeURIComponent(normalizedService.id)}`, {
+            title: normalizedService.title,
+            shortDescription: normalizedService.shortDescription || normalizedService.title,
+            fullDescription: normalizedService.fullDescription || normalizedService.shortDescription || normalizedService.title,
+            topics: normalizedService.topics || ['Training'],
+            targetAudience: normalizedService.targetAudience,
+            deliveryMode: normalizedService.deliveryMode,
+            duration: normalizedService.duration,
+            technologies: normalizedService.technologies || [],
+            isActive: normalizedService.status !== 'inactive',
+            order: normalizedService.displayOrder || 1,
+          })
+        : apiClient.post('/admin/cms/corporate-training/services', {
+            title: normalizedService.title,
+            shortDescription: normalizedService.shortDescription || normalizedService.title,
+            fullDescription: normalizedService.fullDescription || normalizedService.shortDescription || normalizedService.title,
+            topics: normalizedService.topics || ['Training'],
+            targetAudience: normalizedService.targetAudience,
+            deliveryMode: normalizedService.deliveryMode,
+            duration: normalizedService.duration,
+            technologies: normalizedService.technologies || [],
+            isActive: normalizedService.status !== 'inactive',
+            order: normalizedService.displayOrder || 1,
+          });
+      req.catch((err) => console.warn('Backend corporate service sync failed:', err?.message));
+    }
+
     return {
       success: true,
       data: normalizedService,
@@ -2066,6 +2255,12 @@ class CMSService {
 
     if (!res.success) {
       return { success: false, data: false, error: res.error || 'Failed to persist deletion to storage.' };
+    }
+
+    if (!USE_DEV_MOCKS) {
+      apiClient.delete(`/admin/cms/corporate-training/services/${encodeURIComponent(id)}`).catch((err) => {
+        console.warn('Backend corporate service delete failed:', err?.message);
+      });
     }
 
     return {
@@ -2170,6 +2365,13 @@ class CMSService {
 
   saveContactInfo(config: ContactInfoConfig): void {
     this.setStorageItem(STORAGE_KEYS.CONTACT_CONFIG, config);
+    if (!USE_DEV_MOCKS) {
+      apiClient.put('/admin/cms/content/contact_info', {
+        title: 'Contact Information',
+        content: config,
+        isPublished: true,
+      }).catch((err) => console.warn('Backend contact info sync failed:', err?.message));
+    }
   }
 
   // --- 14b. Social Media Channels Configuration ---
@@ -2213,6 +2415,13 @@ class CMSService {
 
   saveHeaderFooterConfig(config: HeaderFooterConfig): void {
     this.setStorageItem(STORAGE_KEYS.HEADER_FOOTER_CONFIG, config);
+    if (!USE_DEV_MOCKS) {
+      apiClient.put('/admin/cms/content/header_footer', {
+        title: 'Header and Footer Configuration',
+        content: config,
+        isPublished: true,
+      }).catch((err) => console.warn('Backend header footer sync failed:', err?.message));
+    }
   }
 
   // --- 16. SEO Configuration ---
@@ -2222,6 +2431,13 @@ class CMSService {
 
   saveSEOConfig(config: SEOConfig): void {
     this.setStorageItem(STORAGE_KEYS.SEO_CONFIG, config);
+    if (!USE_DEV_MOCKS) {
+      apiClient.put('/admin/cms/content/seo', {
+        title: 'Global SEO Configuration',
+        content: config,
+        isPublished: true,
+      }).catch((err) => console.warn('Backend SEO sync failed:', err?.message));
+    }
   }
 
   getPageSEO(path: string): PageSEO | null {
@@ -2301,7 +2517,220 @@ class CMSService {
     this.saveSEOConfig(INITIAL_SEO_CONFIG);
     return INITIAL_SEO_CONFIG;
   }
+
+  /**
+   * Synchronizes CMS contents with the backend API.
+   * Updates local storage caches and dispatches change events.
+   */
+  async syncFromBackend(): Promise<void> {
+    if (USE_DEV_MOCKS) return;
+    try {
+      const [
+        bannersRes,
+        blogsRes,
+        faqsRes,
+        testimonialsRes,
+        trainersRes,
+        achievementsRes,
+        careersRes,
+        partnersRes,
+        collegesRes,
+        corporateRes,
+        homepageRes,
+        aboutRes,
+        contactRes,
+        headerFooterRes,
+      ] = await Promise.allSettled([
+        apiClient.get('/public/banners'),
+        apiClient.get('/public/blogs'),
+        apiClient.get('/public/faqs'),
+        apiClient.get('/public/testimonials'),
+        apiClient.get('/public/trainers'),
+        apiClient.get('/public/achievements'),
+        apiClient.get('/public/careers'),
+        apiClient.get('/public/partners'),
+        apiClient.get('/public/college-partnerships'),
+        apiClient.get('/public/corporate-training'),
+        apiClient.get('/public/content/homepage'),
+        apiClient.get('/public/content/about_us'),
+        apiClient.get('/public/content/contact_info'),
+        apiClient.get('/public/content/header_footer'),
+      ]);
+
+      if (bannersRes.status === 'fulfilled' && bannersRes.value.data?.data) {
+        this.setStorageItem(STORAGE_KEYS.BANNERS, bannersRes.value.data.data);
+      }
+      if (blogsRes.status === 'fulfilled' && blogsRes.value.data?.data) {
+        this.setStorageItem(STORAGE_KEYS.BLOGS, blogsRes.value.data.data);
+      }
+      if (faqsRes.status === 'fulfilled' && faqsRes.value.data?.data) {
+        this.setStorageItem(STORAGE_KEYS.FAQS, faqsRes.value.data.data);
+      }
+      if (testimonialsRes.status === 'fulfilled' && testimonialsRes.value.data?.data) {
+        this.setStorageItem(STORAGE_KEYS.TESTIMONIALS, testimonialsRes.value.data.data);
+      }
+      if (trainersRes.status === 'fulfilled' && trainersRes.value.data?.data) {
+        this.setStorageItem(STORAGE_KEYS.TRAINERS, trainersRes.value.data.data);
+      }
+      if (achievementsRes.status === 'fulfilled' && achievementsRes.value.data?.data) {
+        this.setStorageItem(STORAGE_KEYS.ACHIEVEMENTS, achievementsRes.value.data.data);
+      }
+      if (careersRes.status === 'fulfilled' && careersRes.value.data?.data) {
+        this.setStorageItem(STORAGE_KEYS.CAREERS, careersRes.value.data.data);
+      }
+      if (partnersRes.status === 'fulfilled' && partnersRes.value.data?.data) {
+        this.setStorageItem(STORAGE_KEYS.HIRING_PARTNERS, partnersRes.value.data.data);
+      }
+      if (collegesRes.status === 'fulfilled' && collegesRes.value.data?.data) {
+        const existing = this.getCollegePartnerships();
+        this.saveCollegePartnerships({
+          ...existing,
+          partners: collegesRes.value.data.data,
+          partnerColleges: collegesRes.value.data.data,
+        });
+      }
+      if (corporateRes.status === 'fulfilled' && corporateRes.value.data?.data) {
+        const existing = this.getCorporateTraining();
+        this.saveCorporateTraining({
+          ...existing,
+          services: corporateRes.value.data.data,
+        });
+      }
+      if (homepageRes.status === 'fulfilled' && homepageRes.value.data?.data) {
+        this.setStorageItem(STORAGE_KEYS.HOMEPAGE_CONFIG, homepageRes.value.data.data);
+      }
+      if (aboutRes.status === 'fulfilled' && aboutRes.value.data?.data) {
+        this.setStorageItem(STORAGE_KEYS.ABOUT_CONFIG, aboutRes.value.data.data);
+      }
+      if (contactRes.status === 'fulfilled' && contactRes.value.data?.data) {
+        this.setStorageItem(STORAGE_KEYS.CONTACT_CONFIG, contactRes.value.data.data);
+      }
+      if (headerFooterRes.status === 'fulfilled' && headerFooterRes.value.data?.data) {
+        this.setStorageItem(STORAGE_KEYS.HEADER_FOOTER_CONFIG, headerFooterRes.value.data.data);
+      }
+    } catch (err) {
+      console.warn('CMS syncFromBackend caught error:', err);
+    }
+  }
+
+  // Explicit Async API Methods
+  async getBannersAsync(): Promise<ApiResponse<WebsiteBanner[]>> {
+    if (USE_DEV_MOCKS) return { success: true, data: this.getBanners() };
+    try {
+      const res = await apiClient.get('/public/banners');
+      const items = res.data?.data ?? [];
+      return { success: true, data: Array.isArray(items) ? items : [] };
+    } catch (err: any) {
+      return { success: false, data: [], message: err?.message || 'Failed to fetch banners.' };
+    }
+  }
+
+  async getArticlesAsync(): Promise<ApiResponse<BlogArticle[]>> {
+    if (USE_DEV_MOCKS) return { success: true, data: this.getArticles() };
+    try {
+      const res = await apiClient.get('/public/blogs');
+      const items = res.data?.data ?? [];
+      return { success: true, data: Array.isArray(items) ? items : [] };
+    } catch (err: any) {
+      return { success: false, data: [], message: err?.message || 'Failed to fetch articles.' };
+    }
+  }
+
+  async getArticleBySlugAsync(slug: string): Promise<ApiResponse<BlogArticle | null>> {
+    if (USE_DEV_MOCKS) return { success: true, data: this.getArticleBySlug(slug) };
+    try {
+      const res = await apiClient.get(`/public/blogs/${encodeURIComponent(slug)}`);
+      return { success: true, data: res.data?.data ?? null };
+    } catch (err: any) {
+      return { success: false, data: null, message: err?.message || 'Failed to fetch article.' };
+    }
+  }
+
+  async getFAQsAsync(): Promise<ApiResponse<FAQItem[]>> {
+    if (USE_DEV_MOCKS) return { success: true, data: this.getFAQs() };
+    try {
+      const res = await apiClient.get('/public/faqs');
+      const items = res.data?.data ?? [];
+      return { success: true, data: Array.isArray(items) ? items : [] };
+    } catch (err: any) {
+      return { success: false, data: [], message: err?.message || 'Failed to fetch FAQs.' };
+    }
+  }
+
+  async getTestimonialsAsync(): Promise<ApiResponse<TestimonialItem[]>> {
+    if (USE_DEV_MOCKS) return { success: true, data: this.getTestimonials() };
+    try {
+      const res = await apiClient.get('/public/testimonials');
+      const items = res.data?.data ?? [];
+      return { success: true, data: Array.isArray(items) ? items : [] };
+    } catch (err: any) {
+      return { success: false, data: [], message: err?.message || 'Failed to fetch testimonials.' };
+    }
+  }
+
+  async getTrainersAsync(): Promise<ApiResponse<TrainerProfile[]>> {
+    if (USE_DEV_MOCKS) return { success: true, data: this.getTrainers() };
+    try {
+      const res = await apiClient.get('/public/trainers');
+      const items = res.data?.data ?? [];
+      return { success: true, data: Array.isArray(items) ? items : [] };
+    } catch (err: any) {
+      return { success: false, data: [], message: err?.message || 'Failed to fetch trainers.' };
+    }
+  }
+
+  async getAchievementsAsync(): Promise<ApiResponse<AchievementItem[]>> {
+    if (USE_DEV_MOCKS) return { success: true, data: this.getAchievements() };
+    try {
+      const res = await apiClient.get('/public/achievements');
+      const items = res.data?.data ?? [];
+      return { success: true, data: Array.isArray(items) ? items : [] };
+    } catch (err: any) {
+      return { success: false, data: [], message: err?.message || 'Failed to fetch achievements.' };
+    }
+  }
+
+  async getCareersAsync(): Promise<ApiResponse<CareerOpening[]>> {
+    if (USE_DEV_MOCKS) return { success: true, data: this.getCareers() };
+    try {
+      const res = await apiClient.get('/public/careers');
+      const items = res.data?.data ?? [];
+      return { success: true, data: Array.isArray(items) ? items : [] };
+    } catch (err: any) {
+      return { success: false, data: [], message: err?.message || 'Failed to fetch careers.' };
+    }
+  }
+
+  async getEnquiriesAsync(): Promise<ApiResponse<LeadEnquiry[]>> {
+    if (USE_DEV_MOCKS) return { success: true, data: this.getEnquiries() };
+    try {
+      const res = await apiClient.get('/admin/cms/enquiries');
+      const items = res.data?.data ?? [];
+      return { success: true, data: Array.isArray(items) ? items : [] };
+    } catch (err: any) {
+      return { success: false, data: [], message: err?.message || 'Failed to fetch enquiries.' };
+    }
+  }
+
+  async submitEnquiryAsync(enquiry: Omit<LeadEnquiry, 'id' | 'submittedAt' | 'status'>): Promise<ApiResponse<LeadEnquiry>> {
+    if (USE_DEV_MOCKS) return { success: true, data: this.submitEnquiry(enquiry) };
+    try {
+      const res = await apiClient.post('/public/enquiries', enquiry);
+      return { success: true, data: res.data?.data };
+    } catch (err: any) {
+      return { success: false, data: null as any, message: err?.message || 'Failed to submit enquiry.' };
+    }
+  }
 }
 
 export const cmsService = new CMSService();
+
+// Background synchronization on application mount in production mode
+if (typeof window !== 'undefined' && !USE_DEV_MOCKS) {
+  setTimeout(() => {
+    cmsService.syncFromBackend().catch((err) => {
+      console.warn('Initial CMS background synchronization failed:', err?.message);
+    });
+  }, 100);
+}
 
