@@ -91,8 +91,8 @@ const DEFAULT_NOTIFICATIONS: StudentNotificationItem[] = [
   {
     id: 'notif-6',
     category: 'system',
-    title: 'Account Verification Complete (Dual OTP Verified)',
-    message: 'Your registration and dual OTP verification succeeded. You have full student access to all enrolled batch materials.',
+    title: 'Account Verification Complete (Email Verified)',
+    message: 'Your registration and email verification succeeded. You have full student access to all enrolled batch materials.',
     timestamp: 'Oct 28, 2026',
     isRead: true,
     actionUrl: '/student/profile',
