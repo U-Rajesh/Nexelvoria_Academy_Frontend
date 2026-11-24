@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Clock, Calendar, User, Share2, Check, MessageSquare, Tag } from 'lucide-react';
 import { Button } from '../../components/common/Button';
@@ -6,7 +6,7 @@ import { Badge } from '../../components/common/Badge';
 import { Card } from '../../components/common/Card';
 import { SEO } from '../../components/common/SEO';
 import { formatDate } from '../../utils/formatters';
-import { cmsService } from '../../services/cmsService';
+import { cmsService, type BlogArticle } from '../../services/cmsService';
 import { useNotification } from '../../context/NotificationContext';
 import { Linkedin } from '../../components/common/SocialIcons';
 
@@ -15,9 +15,27 @@ export const BlogDetailPage: React.FC = () => {
   const [copied, setCopied] = useState(false);
   const { showToast } = useNotification();
 
-  const article = cmsService.getArticleBySlug(articleSlug || '');
+  // Published article from the server (the local cache only mirrors published posts and may be empty on a fresh browser).
+  const [article, setArticle] = useState<BlogArticle | null>(() => cmsService.getArticleBySlug(articleSlug || ''));
+  const [isLoading, setIsLoading] = useState(!article);
+  useEffect(() => {
+    let active = true;
+    cmsService.getArticleBySlugAsync(articleSlug || '').then((res) => {
+      if (!active) return;
+      // A 404 (not published) clears it; a network failure keeps the last published copy.
+      if (res.success || /not found|404/i.test(res.error || res.message || "")) setArticle(res.success ? res.data : null);
+      setIsLoading(false);
+    });
+    return () => {
+      active = false;
+    };
+  }, [articleSlug]);
   const allArticles = cmsService.getArticles();
   const relatedArticles = allArticles.filter((a) => a.slug !== articleSlug).slice(0, 2);
+
+  if (!article && isLoading) {
+    return <div className="max-w-4xl mx-auto px-4 py-20 text-center text-sm text-slate-500">Loading article...</div>;
+  }
 
   if (!article) {
     return (

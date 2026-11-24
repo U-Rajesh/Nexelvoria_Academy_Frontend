@@ -4,64 +4,49 @@ import {
   Users,
   BookOpen,
   DollarSign,
-  CheckCircle2,
   AlertCircle,
   Briefcase,
-  TrendingUp,
   Receipt,
-  ArrowRight,
   ShieldAlert,
   Calendar,
   Award,
   HelpCircle,
-  Bell,
   GraduationCap,
   Clock,
   Layers,
   Percent,
 } from 'lucide-react';
-import {
-  AreaChart,
-  Area,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-} from 'recharts';
-import { adminService, type DashboardStatsData } from '../../services/adminService';
-import { STORAGE_KEYS } from '../../constants/appConfig';
-import { useStorageSync } from '../../hooks/useStorageSync';
+import { adminService, type DashboardStatsData, type PlacementRateResult } from '../../services/adminService';
 import { formatINR } from '../../utils/formatters';
 import { MetricCard } from '../../components/charts/MetricCard';
+import { DashboardAnalyticsPanel } from '../../components/reports/DashboardAnalyticsPanel';
 import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
 import { Card } from '../../components/common/Card';
 
 export const AdminDashboardPage: React.FC = () => {
-  const [stats, setStats] = useState<DashboardStatsData>({
-    totalStudents: 2,
-    activeStudents: 1,
-    pendingApprovals: 1,
-    totalCourses: 4,
-    activeBatches: 1,
-    totalTeachers: 1,
-    totalRevenueINR: 38000,
-    pendingFeesINR: 45000,
-    certificatesIssued: 1,
-    placementRate: 85,
-    activePlacements: 2,
-    supportTicketsCount: 1,
-    systemAlertsCount: 2,
-    totalEnrollments: 1,
-    placementsCount: 0,
-  });
+  const [stats, setStats] = useState<DashboardStatsData | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  // D15: placement rate for a period the Admin chooses.
+  const [rateFrom, setRateFrom] = useState('');
+  const [rateTo, setRateTo] = useState('');
+  const [rateResult, setRateResult] = useState<PlacementRateResult | null>(null);
+  const [rateError, setRateError] = useState<string | null>(null);
+  const loadPlacementRate = async () => {
+    if (!rateFrom || !rateTo) return;
+    const res = await adminService.getPlacementRate(rateFrom, rateTo);
+    setRateResult(res.success ? res.data : null);
+    setRateError(res.success ? null : res.error || 'The placement rate could not be calculated.');
+  };
 
   const loadStats = React.useCallback(() => {
     adminService.getDashboardStats().then((res) => {
-      if (res.success) setStats(res.data);
+      if (res.success && res.data) {
+        setStats(res.data);
+        setLoadError(null);
+      } else {
+        setLoadError(res.error || 'Dashboard statistics could not be loaded.');
+      }
     });
   }, []);
 
@@ -69,32 +54,27 @@ export const AdminDashboardPage: React.FC = () => {
     loadStats();
   }, [loadStats]);
 
-  useStorageSync(
-    [
-      STORAGE_KEYS.ENROLLMENTS,
-      STORAGE_KEYS.STUDENTS,
-      STORAGE_KEYS.COURSES,
-      STORAGE_KEYS.PAYMENTS,
-      STORAGE_KEYS.BATCHES,
-    ],
-    loadStats
-  );
+  if (!stats) {
+    return (
+      <div className="p-8 text-sm text-slate-600">
+        {loadError ? (
+          <div className="p-4 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 space-y-2">
+            <p className="font-semibold">Dashboard unavailable</p>
+            <p>{loadError}</p>
+            <Button variant="outline" size="sm" onClick={loadStats}>
+              Retry
+            </Button>
+          </div>
+        ) : (
+          'Loading dashboard…'
+        )}
+      </div>
+    );
+  }
 
-  const revenueData = [
-    { month: 'Jun', revenue: 120000 },
-    { month: 'Jul', revenue: 190000 },
-    { month: 'Aug', revenue: 260000 },
-    { month: 'Sep', revenue: 340000 },
-    { month: 'Oct', revenue: 420000 },
-    { month: 'Nov', revenue: 510000 },
-  ];
-
-  const batchAttendanceData = [
-    { batch: 'Java Oct Morning', attendance: 89 },
-    { batch: 'MERN Nov Evening', attendance: 92 },
-    { batch: 'DevOps Weekend', attendance: 78 },
-    { batch: 'GenAI Advanced', attendance: 84 },
-  ];
+  /** `null` from the API means "not available", never zero. */
+  const show = (v: number | null, fmt: (n: number) => string | number = (n) => n): string | number =>
+    v === null ? 'N/A' : fmt(v);
 
   return (
     <div className="space-y-8">
@@ -154,7 +134,7 @@ export const AdminDashboardPage: React.FC = () => {
           <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500">
             Institutional Key Metrics (ADM-001)
           </h2>
-          <span className="text-xs text-indigo-600 font-medium">Session: 2026-27 Active</span>
+          {stats.financialYearLabel && <span className="text-xs text-indigo-600 font-medium">{stats.financialYearLabel}</span>}
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -164,7 +144,6 @@ export const AdminDashboardPage: React.FC = () => {
             value={stats.totalStudents}
             subtitle={`${stats.activeStudents} Active (${stats.pendingApprovals} Pending)`}
             icon={<Users className="h-5 w-5" />}
-            trend={{ value: 14, isPositive: true }}
           />
 
           {/* 2. Pending Student Approvals (BR-002) */}
@@ -179,11 +158,10 @@ export const AdminDashboardPage: React.FC = () => {
           {/* 3. Total Payments Collected */}
           <MetricCard
             title="Total Revenue Collected"
-            value={formatINR(stats.totalRevenueINR)}
-            subtitle="Verified Transactions"
+            value={show(stats.totalRevenueINR, formatINR)}
+            subtitle={`${stats.financialYearLabel ?? 'Financial year'} to date: ${show(stats.revenueFinancialYearINR ?? null, formatINR)}`}
             icon={<DollarSign className="h-5 w-5" />}
             iconBgColor="bg-emerald-50 text-emerald-600"
-            trend={{ value: 22, isPositive: true }}
           />
 
           {/* 4. Active Batches */}
@@ -217,7 +195,7 @@ export const AdminDashboardPage: React.FC = () => {
           <MetricCard
             title="Pending Fees"
             value={formatINR(stats.pendingFeesINR)}
-            subtitle="Balance installments"
+            subtitle="Approved enrollments awaiting payment"
             icon={<Clock className="h-5 w-5" />}
             iconBgColor="bg-rose-50 text-rose-600"
           />
@@ -225,7 +203,7 @@ export const AdminDashboardPage: React.FC = () => {
           {/* 8. Certificates Issued */}
           <MetricCard
             title="Certificates Issued"
-            value={stats.certificatesIssued}
+            value={show(stats.certificatesIssued)}
             subtitle="Complies with BR-011"
             icon={<Award className="h-5 w-5" />}
             iconBgColor="bg-teal-50 text-teal-600"
@@ -234,8 +212,14 @@ export const AdminDashboardPage: React.FC = () => {
           {/* 9. Placement Rate */}
           <MetricCard
             title="Placement Success Rate"
-            value={`${stats.placementRate}%`}
-            subtitle="Partner hiring rate"
+            value={show(stats.placementRate, (n) => `${n.toFixed(1)}%`)}
+            subtitle={
+              stats.placementCohort
+                ? stats.placementCohort.completedStudents === 0
+                  ? 'No course completions this financial year'
+                  : `${stats.placementCohort.placedStudents} of ${stats.placementCohort.completedStudents} students who completed a course (${stats.financialYearLabel ?? 'this FY'})`
+                : 'Not available'
+            }
             icon={<Percent className="h-5 w-5" />}
             iconBgColor="bg-emerald-50 text-emerald-600"
           />
@@ -243,8 +227,8 @@ export const AdminDashboardPage: React.FC = () => {
           {/* 10. Active Placements */}
           <MetricCard
             title="Active Placement Drives"
-            value={stats.activePlacements}
-            subtitle="Corporate partners"
+            value={show(stats.activePlacements)}
+            subtitle="Open job postings"
             icon={<Briefcase className="h-5 w-5" />}
             iconBgColor="bg-blue-50 text-blue-600"
           />
@@ -252,7 +236,7 @@ export const AdminDashboardPage: React.FC = () => {
           {/* 11. Support Tickets */}
           <MetricCard
             title="Support Tickets"
-            value={stats.supportTicketsCount}
+            value={show(stats.supportTicketsCount)}
             subtitle="Require resolution"
             icon={<HelpCircle className="h-5 w-5" />}
             iconBgColor="bg-amber-50 text-amber-600"
@@ -261,75 +245,51 @@ export const AdminDashboardPage: React.FC = () => {
           {/* 12. System Alerts */}
           <MetricCard
             title="Actionable Alerts"
-            value={stats.systemAlertsCount}
-            subtitle="Approvals & queries"
+            value={show(stats.systemAlertsCount)}
+            subtitle={
+              stats.systemAlerts
+                ? `${stats.systemAlerts.pendingStudentApprovals} approvals · ${stats.systemAlerts.pendingRefundRequests} refunds · ${stats.systemAlerts.pendingFinancialOverrides} overrides pending`
+                : 'Not available'
+            }
             icon={<ShieldAlert className="h-5 w-5" />}
             iconBgColor="bg-rose-50 text-rose-600"
           />
         </div>
       </div>
 
-      {/* Analytics Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Revenue Area Chart */}
-        <Card className="p-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-base font-bold text-slate-900">Revenue Collections Trend</h3>
-              <p className="text-xs text-slate-500">Gross monthly fee inflows (₹ INR)</p>
-            </div>
-            <Badge variant="success" size="sm">+28% YoY</Badge>
-          </div>
-          <div className="h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={revenueData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="colorRev" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.4} />
-                    <stop offset="95%" stopColor="#4f46e5" stopOpacity={0.0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                <XAxis dataKey="month" stroke="#94a3b8" fontSize={11} />
-                <YAxis
-                  stroke="#94a3b8"
-                  fontSize={11}
-                  tickFormatter={(val) => `₹${val / 1000}k`}
-                />
-                <Tooltip
-                  formatter={(val: any) => [formatINR(Number(val)), 'Revenue']}
-                  contentStyle={{ backgroundColor: '#0f172a', borderRadius: '8px', color: '#fff', fontSize: '12px' }}
-                />
-                <Area type="monotone" dataKey="revenue" stroke="#4f46e5" strokeWidth={2.5} fillOpacity={1} fill="url(#colorRev)" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </Card>
+      {/* D15: placement rate for a chosen period (cohort of course completions) */}
+      <Card className="p-4 border border-slate-200 bg-white space-y-3 text-xs">
+        <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500">Placement Rate for a Period</h2>
+        <p className="text-slate-500">
+          Students who completed a course in the period, and how many of them have a placement record. Each student counts once.
+        </p>
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="flex flex-col gap-1">
+            <span className="font-semibold text-slate-700">From</span>
+            <input type="date" value={rateFrom} onChange={(e) => setRateFrom(e.target.value)} className="px-2 py-1.5 border border-slate-200 rounded-lg" />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="font-semibold text-slate-700">To</span>
+            <input type="date" value={rateTo} onChange={(e) => setRateTo(e.target.value)} className="px-2 py-1.5 border border-slate-200 rounded-lg" />
+          </label>
+          <Button variant="outline" size="sm" onClick={loadPlacementRate} disabled={!rateFrom || !rateTo}>
+            Calculate
+          </Button>
+        </div>
+        {rateError && <p className="text-rose-700">{rateError}</p>}
+        {rateResult && (
+          <p className="text-slate-800">
+            {rateResult.placementRate === null
+              ? 'No student completed a course in this period.'
+              : `${rateResult.placementRate.toFixed(1)}% — ${rateResult.placedStudents} of ${rateResult.completedStudents} students (${rateResult.from} to ${rateResult.to}, IST).`}
+          </p>
+        )}
+      </Card>
 
-        {/* Batch Attendance Bar Chart */}
-        <Card className="p-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-base font-bold text-slate-900">Cohort Attendance Benchmarks</h3>
-              <p className="text-xs text-slate-500">Active batch attendance vs 75% threshold (BR-011)</p>
-            </div>
-            <span className="text-xs font-mono font-bold text-indigo-600">Min 75% Gate</span>
-          </div>
-          <div className="h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={batchAttendanceData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                <XAxis dataKey="batch" stroke="#94a3b8" fontSize={10} />
-                <YAxis stroke="#94a3b8" fontSize={11} domain={[0, 100]} />
-                <Tooltip
-                  formatter={(val: any) => [`${val}%`, 'Average Attendance']}
-                  contentStyle={{ backgroundColor: '#0f172a', borderRadius: '8px', color: '#fff', fontSize: '12px' }}
-                />
-                <Bar dataKey="attendance" fill="#0d9488" radius={[6, 6, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </Card>
+      {/* REP-001: charts from recorded data (GET /admin/reports/analytics) */}
+      <div className="space-y-3">
+        <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500">Trends and Operational Summaries</h2>
+        <DashboardAnalyticsPanel />
       </div>
 
       {/* Operational Quick Access Hub */}

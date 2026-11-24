@@ -40,23 +40,27 @@ export const CareersPage: React.FC = () => {
 
   const { showToast } = useNotification();
 
-  const handleApplySubmit = (e: React.FormEvent) => {
+  const handleApplySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!applyModalJob) return;
 
-    cmsService.submitEnquiry({
+    const sent = await cmsService.submitEnquiry({
       type: 'general',
       name: applicationForm.name,
       email: applicationForm.email,
       phone: applicationForm.phone,
       message: `[Job Application: ${applyModalJob.title}] Exp: ${applicationForm.experience} | Resume: ${applicationForm.resumeLink} | LinkedIn: ${applicationForm.linkedIn} | Note: ${applicationForm.coverNote}`,
     });
+    if (!sent.success) {
+      showToast({ type: 'error', title: 'Not sent', message: sent.error || 'Your request could not be sent. Please try again.' });
+      return;
+    }
     analytics.trackEvent('submit_job_application', 'Career', applyModalJob.title);
 
     showToast({
       type: 'success',
       title: 'Application Submitted',
-      message: `Thank you ${applicationForm.name}! Your application for "${applyModalJob.title}" has been received by our faculty recruitment team.`,
+      message: `Thank you ${applicationForm.name}! Your application for "${applyModalJob.title}" was received.`,
     });
     setApplyModalJob(null);
     setApplicationForm({ name: '', email: '', phone: '', linkedIn: '', experience: '', resumeLink: '', coverNote: '' });

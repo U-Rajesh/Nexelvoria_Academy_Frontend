@@ -57,9 +57,9 @@ export const CorporateTrainingPage: React.FC = () => {
       .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
   }, [config.services]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    cmsService.submitEnquiry({
+    const sent = await cmsService.submitEnquiry({
       type: 'corporate_training',
       name: form.name,
       email: form.email,
@@ -68,6 +68,10 @@ export const CorporateTrainingPage: React.FC = () => {
       courseOfInterest: form.domain,
       message: `Corporate inquiry for domain: ${form.domain}`,
     });
+    if (!sent.success) {
+      showToast({ type: 'error', title: 'Not sent', message: sent.error || 'Your request could not be sent. Please try again.' });
+      return;
+    }
     showToast({
       type: 'success',
       title: 'Corporate Training Inquiry Logged',

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useCmsPage } from '../../../hooks/useCmsPage';
 import {
   Search,
   Image,
@@ -19,6 +20,7 @@ import { Modal } from '../../feedback/Modal';
 import { useNotification } from '../../../context/NotificationContext';
 import {
   cmsService,
+  MEDIA_UPLOAD_BLOCKED,
   type SEOConfig,
   type PageSEO,
   type MediaAsset,
@@ -43,9 +45,10 @@ const AVAILABLE_ROUTES = [
 
 export const CMSSEOAndMediaTab: React.FC = () => {
   const [activeSubTab, setActiveSubTab] = useState<'seo' | 'media'>('seo');
-  const [seoConfig, setSeoConfig] = useState<SEOConfig>(() => cmsService.getSEOConfig());
+  const { config: seoConfig, setConfig: setSeoConfig, loading, loadError, saving, run } = useCmsPage<SEOConfig>('seo', cmsService.getSEOConfig());
   const [selectedRoute, setSelectedRoute] = useState<string>('/');
-  const [mediaAssets, setMediaAssets] = useState<MediaAsset[]>(() => cmsService.getMediaAssets());
+  // Media library is blocked until file storage exists on the server: nothing is stored locally.
+  const mediaAssets: MediaAsset[] = cmsService.getMediaAssets();
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
 
   // Media Modal
@@ -79,19 +82,23 @@ export const CMSSEOAndMediaTab: React.FC = () => {
     setSeoConfig({ ...seoConfig, pages: updatedPages });
   };
 
-  const handleSaveSEO = () => {
-    cmsService.saveSEOConfig(seoConfig);
-    showToast({
-      type: 'success',
-      title: 'SEO Metadata Saved',
-      message: `Meta tags and OpenGraph headers for ${selectedRoute} updated.`,
-    });
+  const handleSaveSEO = async () => {
+    const res = await run(() => cmsService.saveSEOConfig(seoConfig));
+    showToast(
+      res.success
+        ? { type: 'success', title: 'SEO Metadata Saved', message: `Meta tags and OpenGraph headers for ${selectedRoute} updated.` }
+        : { type: 'error', title: 'Not saved', message: res.error || 'The server did not save the SEO settings. Please retry.' }
+    );
   };
 
-  const handleResetSEO = () => {
-    const def = cmsService.resetSEOConfig();
-    setSeoConfig(def);
-    showToast({ type: 'info', title: 'SEO Reset', message: 'Restored default SEO configuration.' });
+  const handleResetSEO = async () => {
+    if (!window.confirm('Reset SEO settings to the built-in defaults? This is saved to the server.')) return;
+    const res = await run(() => cmsService.resetSEOConfig());
+    showToast(
+      res.success
+        ? { type: 'info', title: 'SEO Reset', message: 'Restored default SEO configuration.' }
+        : { type: 'error', title: 'Not reset', message: res.error || 'The server did not save the defaults. Please retry.' }
+    );
   };
 
   const handleCopyUrl = (url: string, name: string) => {
@@ -103,34 +110,15 @@ export const CMSSEOAndMediaTab: React.FC = () => {
     });
   };
 
-  const handleSaveNewAsset = (e: React.FormEvent) => {
+  const handleSaveNewAsset = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newAsset.name.trim() || !newAsset.url.trim()) {
-      showToast({ type: 'warning', title: 'Validation Error', message: 'Name and URL are required.' });
-      return;
-    }
-
-    const created: MediaAsset = {
-      id: `media-${Date.now()}`,
-      name: newAsset.name,
-      url: newAsset.url,
-      category: newAsset.category,
-      createdAt: new Date().toISOString(),
-    };
-
-    cmsService.saveMediaAsset(created);
-    setMediaAssets(cmsService.getMediaAssets());
-    setMediaModalOpen(false);
-    setNewAsset({ name: '', url: '', category: 'avatar' });
-    showToast({ type: 'success', title: 'Media Asset Added', message: `${created.name} registered.` });
+    const res = await cmsService.saveMediaAsset({ id: '', name: newAsset.name, url: newAsset.url, category: newAsset.category, createdAt: '' });
+    showToast({ type: 'error', title: 'Not available', message: res.error || MEDIA_UPLOAD_BLOCKED });
   };
 
-  const handleDeleteAsset = (id: string, name: string) => {
-    if (window.confirm(`Delete media asset "${name}"?`)) {
-      cmsService.deleteMediaAsset(id);
-      setMediaAssets(cmsService.getMediaAssets());
-      showToast({ type: 'info', title: 'Asset Removed', message: `${name} deleted.` });
-    }
+  const handleDeleteAsset = async (_id: string, _name: string) => {
+    const res = await cmsService.deleteMediaAsset(_id);
+    showToast({ type: 'error', title: 'Not available', message: res.error || MEDIA_UPLOAD_BLOCKED });
   };
 
   const filteredMedia = selectedCategory === 'all'
@@ -154,10 +142,10 @@ export const CMSSEOAndMediaTab: React.FC = () => {
         <div className="flex items-center gap-2">
           {activeSubTab === 'seo' ? (
             <>
-              <Button variant="outline" size="sm" onClick={handleResetSEO} leftIcon={<RotateCcw className="h-4 w-4 text-slate-400" />}>
+              <Button variant="outline" size="sm" onClick={handleResetSEO} disabled={loading || saving} leftIcon={<RotateCcw className="h-4 w-4 text-slate-400" />}>
                 Reset Defaults
               </Button>
-              <Button variant="primary" size="sm" onClick={handleSaveSEO} leftIcon={<Save className="h-4 w-4" />}>
+              <Button variant="primary" size="sm" onClick={handleSaveSEO} isLoading={saving} disabled={loading || !!loadError} leftIcon={<Save className="h-4 w-4" />}>
                 Save SEO Tags
               </Button>
             </>
@@ -190,6 +178,12 @@ export const CMSSEOAndMediaTab: React.FC = () => {
           Media Asset Manager ({mediaAssets.length} Assets)
         </button>
       </div>
+
+      {activeSubTab === 'seo' && (loading || loadError) && (
+        <div className={`p-3 rounded-lg border text-xs ${loadError ? 'bg-rose-50 border-rose-200 text-rose-800' : 'bg-slate-50 border-slate-200 text-slate-500'}`}>
+          {loadError || 'Loading the saved SEO settings from the server...'}
+        </div>
+      )}
 
       {/* 1. SEO Manager */}
       {activeSubTab === 'seo' && (
@@ -322,6 +316,7 @@ export const CMSSEOAndMediaTab: React.FC = () => {
       {/* 2. Media Asset Library */}
       {activeSubTab === 'media' && (
         <div className="space-y-6">
+          <div className="p-3 rounded-lg border border-amber-200 bg-amber-50 text-xs text-amber-900">{MEDIA_UPLOAD_BLOCKED}</div>
           {/* Category Filter Pills */}
           <div className="flex flex-wrap gap-2 text-xs">
             {['all', 'avatar', 'banner', 'logo', 'course', 'campus'].map((cat) => (

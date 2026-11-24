@@ -140,7 +140,6 @@ export const VerifyCertificatePage: React.FC = () => {
               <div>
                 <p className="text-xs uppercase tracking-wider text-slate-400 font-semibold">Awarded To</p>
                 <h3 className="text-2xl font-bold text-slate-900 mt-1">{searchedRecord.studentName}</h3>
-                <p className="text-xs text-slate-500 mt-0.5">Student ID: {searchedRecord.studentId}</p>
               </div>
               <div>
                 {searchedRecord.status === 'valid' ? (
@@ -172,16 +171,7 @@ export const VerifyCertificatePage: React.FC = () => {
 
               <div className="space-y-1">
                 <span className="text-xs text-slate-400 font-medium">Session Attendance Recorded</span>
-                <p className="font-semibold text-slate-800">
-                  {searchedRecord.attendancePercentage}% (Meets $\ge$ 75% threshold)
-                </p>
-              </div>
-
-              <div className="space-y-1">
-                <span className="text-xs text-slate-400 font-medium">Examination Result</span>
-                <p className="font-semibold text-slate-800">
-                  {searchedRecord.examScorePercentage}% Score (Competency Passed)
-                </p>
+                <p className="font-semibold text-slate-800">{searchedRecord.attendancePercentage}% (recorded at issue)</p>
               </div>
             </div>
 

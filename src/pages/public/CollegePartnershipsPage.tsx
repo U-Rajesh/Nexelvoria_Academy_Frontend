@@ -42,9 +42,9 @@ export const CollegePartnershipsPage: React.FC = () => {
     return list.filter((col) => col.status === 'active');
   }, [config]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    cmsService.submitEnquiry({
+    const sent = await cmsService.submitEnquiry({
       type: 'college_mou',
       name: form.contactPerson,
       email: form.email,
@@ -52,6 +52,10 @@ export const CollegePartnershipsPage: React.FC = () => {
       collegeName: form.college,
       message: `Expected Batch Size: ${form.studentCount}`,
     });
+    if (!sent.success) {
+      showToast({ type: 'error', title: 'Not sent', message: sent.error || 'Your request could not be sent. Please try again.' });
+      return;
+    }
     showToast({
       type: 'success',
       title: 'Partnership Inquiry Submitted',

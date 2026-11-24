@@ -1,22 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-  DollarSign,
   CheckCircle2,
   XCircle,
   AlertTriangle,
-  ShieldCheck,
   Search,
-  Filter,
-  Calendar,
   Receipt,
-  ArrowRight,
   Info,
-  Clock,
-  History,
-  FileText,
-  User,
-  CreditCard,
-  Building,
 } from 'lucide-react';
 import { superAdminService } from '../../services/superAdminService';
 import { useAuth } from '../../context/AuthContext';
@@ -29,11 +18,15 @@ import { Modal } from '../../components/feedback/Modal';
 import { MetricCard } from '../../components/charts/MetricCard';
 import type { RefundRequest } from '../../types';
 
+/** Must match the backend rule for a rejection reason. */
+const MIN_REJECTION_REASON = 10;
+
 export const SuperAdminRefundsPage: React.FC = () => {
   const { user } = useAuth();
   const { showToast } = useNotification();
   const [refunds, setRefunds] = useState<RefundRequest[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
 
   // Filters
@@ -46,11 +39,30 @@ export const SuperAdminRefundsPage: React.FC = () => {
   const [rejectModal, setRejectModal] = useState<RefundRequest | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [detailsModal, setDetailsModal] = useState<RefundRequest | null>(null);
+  const [refundHistory, setRefundHistory] = useState<
+    Array<{ id: string; actionType: string; reason?: string; performedByUserId: string; performedByName?: string; performedAt: string }> | null
+  >(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+
+  const openDetails = async (r: RefundRequest) => {
+    setDetailsModal(r);
+    setRefundHistory(null);
+    setHistoryError(null);
+    const res = await superAdminService.getRefundHistory(r.id);
+    if (res.success) setRefundHistory(res.data);
+    else setHistoryError(res.error || 'History could not be loaded.');
+  };
 
   const loadRefunds = async () => {
     setIsLoading(true);
     const res = await superAdminService.getRefundRequests();
-    if (res.success) setRefunds(res.data);
+    if (res.success) {
+      setRefunds(res.data);
+      setLoadError(null);
+    } else {
+      setRefunds([]);
+      setLoadError(res.error || 'Refund requests could not be loaded.');
+    }
     setIsLoading(false);
   };
 
@@ -59,7 +71,7 @@ export const SuperAdminRefundsPage: React.FC = () => {
   }, []);
 
   const pendingRefunds = refunds.filter((r) => r.status === 'pending_super_admin');
-  const approvedRefunds = refunds.filter((r) => r.status === 'approved');
+  const approvedRefunds = refunds.filter((r) => r.status === 'approved' || r.status === 'completed');
   const rejectedRefunds = refunds.filter((r) => r.status === 'rejected');
 
   const pendingTotal = pendingRefunds.reduce((sum, r) => sum + r.amountINR, 0);
@@ -71,7 +83,7 @@ export const SuperAdminRefundsPage: React.FC = () => {
     const res = await superAdminService.approveRefund(
       { id: user.id, name: user.name },
       approveModal.id,
-      approveRemarks || 'Approved by Super Admin after review.'
+      approveRemarks.trim() || undefined
     );
     setIsProcessing(false);
 
@@ -82,7 +94,7 @@ export const SuperAdminRefundsPage: React.FC = () => {
       showToast({
         type: 'success',
         title: 'Refund Authorized (BR-006)',
-        message: `Refund of ${formatINR(approveModal.amountINR)} authorized for ${approveModal.studentName}. Internal financial sign-off recorded.`,
+        message: `Refund of ${formatINR(approveModal.amountINR)} approved for ${approveModal.studentName}. The decision is recorded in the audit log.`,
       });
     } else {
       showToast({ type: 'error', title: 'Approval Failed', message: res.error || 'Failed to approve refund.' });
@@ -91,8 +103,11 @@ export const SuperAdminRefundsPage: React.FC = () => {
 
   const handleConfirmReject = async () => {
     if (!user || !rejectModal) return;
-    if (!rejectReason.trim() || rejectReason.trim().length < 5) {
-      showToast({ type: 'warning', message: 'A mandatory rejection justification must be provided.' });
+    if (rejectReason.trim().length < MIN_REJECTION_REASON) {
+      showToast({
+        type: 'warning',
+        message: `Enter a rejection reason of at least ${MIN_REJECTION_REASON} characters.`,
+      });
       return;
     }
 
@@ -111,7 +126,7 @@ export const SuperAdminRefundsPage: React.FC = () => {
       showToast({
         type: 'info',
         title: 'Refund Request Rejected',
-        message: `Refund request for ${rejectModal.studentName} has been rejected. Mandatory justification recorded in audit log.`,
+        message: `Refund request for ${rejectModal.studentName} has been rejected. The reason is recorded in the audit log.`,
       });
     } else {
       showToast({ type: 'error', title: 'Rejection Failed', message: res.error || 'Failed to reject refund.' });
@@ -120,7 +135,9 @@ export const SuperAdminRefundsPage: React.FC = () => {
 
   const filteredRefunds = useMemo(() => {
     return refunds.filter((r) => {
-      if (statusFilter !== 'all' && r.status !== statusFilter) return false;
+      // "Approved" also lists refunds whose payout has since completed.
+      const status = r.status === 'completed' ? 'approved' : r.status;
+      if (statusFilter !== 'all' && status !== statusFilter) return false;
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
         const matchesName = r.studentName.toLowerCase().includes(q);
@@ -164,7 +181,7 @@ export const SuperAdminRefundsPage: React.FC = () => {
         <MetricCard
           title="Total Approved Refunds"
           value={formatINR(approvedTotal)}
-          subtitle={`${approvedRefunds.length} Transactions Authorized`}
+          subtitle={`${approvedRefunds.length} approved`}
           icon={<CheckCircle2 className="h-5 w-5" />}
           iconBgColor="bg-emerald-50 text-emerald-600"
         />
@@ -172,15 +189,15 @@ export const SuperAdminRefundsPage: React.FC = () => {
         <MetricCard
           title="Total Rejected Requests"
           value={`${rejectedRefunds.length} Cases`}
-          subtitle="Policy Non-Compliant"
+          subtitle="Rejected with a recorded reason"
           icon={<XCircle className="h-5 w-5" />}
           iconBgColor="bg-slate-100 text-slate-700"
         />
 
         <MetricCard
-          title="Total Claim Volume"
+          title="Pending + Approved Amount"
           value={formatINR(pendingTotal + approvedTotal)}
-          subtitle={`${refunds.length} Lifetime Claims`}
+          subtitle={`${refunds.length} requests in total`}
           icon={<Receipt className="h-5 w-5" />}
           iconBgColor="bg-indigo-50 text-indigo-600"
         />
@@ -190,11 +207,11 @@ export const SuperAdminRefundsPage: React.FC = () => {
       <div className="p-4 bg-slate-900 text-slate-200 rounded-xl border border-rose-900/40 flex items-start gap-3 shadow-xs">
         <Info className="h-5 w-5 text-rose-400 shrink-0 mt-0.5" />
         <div className="text-xs space-y-1">
-          <p className="font-semibold text-white">Payment Gateway Settlement Notice (SRS Audit Rule):</p>
+          <p className="font-semibold text-white">What a decision does</p>
           <p className="text-slate-300 leading-relaxed">
-            Approving a refund on this governance console records the <strong>internal administrative and accounting authorization</strong>.
-            The actual banking payment reversal is executed asynchronously via the payment gateway webhook (Razorpay / Stripe payout APIs)
-            or manual NEFT reversal.
+            Approving or rejecting records the <strong>Super Admin decision</strong> on the refund request and writes an audit
+            entry with your remarks. It does <strong>not</strong> send money: the gateway or bank reversal is a separate step,
+            and the request shows as COMPLETED only after that payout is confirmed. A decided request cannot be decided again.
           </p>
         </div>
       </div>
@@ -221,12 +238,21 @@ export const SuperAdminRefundsPage: React.FC = () => {
             >
               <option value="all">All Request Statuses ({refunds.length})</option>
               <option value="pending_super_admin">Pending Super Admin Sign-off ({pendingRefunds.length})</option>
-              <option value="approved">Approved &amp; Reconciled ({approvedRefunds.length})</option>
+              <option value="approved">Approved ({approvedRefunds.length})</option>
               <option value="rejected">Rejected ({rejectedRefunds.length})</option>
             </select>
           </div>
         </div>
       </Card>
+
+      {loadError && (
+        <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-xs text-rose-800 flex items-center justify-between gap-3">
+          <span>{loadError}</span>
+          <Button variant="outline" size="sm" onClick={loadRefunds}>
+            Retry
+          </Button>
+        </div>
+      )}
 
       {/* Refunds Table */}
       <Card className="overflow-hidden shadow-xs border-slate-200">
@@ -244,10 +270,16 @@ export const SuperAdminRefundsPage: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredRefunds.length === 0 ? (
+              {isLoading ? (
                 <tr>
                   <td colSpan={7} className="text-center py-8 text-slate-400">
-                    No refund requests found matching the current criteria.
+                    Loading refund requests…
+                  </td>
+                </tr>
+              ) : filteredRefunds.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="text-center py-8 text-slate-400">
+                    {loadError ? 'Refund requests are unavailable.' : 'No refund requests found matching the current criteria.'}
                   </td>
                 </tr>
               ) : (
@@ -262,12 +294,12 @@ export const SuperAdminRefundsPage: React.FC = () => {
 
                     <td className="py-3.5 px-4">
                       <span className="font-bold text-slate-900 block">{ref.studentName}</span>
-                      <span className="text-[11px] text-slate-500">{ref.courseTitle}</span>
+                      <span className="text-[11px] text-slate-500">{ref.courseTitle || 'Course not linked'}</span>
                     </td>
 
                     <td className="py-3.5 px-4 whitespace-nowrap font-mono text-slate-600">
                       <span className="px-2 py-0.5 rounded bg-slate-100 border border-slate-200 text-[11px]">
-                        {ref.transactionId}
+                        {ref.transactionId || '—'}
                       </span>
                     </td>
 
@@ -280,7 +312,7 @@ export const SuperAdminRefundsPage: React.FC = () => {
                     <td className="py-3.5 px-4 whitespace-nowrap">
                       <Badge
                         variant={
-                          ref.status === 'approved'
+                          ref.status === 'approved' || ref.status === 'completed'
                             ? 'success'
                             : ref.status === 'rejected'
                             ? 'danger'
@@ -302,7 +334,7 @@ export const SuperAdminRefundsPage: React.FC = () => {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => setDetailsModal(ref)}
+                          onClick={() => openDetails(ref)}
                           className="text-slate-600 hover:text-slate-900"
                         >
                           Details
@@ -313,7 +345,10 @@ export const SuperAdminRefundsPage: React.FC = () => {
                             <Button
                               variant="danger"
                               size="sm"
-                              onClick={() => setApproveModal(ref)}
+                              onClick={() => {
+                                setApproveRemarks('');
+                                setApproveModal(ref);
+                              }}
                               leftIcon={<CheckCircle2 className="h-3.5 w-3.5" />}
                             >
                               Approve
@@ -321,7 +356,10 @@ export const SuperAdminRefundsPage: React.FC = () => {
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => setRejectModal(ref)}
+                              onClick={() => {
+                                setRejectReason('');
+                                setRejectModal(ref);
+                              }}
                               leftIcon={<XCircle className="h-3.5 w-3.5 text-rose-500" />}
                             >
                               Reject
@@ -356,16 +394,16 @@ export const SuperAdminRefundsPage: React.FC = () => {
                   {formatINR(approveModal.amountINR)}
                 </span>
               </div>
-              <p className="text-rose-800 text-[11px]">{approveModal.courseTitle}</p>
+              {approveModal.courseTitle && <p className="text-rose-800 text-[11px]">{approveModal.courseTitle}</p>}
               <p className="text-slate-600 text-[11px] italic pt-1">
                 Stated Reason: "{approveModal.reason}"
               </p>
             </div>
 
             <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-slate-600 leading-relaxed text-[11px]">
-              <strong>Accounting Consequence:</strong> Approving this request will mark the ledger transaction as
-              <span className="font-semibold text-rose-700"> REFUNDED</span>, unlock seat capacity in the course batch,
-              and record an immutable audit entry signed by Super Admin.
+              <strong>What happens:</strong> the request is marked <span className="font-semibold text-rose-700">APPROVED</span>{' '}
+              and an audit entry with your remarks is recorded. No money is moved here and the enrollment is not changed;
+              the payout is completed separately. This decision cannot be reversed from this screen.
             </div>
 
             <div>
@@ -410,16 +448,19 @@ export const SuperAdminRefundsPage: React.FC = () => {
           <div className="space-y-4 text-xs">
             <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-900 leading-relaxed">
               You are rejecting the refund request of <strong>{formatINR(rejectModal.amountINR)}</strong> for{' '}
-              <strong>{rejectModal.studentName}</strong>. A mandatory reason must be recorded in the audit trail.
+              <strong>{rejectModal.studentName}</strong>. The reason is recorded in the audit log, and a rejected request
+              cannot be decided again.
             </div>
 
             <div>
-              <label className="font-semibold text-slate-700 block mb-1">
-                Mandatory Rejection Justification *
+              <label htmlFor="refund-reject-reason" className="font-semibold text-slate-700 block mb-1">
+                Rejection reason * <span className="font-normal text-slate-400">(at least {MIN_REJECTION_REASON} characters)</span>
               </label>
               <textarea
+                id="refund-reject-reason"
                 rows={3}
                 required
+                maxLength={500}
                 placeholder="Specify policy violation or grounds for rejection (e.g., Refund window exceeded, attendance criteria violated)..."
                 value={rejectReason}
                 onChange={(e) => setRejectReason(e.target.value)}
@@ -435,6 +476,7 @@ export const SuperAdminRefundsPage: React.FC = () => {
                 variant="danger"
                 size="sm"
                 isLoading={isProcessing}
+                disabled={rejectReason.trim().length < MIN_REJECTION_REASON}
                 onClick={handleConfirmReject}
               >
                 Reject Request
@@ -466,11 +508,11 @@ export const SuperAdminRefundsPage: React.FC = () => {
               </div>
               <div>
                 <span className="text-[11px] text-slate-400 block">Course Name</span>
-                <span className="font-semibold text-slate-800">{detailsModal.courseTitle}</span>
+                <span className="font-semibold text-slate-800">{detailsModal.courseTitle || 'Not linked to a course'}</span>
               </div>
               <div>
                 <span className="text-[11px] text-slate-400 block">Transaction Reference</span>
-                <span className="font-mono text-slate-800">{detailsModal.transactionId}</span>
+                <span className="font-mono text-slate-800">{detailsModal.transactionId || '—'}</span>
               </div>
               <div>
                 <span className="text-[11px] text-slate-400 block">Submission Date</span>
@@ -482,7 +524,7 @@ export const SuperAdminRefundsPage: React.FC = () => {
                 <span className="text-[11px] text-slate-400 block">Current Status</span>
                 <Badge
                   variant={
-                    detailsModal.status === 'approved'
+                    detailsModal.status === 'approved' || detailsModal.status === 'completed'
                       ? 'success'
                       : detailsModal.status === 'rejected'
                       ? 'danger'
@@ -491,10 +533,16 @@ export const SuperAdminRefundsPage: React.FC = () => {
                   size="sm"
                   dot
                 >
-                  {detailsModal.status.toUpperCase()}
+                  {detailsModal.status === 'pending_super_admin' ? 'PENDING' : detailsModal.status.toUpperCase()}
                 </Badge>
               </div>
             </div>
+
+            {detailsModal.status !== 'pending_super_admin' && !detailsModal.superAdminRemarks && (
+              <p className="text-[11px] text-slate-500">
+                Decision remarks are kept in the activity log (Finance), not on the refund record.
+              </p>
+            )}
 
             <div className="space-y-1">
               <span className="font-semibold text-slate-700">Student's Stated Reason</span>
@@ -511,6 +559,32 @@ export const SuperAdminRefundsPage: React.FC = () => {
                 </p>
               </div>
             )}
+
+            <div className="space-y-1">
+              <span className="font-semibold text-slate-700">Financial Audit History</span>
+              {historyError ? (
+                <p className="text-rose-700">{historyError}</p>
+              ) : refundHistory === null ? (
+                <p className="text-slate-400">Loading history…</p>
+              ) : refundHistory.length === 0 ? (
+                <p className="text-slate-400 italic">No decisions recorded yet.</p>
+              ) : (
+                <div className="divide-y divide-slate-100 border border-slate-200 rounded-md">
+                  {refundHistory.map((h) => (
+                    <div key={h.id} className="p-2">
+                      <div className="flex justify-between">
+                        <span className="font-semibold text-slate-800">{h.actionType.replace(/_/g, ' ')}</span>
+                        <span className="font-mono text-slate-500">{formatDate(h.performedAt)}</span>
+                      </div>
+                      <div className="text-slate-500">
+                        By {h.performedByName || `User #${h.performedByUserId}`}
+                        {h.reason ? ` · ${h.reason}` : ''}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
 
             <div className="pt-2 flex justify-end">
               <Button variant="secondary" size="sm" onClick={() => setDetailsModal(null)}>

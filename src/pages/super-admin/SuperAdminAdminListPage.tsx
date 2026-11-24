@@ -1,28 +1,17 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-  UserCheck,
   Plus,
   ShieldCheck,
-  Mail,
-  Phone,
-  Lock,
   Save,
   Search,
-  Filter,
   Eye,
   Edit2,
   Power,
   RotateCcw,
-  Copy,
   Check,
   AlertTriangle,
-  History,
   Building,
   KeyRound,
-  Trash2,
-  X,
-  UserX,
-  Calendar,
 } from 'lucide-react';
 import { superAdminService } from '../../services/superAdminService';
 import { useAuth } from '../../context/AuthContext';
@@ -32,7 +21,24 @@ import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
 import { Card } from '../../components/common/Card';
 import { Modal } from '../../components/feedback/Modal';
-import type { AdminProfile } from '../../types';
+import { OneTimePasswordModal } from '../../components/feedback/OneTimePasswordModal';
+import type { AdminProfile, LoginHistoryItem } from '../../types';
+import { authService } from '../../services/authService';
+
+/**
+ * Department codes are stored in NXA_AdminProfiles.AdminLevel (20 chars), so
+ * short codes are persisted and readable labels are shown.
+ */
+const DEPARTMENTS = [
+  { code: 'ACADEMIC_OPS', label: 'Academic Operations' },
+  { code: 'ADMISSIONS', label: 'Admissions & Student Welfare' },
+  { code: 'EXAMINATIONS', label: 'Examination & Assessments' },
+  { code: 'PLACEMENTS', label: 'Placements & Corporate' },
+  { code: 'FINANCE', label: 'Finance & Accounting' },
+] as const;
+
+const departmentLabel = (code: string | undefined): string =>
+  DEPARTMENTS.find((d) => d.code === code)?.label ?? code ?? '—';
 
 export const SuperAdminAdminListPage: React.FC = () => {
   const { user } = useAuth();
@@ -48,53 +54,51 @@ export const SuperAdminAdminListPage: React.FC = () => {
   // Modals
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [viewAdmin, setViewAdmin] = useState<AdminProfile | null>(null);
+  const [viewHistory, setViewHistory] = useState<LoginHistoryItem[] | null>(null);
+  const [viewHistoryError, setViewHistoryError] = useState<string | null>(null);
+
+  // Load the selected admin's sign-in history when their profile opens.
+  useEffect(() => {
+    if (!viewAdmin) return;
+    let cancelled = false;
+    setViewHistory(null);
+    setViewHistoryError(null);
+    authService.getUserLoginHistory(viewAdmin.id).then((res) => {
+      if (cancelled) return;
+      if (res.success) setViewHistory(res.data);
+      else setViewHistoryError(res.error || 'Login history could not be loaded.');
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [viewAdmin]);
   const [editAdmin, setEditAdmin] = useState<AdminProfile | null>(null);
   const [statusModal, setStatusModal] = useState<{
     admin: AdminProfile;
     newStatus: 'active' | 'suspended' | 'deactivated';
   } | null>(null);
   const [statusReason, setStatusReason] = useState('');
-  const [resetPasswordModal, setResetPasswordModal] = useState<{
-    admin: AdminProfile;
-    tempPass: string;
-    resetLink: string;
-    copied: boolean;
+  // One-time temporary password (create / reset). Held only in memory while
+  // the dialog is open; never persisted, logged or put in a toast.
+  const [oneTimePassword, setOneTimePassword] = useState<{
+    title: string;
+    name: string;
+    email: string;
+    password: string;
+    sessionsRevoked: boolean;
   } | null>(null);
 
   // Create Form state
   const [createName, setCreateName] = useState('');
   const [createEmail, setCreateEmail] = useState('');
   const [createMobile, setCreateMobile] = useState('');
-  const [createDepartment, setCreateDepartment] = useState('Academic Operations');
-  const [createPermissions, setCreatePermissions] = useState<string[]>([
-    'manage_students',
-    'approve_students',
-    'manage_courses',
-    'manage_batches',
-    'manual_payment_entry',
-  ]);
+  const [createDepartment, setCreateDepartment] = useState<string>(DEPARTMENTS[0].code);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Edit Form state
   const [editName, setEditName] = useState('');
   const [editMobile, setEditMobile] = useState('');
   const [editDepartment, setEditDepartment] = useState('');
-  const [editPermissions, setEditPermissions] = useState<string[]>([]);
-
-  const availableAdminPermissions = [
-    { id: 'manage_students', label: 'Manage Student Profiles', desc: 'View, edit, search enrolled students' },
-    { id: 'approve_students', label: 'Approve Registrations (BR-002)', desc: 'Verify certificates & accept candidates' },
-    { id: 'manage_courses', label: 'Course Management', desc: 'Create, edit & manage syllabus curriculum' },
-    { id: 'manage_batches', label: 'Batch Operations', desc: 'Schedule batches, dates, and classroom capacities' },
-    { id: 'manage_teachers', label: 'Teacher Allocation', desc: 'Allocate instructors to specific batches' },
-    { id: 'manage_payments', label: 'Financial Ledgers', desc: 'Inspect student payment ledgers and receipts' },
-    { id: 'manual_payment_entry', label: 'Manual Payment Entry (BR-017)', desc: 'Record cash & direct bank deposits' },
-    { id: 'manage_discounts', label: 'Coupons & Scholarships', desc: 'Create discount codes and fee concessions' },
-    { id: 'manage_tests', label: 'Examination Management', desc: 'Schedule institute online assessments' },
-    { id: 'manage_certificates', label: 'Certificates Issuance', desc: 'Generate and verify student certificates' },
-    { id: 'manage_placements', label: 'Placement Drives', desc: 'Manage recruiters, jobs, and mock interviews' },
-    { id: 'view_reports', label: 'Institute Reports', desc: 'Generate operational CSV/Excel data exports' },
-  ];
 
   const loadAdmins = async () => {
     setIsLoading(true);
@@ -107,24 +111,17 @@ export const SuperAdminAdminListPage: React.FC = () => {
     loadAdmins();
   }, []);
 
-  const toggleCreatePermission = (permId: string) => {
-    setCreatePermissions((prev) =>
-      prev.includes(permId) ? prev.filter((p) => p !== permId) : [...prev, permId]
-    );
-  };
-
-  const toggleEditPermission = (permId: string) => {
-    setEditPermissions((prev) =>
-      prev.includes(permId) ? prev.filter((p) => p !== permId) : [...prev, permId]
-    );
-  };
-
   const handleCreateAdmin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
 
     if (!createName.trim() || !createEmail.trim()) {
       showToast({ type: 'warning', message: 'Name and email are required fields.' });
+      return;
+    }
+    const mobile = createMobile.replace(/\s+/g, '').replace(/^\+91/, '');
+    if (!/^[6-9]\d{9}$/.test(mobile)) {
+      showToast({ type: 'warning', message: 'Enter a valid 10-digit Indian mobile number.' });
       return;
     }
 
@@ -134,24 +131,29 @@ export const SuperAdminAdminListPage: React.FC = () => {
       {
         name: createName.trim(),
         email: createEmail.trim(),
-        mobile: createMobile.trim() || '+91 98765 00000',
+        mobile,
         department: createDepartment,
-        permissions: createPermissions,
       }
     );
     setIsSubmitting(false);
 
     if (res.success && res.data) {
-      setAdmins((prev) => [res.data, ...prev]);
+      const { temporaryPassword, ...created } = res.data;
+      setAdmins((prev) => [created, ...prev]);
       setCreateModalOpen(false);
       setCreateName('');
       setCreateEmail('');
       setCreateMobile('');
-      showToast({
-        type: 'success',
-        title: 'Admin Created',
-        message: `Admin account created for ${res.data.name} with ${createPermissions.length} permissions assigned. (SRS BR-018)`,
-      });
+      showToast({ type: 'success', title: 'Admin Created', message: `Admin account created for ${created.name}.` });
+      if (temporaryPassword) {
+        setOneTimePassword({
+          title: 'Admin account created',
+          name: created.name,
+          email: created.email,
+          password: temporaryPassword,
+          sessionsRevoked: false,
+        });
+      }
     } else {
       showToast({ type: 'error', title: 'Creation Failed', message: res.error || 'Failed to create admin.' });
     }
@@ -161,8 +163,7 @@ export const SuperAdminAdminListPage: React.FC = () => {
     setEditAdmin(adm);
     setEditName(adm.name);
     setEditMobile(adm.mobile || '');
-    setEditDepartment(adm.department || 'Academic Operations');
-    setEditPermissions(adm.permissions || []);
+    setEditDepartment(adm.department || DEPARTMENTS[0].code);
   };
 
   const handleSaveEdit = async (e: React.FormEvent) => {
@@ -177,7 +178,6 @@ export const SuperAdminAdminListPage: React.FC = () => {
         name: editName,
         mobile: editMobile,
         department: editDepartment,
-        permissions: editPermissions,
       }
     );
     setIsSubmitting(false);
@@ -188,7 +188,7 @@ export const SuperAdminAdminListPage: React.FC = () => {
       showToast({
         type: 'success',
         title: 'Admin Updated',
-        message: `Updated profile details and permissions for ${res.data.name}.`,
+        message: `Updated profile details for ${res.data.name}.`,
       });
     } else {
       showToast({ type: 'error', title: 'Update Failed', message: res.error || 'Failed to update admin.' });
@@ -224,18 +224,16 @@ export const SuperAdminAdminListPage: React.FC = () => {
   const handleTriggerPasswordReset = async (adm: AdminProfile) => {
     if (!user) return;
     const res = await superAdminService.resetAdminPassword({ id: user.id, name: user.name }, adm.id);
-    if (res.success && res.data) {
-      setResetPasswordModal({
-        admin: adm,
-        tempPass: res.data.temporaryPassword,
-        resetLink: res.data.resetLink,
-        copied: false,
+    if (res.success && res.data?.temporaryPassword) {
+      setOneTimePassword({
+        title: 'Password reset',
+        name: adm.name,
+        email: adm.email,
+        password: res.data.temporaryPassword,
+        sessionsRevoked: true,
       });
-      showToast({
-        type: 'success',
-        title: 'Temporary Password Issued',
-        message: `New credentials generated for ${adm.name}. Action logged to audit trail.`,
-      });
+    } else {
+      showToast({ type: 'error', title: 'Password Reset Failed', message: res.error || 'Could not reset the password.' });
     }
   };
 
@@ -248,7 +246,7 @@ export const SuperAdminAdminListPage: React.FC = () => {
         const q = searchQuery.toLowerCase();
         const matchesName = a.name.toLowerCase().includes(q);
         const matchesEmail = a.email.toLowerCase().includes(q);
-        const matchesDept = a.department.toLowerCase().includes(q);
+        const matchesDept = departmentLabel(a.department).toLowerCase().includes(q);
         return matchesName || matchesEmail || matchesDept;
       }
       return true;
@@ -318,11 +316,11 @@ export const SuperAdminAdminListPage: React.FC = () => {
               className="w-full py-2 px-3 text-xs border border-slate-200 rounded-lg bg-slate-50/50 focus:outline-none focus:ring-2 focus:ring-rose-500/20"
             >
               <option value="all">All Departments</option>
-              <option value="Academic Operations">Academic Operations</option>
-              <option value="Admissions & Student Welfare">Admissions &amp; Student Welfare</option>
-              <option value="Examination & Assessments">Examination &amp; Assessments</option>
-              <option value="Placements & Corporate">Placements &amp; Corporate</option>
-              <option value="Finance & Accounting">Finance &amp; Accounting</option>
+              {DEPARTMENTS.map((d) => (
+                <option key={d.code} value={d.code}>
+                  {d.label}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -351,7 +349,7 @@ export const SuperAdminAdminListPage: React.FC = () => {
                 <th className="py-3 px-4">Department</th>
                 <th className="py-3 px-4">Contact</th>
                 <th className="py-3 px-4">Status</th>
-                <th className="py-3 px-4">Permissions Assigned</th>
+                <th className="py-3 px-4">Role</th>
                 <th className="py-3 px-4">Last Activity</th>
                 <th className="py-3 px-4 text-right">Actions</th>
               </tr>
@@ -381,7 +379,7 @@ export const SuperAdminAdminListPage: React.FC = () => {
                     <td className="py-3.5 px-4 whitespace-nowrap font-medium text-slate-700">
                       <span className="inline-flex items-center gap-1.5">
                         <Building className="h-3.5 w-3.5 text-slate-400" />
-                        {adm.department}
+                        {departmentLabel(adm.department)}
                       </span>
                     </td>
 
@@ -409,14 +407,14 @@ export const SuperAdminAdminListPage: React.FC = () => {
                     <td className="py-3.5 px-4">
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 font-semibold text-[11px]">
                         <KeyRound className="h-3 w-3 text-slate-500" />
-                        {adm.permissions?.length || 0} Modules
+                        {adm.role === 'super_admin' ? 'Super Admin' : 'Admin'}
                       </span>
                     </td>
 
                     <td className="py-3.5 px-4 whitespace-nowrap font-mono text-[11px] text-slate-500">
-                      <span>{adm.lastLoginIp || '192.168.1.101'}</span>
+                      <span>{adm.lastLoginIp || '—'}</span>
                       <span className="block text-[10px] text-slate-400">
-                        {adm.createdAt ? formatDate(adm.createdAt) : 'Recently'}
+                        {adm.createdAt ? formatDate(adm.createdAt) : '—'}
                       </span>
                     </td>
 
@@ -440,16 +438,19 @@ export const SuperAdminAdminListPage: React.FC = () => {
                           <Edit2 className="h-3.5 w-3.5 text-indigo-600" />
                         </Button>
 
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleTriggerPasswordReset(adm)}
-                          title="Generate Temporary Password"
-                        >
-                          <RotateCcw className="h-3.5 w-3.5 text-amber-600" />
-                        </Button>
+                        {/* The server resets only `admin` accounts and never the caller's own. */}
+                        {adm.role === 'admin' && adm.id !== user?.id && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleTriggerPasswordReset(adm)}
+                            title="Generate Temporary Password"
+                          >
+                            <RotateCcw className="h-3.5 w-3.5 text-amber-600" />
+                          </Button>
+                        )}
 
-                        {adm.status === 'active' ? (
+                        {adm.id === user?.id ? null : adm.status === 'active' ? (
                           <Button
                             variant="ghost"
                             size="sm"
@@ -530,56 +531,23 @@ export const SuperAdminAdminListPage: React.FC = () => {
                   onChange={(e) => setCreateDepartment(e.target.value)}
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500/20"
                 >
-                  <option value="Academic Operations">Academic Operations</option>
-                  <option value="Admissions & Student Welfare">Admissions &amp; Student Welfare</option>
-                  <option value="Examination & Assessments">Examination &amp; Assessments</option>
-                  <option value="Placements & Corporate">Placements &amp; Corporate</option>
-                  <option value="Finance & Accounting">Finance &amp; Accounting</option>
+                  {DEPARTMENTS.map((d) => (
+                    <option key={d.code} value={d.code}>
+                      {d.label}
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>
 
-            {/* Granular Permission Toggles */}
-            <div className="space-y-2 border-t border-slate-100 pt-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="font-bold text-slate-900">Admin Permission Matrix</h4>
-                  <p className="text-slate-500 text-[11px]">
-                    Select operational capabilities granted to this administrative staff member.
-                  </p>
-                </div>
-                <span className="font-semibold text-rose-600 font-mono">
-                  {createPermissions.length} of {availableAdminPermissions.length} Active
+            {/* Fine-grained permissions: not yet persisted or enforced server-side. */}
+            <div className="border-t border-slate-100 pt-4">
+              <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 text-[11px] text-slate-600 flex items-start gap-2">
+                <KeyRound className="h-4 w-4 text-slate-500 shrink-0 mt-0.5" />
+                <span>
+                  Module-level permissions (BR-018) will be assignable here once the approved permission catalog is
+                  configured. Until then, every admin account has the standard Admin role access enforced by the server.
                 </span>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-60 overflow-y-auto p-1">
-                {availableAdminPermissions.map((perm) => {
-                  const isChecked = createPermissions.includes(perm.id);
-                  return (
-                    <label
-                      key={perm.id}
-                      className={`flex items-start gap-2.5 p-2.5 rounded-lg border cursor-pointer transition-colors ${
-                        isChecked
-                          ? 'bg-rose-50/50 border-rose-200 text-slate-900'
-                          : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={isChecked}
-                        onChange={() => toggleCreatePermission(perm.id)}
-                        className="mt-0.5 rounded text-rose-600 focus:ring-rose-500"
-                      />
-                      <div className="min-w-0">
-                        <span className="font-semibold block text-xs">{perm.label}</span>
-                        <span className="text-[10px] text-slate-500 leading-tight block">
-                          {perm.desc}
-                        </span>
-                      </div>
-                    </label>
-                  );
-                })}
               </div>
             </div>
 
@@ -617,7 +585,7 @@ export const SuperAdminAdminListPage: React.FC = () => {
               </div>
               <div>
                 <h3 className="font-bold text-slate-900 text-sm">{viewAdmin.name}</h3>
-                <p className="text-slate-500">{viewAdmin.department}</p>
+                <p className="text-slate-500">{departmentLabel(viewAdmin.department)}</p>
                 <div className="flex items-center gap-2 mt-1">
                   <Badge variant={viewAdmin.status === 'active' ? 'success' : 'warning'} size="sm" dot>
                     {viewAdmin.status.toUpperCase()}
@@ -638,26 +606,36 @@ export const SuperAdminAdminListPage: React.FC = () => {
               </div>
               <div className="p-3 bg-slate-50 rounded-lg">
                 <span className="text-[11px] text-slate-400 block">Account Created</span>
-                <span className="font-mono text-slate-800">{viewAdmin.createdAt ? formatDate(viewAdmin.createdAt) : '2026-06-15'}</span>
+                <span className="font-mono text-slate-800">{viewAdmin.createdAt ? formatDate(viewAdmin.createdAt) : '—'}</span>
               </div>
               <div className="p-3 bg-slate-50 rounded-lg">
                 <span className="text-[11px] text-slate-400 block">Last Active IP</span>
-                <span className="font-mono text-slate-800">{viewAdmin.lastLoginIp || '192.168.1.102'}</span>
+                <span className="font-mono text-slate-800">{viewAdmin.lastLoginIp || 'Not recorded'}</span>
               </div>
             </div>
 
-            <div className="space-y-2">
-              <h4 className="font-bold text-slate-900">Active Permissions ({viewAdmin.permissions?.length || 0})</h4>
-              <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto p-1">
-                {viewAdmin.permissions?.map((p) => (
-                  <span
-                    key={p}
-                    className="px-2.5 py-1 rounded-md bg-slate-100 text-slate-700 font-mono text-[10px] border border-slate-200"
-                  >
-                    {p}
-                  </span>
-                ))}
-              </div>
+            {/* AUTH-008: sign-in history (Super Admin only, from NXA_LoginHistory) */}
+            <div className="space-y-1 text-xs">
+              <span className="font-semibold text-slate-800 block">Recent Sign-In Activity</span>
+              {viewHistory === null ? (
+                <p className="text-slate-400">Loading…</p>
+              ) : viewHistoryError ? (
+                <p className="text-rose-700">{viewHistoryError}</p>
+              ) : viewHistory.length === 0 ? (
+                <p className="text-slate-400 italic">No sign-in activity recorded.</p>
+              ) : (
+                <div className="divide-y divide-slate-100 border border-slate-200 rounded-lg max-h-48 overflow-y-auto">
+                  {viewHistory.map((h) => (
+                    <div key={h.id} className="p-2 flex justify-between gap-2">
+                      <span className="font-mono text-slate-600">{new Date(h.timestamp).toLocaleString()}</span>
+                      <span className="text-slate-500">{h.ipAddress || '—'}</span>
+                      <Badge variant={h.status === 'success' ? 'success' : 'danger'} size="sm">
+                        {h.status === 'success' ? 'SIGNED IN' : `FAILED${h.failureReason ? `: ${h.failureReason}` : ''}`}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="pt-3 border-t border-slate-100 flex justify-end">
@@ -707,54 +685,23 @@ export const SuperAdminAdminListPage: React.FC = () => {
                   onChange={(e) => setEditDepartment(e.target.value)}
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500/20"
                 >
-                  <option value="Academic Operations">Academic Operations</option>
-                  <option value="Admissions & Student Welfare">Admissions &amp; Student Welfare</option>
-                  <option value="Examination & Assessments">Examination &amp; Assessments</option>
-                  <option value="Placements & Corporate">Placements &amp; Corporate</option>
-                  <option value="Finance & Accounting">Finance &amp; Accounting</option>
+                  {DEPARTMENTS.map((d) => (
+                    <option key={d.code} value={d.code}>
+                      {d.label}
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>
 
-            {/* Permission Toggles */}
-            <div className="space-y-2 border-t border-slate-100 pt-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="font-bold text-slate-900">Modify Permissions</h4>
-                  <p className="text-slate-500 text-[11px]">Update the module-level capabilities for this account.</p>
-                </div>
-                <span className="font-semibold text-indigo-600 font-mono">
-                  {editPermissions.length} Active
+            {/* Fine-grained permissions: not yet persisted or enforced server-side. */}
+            <div className="border-t border-slate-100 pt-4">
+              <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 text-[11px] text-slate-600 flex items-start gap-2">
+                <KeyRound className="h-4 w-4 text-slate-500 shrink-0 mt-0.5" />
+                <span>
+                  Module-level permissions (BR-018) will be assignable here once the approved permission catalog is
+                  configured. Until then, every admin account has the standard Admin role access enforced by the server.
                 </span>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-60 overflow-y-auto p-1">
-                {availableAdminPermissions.map((perm) => {
-                  const isChecked = editPermissions.includes(perm.id);
-                  return (
-                    <label
-                      key={perm.id}
-                      className={`flex items-start gap-2.5 p-2.5 rounded-lg border cursor-pointer transition-colors ${
-                        isChecked
-                          ? 'bg-indigo-50/50 border-indigo-200 text-slate-900'
-                          : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={isChecked}
-                        onChange={() => toggleEditPermission(perm.id)}
-                        className="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500"
-                      />
-                      <div className="min-w-0">
-                        <span className="font-semibold block text-xs">{perm.label}</span>
-                        <span className="text-[10px] text-slate-500 leading-tight block">
-                          {perm.desc}
-                        </span>
-                      </div>
-                    </label>
-                  );
-                })}
               </div>
             </div>
 
@@ -826,66 +773,14 @@ export const SuperAdminAdminListPage: React.FC = () => {
         </Modal>
       )}
 
-      {/* Modal 5: Password Reset Dispatched */}
-      {resetPasswordModal && (
-        <Modal
-          isOpen={!!resetPasswordModal}
-          onClose={() => setResetPasswordModal(null)}
-          title="Administrative Credential Reset"
-          size="md"
-        >
-          <div className="space-y-4 text-xs">
-            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg flex items-start gap-2.5">
-              <Check className="h-5 w-5 text-emerald-600 shrink-0 mt-0.5" />
-              <div className="text-emerald-950 leading-relaxed">
-                A secure one-time temporary password has been generated for{' '}
-                <strong>{resetPasswordModal.admin.name}</strong>. Provide this to the administrator. They
-                will be prompted to set a new password upon login.
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <span className="text-slate-500 font-semibold">Temporary Password</span>
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  readOnly
-                  value={resetPasswordModal.tempPass}
-                  className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-mono font-bold text-slate-900"
-                />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    navigator.clipboard.writeText(resetPasswordModal.tempPass);
-                    setResetPasswordModal({ ...resetPasswordModal, copied: true });
-                    showToast({ type: 'info', message: 'Temporary password copied to clipboard.' });
-                  }}
-                  leftIcon={resetPasswordModal.copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                >
-                  {resetPasswordModal.copied ? 'Copied' : 'Copy'}
-                </Button>
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <span className="text-slate-500 font-semibold">Reset Link Dispatch</span>
-              <input
-                type="text"
-                readOnly
-                value={resetPasswordModal.resetLink}
-                className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-mono text-[11px] text-slate-500"
-              />
-            </div>
-
-            <div className="pt-2 flex justify-end">
-              <Button variant="primary" size="sm" onClick={() => setResetPasswordModal(null)}>
-                Done
-              </Button>
-            </div>
-          </div>
-        </Modal>
-      )}
+      <OneTimePasswordModal
+        password={oneTimePassword?.password ?? null}
+        title={oneTimePassword?.title ?? ''}
+        accountName={oneTimePassword?.name ?? ''}
+        accountEmail={oneTimePassword?.email}
+        sessionsRevoked={oneTimePassword?.sessionsRevoked}
+        onClose={() => setOneTimePassword(null)}
+      />
     </div>
   );
 };

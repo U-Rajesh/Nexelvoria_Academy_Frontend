@@ -1,14 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Layers,
-  GraduationCap,
   Calendar,
-  BookOpen,
   Plus,
   Trash2,
-  CheckCircle2,
-  AlertCircle,
-  Clock,
   Users,
 } from 'lucide-react';
 import { adminService } from '../../services/adminService';
@@ -46,13 +40,11 @@ export const AdminTeacherAllocationPage: React.FC = () => {
       setTeachers(tRes.data);
       if (tRes.data.length > 0 && !selectedTeacherId) setSelectedTeacherId(tRes.data[0].id);
     }
-    if (cRes.success) {
-      setCourses(cRes.data);
-      if (cRes.data.length > 0 && !selectedCourseId) setSelectedCourseId(cRes.data[0].id);
-    }
-    if (bRes.success) {
-      setBatches(bRes.data);
-      if (bRes.data.length > 0 && !selectedBatchId) setSelectedBatchId(bRes.data[0].id);
+    if (cRes.success) setCourses(cRes.data);
+    if (bRes.success) setBatches(bRes.data);
+    const failed = [tRes, cRes, bRes].find((r) => !r.success);
+    if (failed) {
+      showToast({ type: 'error', title: 'Could not load allocation data', message: failed.error || 'Please retry.' });
     }
   };
 
@@ -60,18 +52,32 @@ export const AdminTeacherAllocationPage: React.FC = () => {
     loadData();
   }, []);
 
-  const applicableBatches = batches.filter((b) => !selectedCourseId || b.courseId === selectedCourseId);
+  // Approved decision: the batch must belong to the selected course, so only
+  // that course's open batches are offered.
+  const applicableBatches = batches.filter(
+    (b) => b.courseId === selectedCourseId && b.status !== 'completed' && b.status !== 'cancelled'
+  );
+
+  // Derived: a stale selection from another course falls back to the first
+  // open batch of the selected course.
+  const effectiveBatchId = applicableBatches.some((b) => b.id === selectedBatchId)
+    ? selectedBatchId
+    : applicableBatches[0]?.id ?? '';
 
   const handleAllocate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !selectedTeacherId || !selectedCourseId || !selectedBatchId) return;
+    if (!user) return;
+    if (!selectedTeacherId || !selectedCourseId || !effectiveBatchId) {
+      showToast({ type: 'warning', message: 'Select a teacher, a course and one of that course’s batches.' });
+      return;
+    }
 
     setIsSubmitting(true);
     const res = await adminService.allocateTeacher(
       { id: user.id, name: user.name },
       selectedTeacherId,
       selectedCourseId,
-      selectedBatchId
+      effectiveBatchId
     );
     setIsSubmitting(false);
 
@@ -83,6 +89,8 @@ export const AdminTeacherAllocationPage: React.FC = () => {
       });
       setIsModalOpen(false);
       loadData();
+    } else {
+      showToast({ type: 'error', title: 'Allocation failed', message: res.error || 'Could not allocate the teacher.' });
     }
   };
 
@@ -100,6 +108,8 @@ export const AdminTeacherAllocationPage: React.FC = () => {
         message: 'Faculty assignment unlinked from cohort.',
       });
       loadData();
+    } else {
+      showToast({ type: 'error', title: 'Could not remove allocation', message: res.error || 'Please retry.' });
     }
   };
 
@@ -136,7 +146,7 @@ export const AdminTeacherAllocationPage: React.FC = () => {
               teacher.assignedBatchIds.includes(b.id) || b.assignedTeacherIds.includes(teacher.id)
             );
             const totalStudentsSupervised = assignedBatches.reduce(
-              (sum, b) => sum + (b.enrolledStudentIds?.length || 0),
+              (sum, b) => sum + (b.enrolledCount ?? b.enrolledStudentIds?.length ?? 0),
               0
             );
 
@@ -237,13 +247,10 @@ export const AdminTeacherAllocationPage: React.FC = () => {
               <label className="block font-semibold text-slate-800 mb-1">Select Course Program *</label>
               <select
                 value={selectedCourseId}
-                onChange={(e) => {
-                  setSelectedCourseId(e.target.value);
-                  const firstBatch = batches.find((b) => b.courseId === e.target.value);
-                  if (firstBatch) setSelectedBatchId(firstBatch.id);
-                }}
+                onChange={(e) => setSelectedCourseId(e.target.value)}
                 className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
               >
+                <option value="">-- Select a course --</option>
                 {courses.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.title}
@@ -255,13 +262,17 @@ export const AdminTeacherAllocationPage: React.FC = () => {
             <div>
               <label className="block font-semibold text-slate-800 mb-1">Select Target Cohort Batch *</label>
               <select
-                value={selectedBatchId}
+                value={effectiveBatchId}
                 onChange={(e) => setSelectedBatchId(e.target.value)}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
+                disabled={!selectedCourseId}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium disabled:bg-slate-50"
               >
+                {applicableBatches.length === 0 && (
+                  <option value="">{selectedCourseId ? 'No open batches for this course' : '-- Select a course first --'}</option>
+                )}
                 {applicableBatches.map((b) => (
                   <option key={b.id} value={b.id}>
-                    {b.name} ({b.batchCode}) - {b.scheduleTiming}
+                    {b.name} ({b.batchCode}){b.scheduleTiming ? ` - ${b.scheduleTiming}` : ''}
                   </option>
                 ))}
               </select>

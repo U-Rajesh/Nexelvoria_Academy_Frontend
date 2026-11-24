@@ -1,35 +1,60 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  Users,
-  Search,
   UserPlus,
   Download,
   Filter,
   Eye,
-  CheckCircle2,
-  XCircle,
-  AlertCircle,
   School,
   Mail,
   Phone,
-  Calendar,
   MapPin,
   ExternalLink,
-  Lock,
   Unlock,
   FileText,
 } from 'lucide-react';
 import { adminService } from '../../services/adminService';
 import { useAuth } from '../../context/AuthContext';
 import { useNotification } from '../../context/NotificationContext';
-import { formatDate } from '../../utils/formatters';
+import { reportsService } from '../../services/reportsService';
 import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
 import { DataTable, type Column } from '../../components/tables/DataTable';
 import { Modal } from '../../components/feedback/Modal';
 import { Card } from '../../components/common/Card';
 import type { StudentProfile } from '../../types';
+
+/** Profile photo when one exists; otherwise the student's initial (never a stock photo). */
+const StudentAvatar: React.FC<{ student: StudentProfile; size: 'sm' | 'lg' }> = ({ student, size }) => {
+  const dims = size === 'sm' ? 'h-8 w-8 text-xs' : 'h-16 w-16 text-xl';
+  return student.avatarUrl ? (
+    <img src={student.avatarUrl} className={`${dims} rounded-full object-cover border border-slate-200`} alt={student.name} />
+  ) : (
+    <div
+      className={`${dims} rounded-full bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center border border-slate-200`}
+      aria-hidden="true"
+    >
+      {student.name.trim().charAt(0).toUpperCase() || '?'}
+    </div>
+  );
+};
+
+/**
+ * Mirrors the server rule: only an approved student with a verified email and
+ * mobile can be activated. Returns why not, or null when activation is allowed.
+ */
+/**
+ * CL-001 decision 2: approval, not a separate activation, opens the account,
+ * so "active" and "pending" accounts are both in use and can be suspended;
+ * only a suspended or deactivated account is reinstated.
+ */
+const isInUse = (s: StudentProfile): boolean => s.status === 'active' || s.status === 'pending';
+
+const activationBlocker = (s: StudentProfile): string | null => {
+  if (s.adminApprovalStatus !== 'approved') return 'Only an approved student can be activated.';
+  if (!s.isEmailVerified) return 'The email must be verified before activation.';
+  return null;
+};
 
 export const AdminStudentListPage: React.FC = () => {
   const { user } = useAuth();
@@ -40,9 +65,16 @@ export const AdminStudentListPage: React.FC = () => {
   const [approvalFilter, setApprovalFilter] = useState<string>('all');
   const [accountStateFilter, setAccountStateFilter] = useState<string>('all');
 
+  const [loadError, setLoadError] = useState<string | null>(null);
+
   const loadStudents = async () => {
     const res = await adminService.getStudents();
-    if (res.success) setStudents(res.data);
+    if (res.success) {
+      setStudents(res.data);
+      setLoadError(null);
+    } else {
+      setLoadError(res.error || 'Students could not be loaded.');
+    }
   };
 
   useEffect(() => {
@@ -51,19 +83,33 @@ export const AdminStudentListPage: React.FC = () => {
 
   const handleStatusToggle = async (student: StudentProfile) => {
     if (!user) return;
-    const nextStatus = student.status === 'active' ? 'suspended' : 'active';
-    const res = await adminService.updateStudentStatus({ id: user.id, name: user.name }, student.id, nextStatus);
+    const nextStatus = isInUse(student) ? 'suspended' : 'active';
+    if (
+      nextStatus === 'suspended' &&
+      !window.confirm(`Suspend ${student.name}? They will be signed out immediately.`)
+    ) {
+      return;
+    }
+    await applyStatus(student, nextStatus);
+  };
 
+  const handleDeactivate = async (student: StudentProfile) => {
+    if (!user) return;
+    if (!window.confirm(`Deactivate ${student.name}? They will be signed out and unable to log in.`)) return;
+    await applyStatus(student, 'deactivated');
+  };
+
+  const applyStatus = async (student: StudentProfile, status: 'active' | 'suspended' | 'deactivated') => {
+    if (!user) return;
+    const res = await adminService.updateStudentStatus({ id: user.id, name: user.name }, student.id, status);
     if (res.success) {
-      showToast({
-        type: 'info',
-        title: 'Status Updated',
-        message: `${student.name}'s account is now ${nextStatus.toUpperCase()}.`,
-      });
+      showToast({ type: 'info', title: 'Status Updated', message: `${student.name}'s account is now ${status.toUpperCase()}.` });
       loadStudents();
-      if (selectedStudent && selectedStudent.id === student.id) {
+      if (selectedStudent && selectedStudent.id === student.id && res.data) {
         setSelectedStudent(res.data);
       }
+    } else {
+      showToast({ type: 'error', title: 'Status not changed', message: res.error || 'Please retry.' });
     }
   };
 
@@ -74,44 +120,26 @@ export const AdminStudentListPage: React.FC = () => {
       showToast({
         type: 'success',
         title: 'Account Unlocked',
-        message: `Account lockout cleared for ${student.name}.`,
+        message: `Login lockout cleared for ${student.name}. Their account status is unchanged.`,
       });
       loadStudents();
+      // The unlock endpoint returns no record; close the stale detail view.
       if (selectedStudent && selectedStudent.id === student.id) {
-        setSelectedStudent(res.data);
+        setSelectedStudent(null);
       }
+    } else {
+      showToast({ type: 'error', title: 'Unlock failed', message: res.error || 'Please retry.' });
     }
   };
 
-  const handleExportCSV = () => {
-    const headers = ['ID', 'Name', 'Email', 'Mobile', 'College', 'Degree', 'Passing Year', 'Course', 'Approval', 'State', 'Status'];
-    const rows = students.map((s) => [
-      s.id,
-      `"${s.name}"`,
-      s.email,
-      s.mobile,
-      `"${s.collegeName || ''}"`,
-      `"${s.degreeBranch || ''}"`,
-      s.passingYear || '',
-      `"${s.courseInterestedIn || ''}"`,
-      s.adminApprovalStatus,
-      s.accountState || s.status,
-      s.status,
-    ]);
-    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `nexelvoria_students_${Date.now()}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-
-    showToast({
-      type: 'success',
-      title: 'Export Complete',
-      message: 'Student directory exported to CSV format.',
-    });
+  const handleExportCSV = async () => {
+    // Generated by the server from every recorded student (not only the rows loaded on this screen).
+    const res = await reportsService.exportReport('students', 'csv', {});
+    showToast(
+      res.success && res.data
+        ? { type: 'success', title: 'Export Complete', message: `${res.data.fileName} (${res.data.rows} rows). Filtered exports, Excel and PDF are in Reports.` }
+        : { type: 'error', title: 'Export Failed', message: res.error || 'The export could not be generated.' }
+    );
   };
 
   const filteredStudents = students.filter((s) => {
@@ -128,11 +156,7 @@ export const AdminStudentListPage: React.FC = () => {
       sortable: true,
       render: (s) => (
         <div className="flex items-center gap-2.5">
-          <img
-            src={s.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80'}
-            className="h-8 w-8 rounded-full object-cover border border-slate-200"
-            alt={s.name}
-          />
+          <StudentAvatar student={s} size="sm" />
           <div>
             <span className="font-bold text-slate-900 block text-xs">{s.name}</span>
             <span className="text-[11px] text-slate-500 font-mono">{s.email}</span>
@@ -146,7 +170,10 @@ export const AdminStudentListPage: React.FC = () => {
       render: (s) => (
         <div>
           <span className="font-semibold text-slate-800 block text-xs truncate max-w-[200px]">{s.collegeName || 'N/A'}</span>
-          <span className="text-[11px] text-slate-500">{s.degreeBranch || ''} ({s.passingYear || ''})</span>
+          <span className="text-[11px] text-slate-500">
+            {s.degreeBranch || 'Degree not provided'}
+            {s.passingYear ? ` (${s.passingYear})` : ''}
+          </span>
         </div>
       ),
     },
@@ -155,7 +182,7 @@ export const AdminStudentListPage: React.FC = () => {
       header: 'Target Track',
       render: (s) => (
         <span className="text-xs font-medium text-indigo-700 block truncate max-w-[180px]">
-          {s.courseInterestedIn || 'Full Stack Track'}
+          {s.courseInterestedIn || 'Not specified'}
         </span>
       ),
     },
@@ -192,7 +219,7 @@ export const AdminStudentListPage: React.FC = () => {
 
         return (
           <Badge variant={variant} size="sm">
-            {state.toUpperCase().replace('_', ' ')}
+            {state.toUpperCase().replace(/_/g, ' ')}
           </Badge>
         );
       },
@@ -227,13 +254,15 @@ export const AdminStudentListPage: React.FC = () => {
               variant="outline"
               size="sm"
               onClick={() => handleStatusToggle(s)}
+              disabled={!isInUse(s) && activationBlocker(s) !== null}
+              title={!isInUse(s) ? activationBlocker(s) ?? undefined : undefined}
               className={`text-[11px] ${
-                s.status === 'active'
+                isInUse(s)
                   ? 'border-rose-200 text-rose-600 hover:bg-rose-50'
                   : 'border-emerald-200 text-emerald-600 hover:bg-emerald-50'
               }`}
             >
-              {s.status === 'active' ? 'Suspend' : 'Activate'}
+              {isInUse(s) ? 'Suspend' : 'Reinstate'}
             </Button>
           )}
         </div>
@@ -261,7 +290,7 @@ export const AdminStudentListPage: React.FC = () => {
           >
             Export CSV
           </Button>
-          <Link to="/admin/students/add">
+          <Link to="/admin/students/add" title="Creates a pending account; the student verifies their email before approval.">
             <Button variant="primary" size="sm" leftIcon={<UserPlus className="h-4 w-4" />}>
               Add Student
             </Button>
@@ -323,6 +352,10 @@ export const AdminStudentListPage: React.FC = () => {
         </span>
       </Card>
 
+      {loadError && (
+        <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-xs text-rose-800">{loadError}</div>
+      )}
+
       {/* Main Table */}
       <DataTable
         data={filteredStudents}
@@ -342,11 +375,7 @@ export const AdminStudentListPage: React.FC = () => {
           <div className="space-y-6 text-xs text-slate-700">
             {/* Header Profile Info */}
             <div className="flex items-center gap-4 p-4 rounded-xl bg-slate-50 border border-slate-200">
-              <img
-                src={selectedStudent.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80'}
-                className="h-16 w-16 rounded-full object-cover border border-slate-300"
-                alt={selectedStudent.name}
-              />
+              <StudentAvatar student={selectedStudent} size="lg" />
               <div className="space-y-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <h3 className="text-base font-bold text-slate-900">{selectedStudent.name}</h3>
@@ -379,6 +408,10 @@ export const AdminStudentListPage: React.FC = () => {
                   <Mail className="h-3.5 w-3.5" /> {selectedStudent.email} • <Phone className="h-3.5 w-3.5 ml-2" /> +91 {selectedStudent.mobile}
                 </p>
                 <p className="text-[11px] text-slate-400 font-mono">Student ID: {selectedStudent.id}</p>
+                <p className="text-[11px] text-slate-500">
+                  Email {selectedStudent.isEmailVerified ? 'verified' : 'not verified'} • Mobile{' '}
+                  {selectedStudent.isMobileVerified ? 'verified' : 'not verified (deferred, CL-001)'}
+                </p>
               </div>
             </div>
 
@@ -432,10 +465,9 @@ export const AdminStudentListPage: React.FC = () => {
               </h4>
               <div className="flex items-center gap-2">
                 <span className="text-slate-500">Resume File:</span>
-                <span className="font-semibold text-slate-800 bg-slate-100 px-2 py-0.5 rounded">
-                  {selectedStudent.resumeFileName || 'Candidate_CV.pdf'}
+                <span className="font-semibold text-slate-800">
+                  {selectedStudent.resumeFileName || 'No resume on file'}
                 </span>
-                <span className="text-slate-400">({selectedStudent.resumeFileSize || '1.5 MB'})</span>
               </div>
 
               {selectedStudent.linkedInUrl && (
@@ -467,12 +499,21 @@ export const AdminStudentListPage: React.FC = () => {
                   </Button>
                 )}
                 <Button
-                  variant={selectedStudent.status === 'active' ? 'danger' : 'primary'}
+                  variant={isInUse(selectedStudent) ? 'danger' : 'primary'}
                   size="sm"
                   onClick={() => handleStatusToggle(selectedStudent)}
+                  disabled={!isInUse(selectedStudent) && activationBlocker(selectedStudent) !== null}
                 >
-                  {selectedStudent.status === 'active' ? 'Suspend Account' : 'Activate Account'}
+                  {isInUse(selectedStudent) ? 'Suspend Account' : 'Reinstate Account'}
                 </Button>
+                {!isInUse(selectedStudent) && activationBlocker(selectedStudent) && (
+                  <span className="text-[11px] text-amber-700">{activationBlocker(selectedStudent)}</span>
+                )}
+                {selectedStudent.status !== 'deactivated' && (
+                  <Button variant="outline" size="sm" onClick={() => handleDeactivate(selectedStudent)}>
+                    Deactivate
+                  </Button>
+                )}
               </div>
 
               <Button variant="outline" size="sm" onClick={() => setSelectedStudent(null)}>

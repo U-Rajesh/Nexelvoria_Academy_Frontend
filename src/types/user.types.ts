@@ -59,7 +59,8 @@ export interface TeacherProfile extends User {
 }
 
 export interface AdminProfile extends User {
-  role: 'admin';
+  /** The admin list endpoint returns both admin and super_admin accounts. */
+  role: 'admin' | 'super_admin';
   department: string;
   permissions: string[]; // e.g., 'manage_students', 'manage_courses', 'manage_payments'
   lastLoginIp?: string;

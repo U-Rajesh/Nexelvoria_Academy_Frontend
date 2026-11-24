@@ -3,6 +3,8 @@ export interface ApiResponse<T> {
   data: T;
   message?: string;
   error?: string;
+  /** The server's machine-readable error code, when a call returns one (e.g. BATCH_FULL). */
+  errorCode?: string;
 }
 
 export interface PaginatedResult<T> {

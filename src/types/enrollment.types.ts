@@ -6,6 +6,19 @@ export type EnrollmentStatus =
   | 'cancelled'
   | 'suspended';
 
+/** An enrollment as returned to administrators, with display and fee fields. */
+export interface AdminEnrollmentRow extends Enrollment {
+  studentName?: string;
+  studentEmail?: string;
+  courseTitle?: string;
+  batchCode?: string;
+  enrollmentNumber: string;
+  coursePrice: number;
+  discountAmount: number;
+  finalAmount: number;
+  activatedAt?: string;
+}
+
 export interface Enrollment {
   id: string;
   studentId: string;

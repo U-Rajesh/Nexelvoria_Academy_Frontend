@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { MaintenanceNotice } from '../components/common/MaintenanceNotice';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   GraduationCap,
@@ -31,12 +32,61 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/common/Button';
 import { Badge } from '../components/common/Badge';
+import { studentService } from '../services/studentService';
+
+/**
+ * CL-001 decision 1: while Admin approval is pending a student has LIMITED
+ * access - own profile and approval status, enrollment list, payment history,
+ * notifications and support tickets. The server enforces this; the portal
+ * mirrors it so the student is not shown features that would be refused.
+ */
+const LIMITED_ACCESS_PATHS = [
+  '/student/profile',
+  '/student/courses',
+  '/student/payment-history',
+  '/student/notifications',
+  '/student/support',
+  // COM-010: the server allows messaging while approval is pending.
+  '/student/messages',
+];
+
+const LimitedAccessNotice: React.FC = () => (
+  <div className="max-w-2xl mx-auto mt-8 p-6 rounded-xl border border-amber-200 bg-amber-50 text-amber-900 space-y-3">
+    <h2 className="text-lg font-bold">Your registration is awaiting Admin approval</h2>
+    <p className="text-sm">
+      Your email is verified. Until an administrator approves your registration you can view your profile and approval
+      status, your enrollments and payment history, your notifications, and raise support tickets.
+    </p>
+    <p className="text-sm">
+      Course selection, payments, learning content, placements and certificates become available after approval.
+    </p>
+    <div className="flex flex-wrap gap-2 pt-1">
+      <Link to="/student/profile" className="text-sm font-semibold text-indigo-700 hover:underline">
+        View my profile
+      </Link>
+      <span aria-hidden="true">·</span>
+      <Link to="/student/support" className="text-sm font-semibold text-indigo-700 hover:underline">
+        Contact support
+      </Link>
+    </div>
+  </div>
+);
 
 export const StudentLayout: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { user, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
+
+  // Approval status from the server (GET /students/me), never assumed.
+  const [approval, setApproval] = useState<string | null>(null);
+  useEffect(() => {
+    studentService.getStudentProfile().then((res) => {
+      if (res.success && res.data) setApproval(res.data.adminApprovalStatus ?? null);
+    });
+  }, []);
+  const limited = approval === 'pending';
+  const pathAllowed = LIMITED_ACCESS_PATHS.some((p) => location.pathname.startsWith(p));
 
   const navItems = [
     { label: 'Dashboard', path: '/student/dashboard', icon: <LayoutDashboard className="h-4 w-4" /> },
@@ -59,6 +109,7 @@ export const StudentLayout: React.FC = () => {
     { label: 'Notifications', path: '/student/notifications', icon: <Bell className="h-4 w-4" /> },
     { label: 'Account Security', path: '/student/security', icon: <ShieldCheck className="h-4 w-4" /> },
     { label: 'Support Tickets', path: '/student/support', icon: <HelpCircle className="h-4 w-4" /> },
+    { label: 'Messages', path: '/student/messages', icon: <HelpCircle className="h-4 w-4" /> },
     { label: 'Change Password', path: '/student/change-password', icon: <KeyRound className="h-4 w-4" /> },
   ];
 
@@ -69,6 +120,7 @@ export const StudentLayout: React.FC = () => {
 
   return (
     <div className="min-h-screen flex bg-slate-50 text-slate-800 antialiased">
+      <MaintenanceNotice />
       {/* Mobile Sidebar Overlay */}
       {sidebarOpen && (
         <div
@@ -119,7 +171,13 @@ export const StudentLayout: React.FC = () => {
             <div className="flex items-center gap-1.5 mt-0.5">
               {(() => {
                 const s = user as any;
-                const state = s?.accountState || (s?.status === 'active' ? 'approved' : 'pending_approval');
+                // Approval, not account activation, opens the portal (CL-001 decision 2).
+                const state =
+                  approval === 'approved'
+                    ? 'approved'
+                    : approval === 'pending'
+                    ? 'pending_approval'
+                    : s?.accountState || 'pending_approval';
                 if (state === 'approved') {
                   const hasCourses = (s?.enrolledCourseIds || []).length > 0;
                   return (
@@ -168,7 +226,7 @@ export const StudentLayout: React.FC = () => {
 
         {/* Navigation Items */}
         <nav className="flex-1 px-3 py-2 space-y-1 overflow-y-auto">
-          {navItems.map((item) => {
+          {(limited ? navItems.filter((i) => LIMITED_ACCESS_PATHS.includes(i.path)) : navItems).map((item) => {
             const isActive = location.pathname === item.path;
             return (
               <Link
@@ -244,7 +302,12 @@ export const StudentLayout: React.FC = () => {
 
         {/* Page Content */}
         <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
-          <Outlet />
+          {limited && pathAllowed && (
+            <div className="mb-4 p-3 rounded-lg border border-amber-200 bg-amber-50 text-xs text-amber-900">
+              Your registration is awaiting Admin approval. Some features are unavailable until you are approved.
+            </div>
+          )}
+          {limited && !pathAllowed ? <LimitedAccessNotice /> : <Outlet />}
         </main>
       </div>
     </div>

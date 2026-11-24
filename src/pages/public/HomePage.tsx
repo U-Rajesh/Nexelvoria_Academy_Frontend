@@ -85,15 +85,19 @@ export const HomePage: React.FC = () => {
     };
   }, []);
 
-  const handleCallbackSubmit = (e: React.FormEvent) => {
+  const handleCallbackSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    cmsService.submitEnquiry({
+    const sent = await cmsService.submitEnquiry({
       type: 'callback',
       name: callbackForm.name,
       phone: callbackForm.phone,
       courseOfInterest: callbackForm.course,
       preferredTimeSlot: 'Immediate Callback',
     });
+    if (!sent.success) {
+      showToast({ type: 'error', title: 'Not sent', message: sent.error || 'Your request could not be sent. Please try again.' });
+      return;
+    }
     analytics.trackEvent('submit_callback', 'Lead', callbackForm.course);
     setCallbackModalOpen(false);
     showToast({
@@ -104,9 +108,9 @@ export const HomePage: React.FC = () => {
     setCallbackForm({ name: '', phone: '', course: '' });
   };
 
-  const handleEnquirySubmit = (e: React.FormEvent) => {
+  const handleEnquirySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    cmsService.submitEnquiry({
+    const sent = await cmsService.submitEnquiry({
       type: 'course_admission',
       name: enquiryForm.name,
       email: enquiryForm.email,
@@ -114,11 +118,15 @@ export const HomePage: React.FC = () => {
       courseOfInterest: enquiryForm.course,
       message: enquiryForm.message,
     });
+    if (!sent.success) {
+      showToast({ type: 'error', title: 'Not sent', message: sent.error || 'Your request could not be sent. Please try again.' });
+      return;
+    }
     analytics.trackEvent('submit_home_enquiry', 'Lead', enquiryForm.course);
     showToast({
       type: 'success',
       title: 'Course Enquiry Submitted',
-      message: 'Thank you! An admissions brochure, syllabus guide, and fee details have been dispatched to your email.',
+      message: 'Thank you! Your course enquiry was received. Our admissions team will contact you.',
     });
     setEnquiryForm({ name: '', email: '', phone: '', course: '', message: '' });
   };

@@ -32,7 +32,7 @@ export const ForgotPasswordPage: React.FC = () => {
   const [identifierError, setIdentifierError] = useState<string | null>(null);
 
   // Step 2: OTP
-  const [otp, setOtp] = useState('123456');
+  const [otp, setOtp] = useState('');
   const [isSubmittingOtp, setIsSubmittingOtp] = useState(false);
   const [otpError, setOtpError] = useState<string | null>(null);
   const [countdown, setCountdown] = useState(60);
@@ -61,7 +61,12 @@ export const ForgotPasswordPage: React.FC = () => {
 
     const trimmed = identifier.trim();
     if (!trimmed) {
-      setIdentifierError('Please enter your registered email address or mobile number.');
+      setIdentifierError('Please enter the email address of your account.');
+      return;
+    }
+    // Reset codes are delivered by email only (SMS is disabled, BR-014).
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+      setIdentifierError('Enter the email address of your account; reset codes are sent by email.');
       return;
     }
 
@@ -76,7 +81,7 @@ export const ForgotPasswordPage: React.FC = () => {
       showToast({
         type: 'info',
         title: 'Recovery Code Dispatched',
-        message: 'A 6-digit password reset code has been sent. (Demo code: 123456)',
+        message: 'If an account uses this email, a 6-digit reset code has been sent to it. It expires in 5 minutes.',
       });
     } else {
       setIdentifierError(res.error || 'Account not found. Please verify identifier.');
@@ -93,19 +98,16 @@ export const ForgotPasswordPage: React.FC = () => {
       return;
     }
 
+    // The code is checked by the server together with the new password, so
+    // nothing is claimed as verified here.
     setIsSubmittingOtp(true);
     const res = await authService.verifyResetOtp(identifier, otp);
     setIsSubmittingOtp(false);
 
     if (res.success) {
       setStep(3);
-      showToast({
-        type: 'success',
-        title: 'Identity Verified',
-        message: 'You can now set a new secure password.',
-      });
     } else {
-      setOtpError(res.error || 'Invalid recovery code. (Demo code: 123456)');
+      setOtpError(res.error || 'Please enter the 6-digit code from the email.');
     }
   };
 
@@ -119,7 +121,7 @@ export const ForgotPasswordPage: React.FC = () => {
       showToast({
         type: 'info',
         title: 'Code Re-sent',
-        message: 'A fresh recovery code was sent. (Demo: 123456)',
+        message: 'If an account uses this email, a new reset code has been sent.',
       });
     } else {
       setOtpError(res.error || 'Failed to resend code.');
@@ -153,16 +155,20 @@ export const ForgotPasswordPage: React.FC = () => {
     }
 
     setIsSubmittingPassword(true);
-    const res = await authService.resetPassword(identifier, newPassword);
+    const res = await authService.resetPassword(identifier, newPassword, otp);
     setIsSubmittingPassword(false);
 
     if (res.success) {
       setStep(4);
       showToast({
         type: 'success',
-        title: 'Password Successfully Changed',
-        message: 'Your account password has been updated and unlocked.',
+        title: 'Password Reset',
+        message: res.message || 'Your password was reset and every session was signed out.',
       });
+    } else if (res.errorCode === 'RESET_CODE_INVALID') {
+      // Wrong, expired or already used code: back to the code step.
+      setStep(2);
+      setOtpError(res.error || 'The reset code is invalid or has expired. Request a new code.');
     } else {
       setPasswordError(res.error || 'Failed to reset password. Please retry.');
     }
@@ -232,23 +238,19 @@ export const ForgotPasswordPage: React.FC = () => {
 
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Registered Email or Mobile Number
+              Registered Email Address
             </label>
             <div className="relative">
               <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
               <input
-                type="text"
+                type="email"
                 required
                 value={identifier}
                 onChange={(e) => setIdentifier(e.target.value)}
-                placeholder="e.g. rohan.sharma@gmail.com or 9876543210"
+                placeholder="e.g. rohan.sharma@gmail.com"
                 className="w-full pl-9 pr-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900"
               />
             </div>
-            <p className="text-[11px] text-slate-400 mt-1">
-              Test accounts: <span className="font-mono text-slate-600">rohan.sharma@gmail.com</span> or{' '}
-              <span className="font-mono text-slate-600">ananya.patel@outlook.com</span>
-            </p>
           </div>
 
           <Button
@@ -279,9 +281,6 @@ export const ForgotPasswordPage: React.FC = () => {
               <span className="block font-semibold">Verification Code Sent</span>
               <span className="text-[11px] text-indigo-700">{maskedTarget || identifier}</span>
             </div>
-            <span className="font-mono text-xs bg-indigo-200/60 text-indigo-900 px-2 py-0.5 rounded font-bold">
-              Demo: 123456
-            </span>
           </div>
 
           <div>
@@ -293,7 +292,7 @@ export const ForgotPasswordPage: React.FC = () => {
               maxLength={6}
               value={otp}
               onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
-              placeholder="123456"
+              placeholder="••••••"
               className="w-full text-center font-mono tracking-widest text-lg font-bold py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900"
             />
           </div>

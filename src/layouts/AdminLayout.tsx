@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
+import { MaintenanceNotice } from '../components/common/MaintenanceNotice';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   GraduationCap,
+  KeyRound,
   LayoutDashboard,
   UserCheck,
   Users,
@@ -85,9 +87,11 @@ export const AdminLayout: React.FC = () => {
     { label: 'Website CMS', path: '/admin/website-cms', icon: <Globe className="h-4 w-4" /> },
     { label: 'Reports & Analytics', path: '/admin/reports', icon: <BarChart3 className="h-4 w-4" /> },
     { label: 'Support Tickets', path: '/admin/support', icon: <HelpCircle className="h-4 w-4" /> },
+    { label: 'Messages', path: '/admin/messages', icon: <HelpCircle className="h-4 w-4" /> },
     { label: 'Roles & Permissions', path: '/admin/roles-permissions', icon: <ShieldCheck className="h-4 w-4" /> },
     { label: 'Activity Logs', path: '/admin/activity-logs', icon: <History className="h-4 w-4" /> },
     { label: 'Institute Settings', path: '/admin/settings', icon: <Sliders className="h-4 w-4" /> },
+    { label: 'Account Security', path: '/admin/security', icon: <KeyRound className="h-4 w-4" /> },
   ];
 
   const handleLogout = () => {
@@ -97,6 +101,7 @@ export const AdminLayout: React.FC = () => {
 
   return (
     <div className="min-h-screen flex bg-slate-50 text-slate-800 antialiased">
+      <MaintenanceNotice />
       {/* Mobile Sidebar Overlay */}
       {sidebarOpen && (
         <div

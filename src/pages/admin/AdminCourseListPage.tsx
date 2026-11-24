@@ -8,8 +8,6 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { adminService } from '../../services/adminService';
-import { STORAGE_KEYS } from '../../constants/appConfig';
-import { useStorageSync } from '../../hooks/useStorageSync';
 import { useAuth } from '../../context/AuthContext';
 import { useNotification } from '../../context/NotificationContext';
 import { formatINR } from '../../utils/formatters';
@@ -33,73 +31,54 @@ export const AdminCourseListPage: React.FC = () => {
   // Syllabus Editor State
   const [syllabusCourse, setSyllabusCourse] = useState<Course | null>(null);
 
-  // Form State
+  // Form State: only fields the course table can store (see notice in the form).
   const [title, setTitle] = useState('');
   const [courseCode, setCourseCode] = useState('');
-  const [slug, setSlug] = useState('');
-  const [category, setCategory] = useState<
-    'Software Development' | 'Data & AI' | 'Cloud & DevOps' | 'Cybersecurity' | 'Testing'
-  >('Software Development');
   const [shortDescription, setShortDescription] = useState('');
   const [longDescription, setLongDescription] = useState('');
   const [durationWeeks, setDurationWeeks] = useState(16);
-  const [totalHours, setTotalHours] = useState(160);
-  const [feeINR, setFeeINR] = useState(45000);
-  const [discountedFeeINR, setDiscountedFeeINR] = useState(38000);
-  const [level, setLevel] = useState<'Beginner' | 'Intermediate' | 'Advanced'>('Intermediate');
-  const [technologies, setTechnologies] = useState('Java, Spring Boot, Microservices, Docker');
-  const [prerequisites, setPrerequisites] = useState('Basic programming intuition');
-  const [learningOutcomes, setLearningOutcomes] = useState('Enterprise Architecture, Production Deployment');
-  const [status, setStatus] = useState<CourseStatus>('Published');
+  const [feeINR, setFeeINR] = useState(0);
+  const [level, setLevel] = useState<'Beginner' | 'Intermediate' | 'Advanced'>('Beginner');
+  const [status, setStatus] = useState<CourseStatus>('Draft');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const loadCourses = async () => {
     const res = await adminService.getCourses();
-    if (res.success) setCourses(res.data);
+    if (res.success) {
+      setCourses(res.data);
+      setLoadError(null);
+    } else {
+      setLoadError(res.error || 'Courses could not be loaded.');
+    }
   };
 
   useEffect(() => {
     loadCourses();
   }, []);
 
-  useStorageSync(STORAGE_KEYS.COURSES, loadCourses);
-
   const handleOpenCreate = () => {
     setEditingCourse(null);
     setTitle('');
-    setCourseCode(`CRS-${Math.floor(100 + Math.random() * 900)}`);
-    setSlug('');
-    setCategory('Software Development');
+    setCourseCode('');
     setShortDescription('');
     setLongDescription('');
     setDurationWeeks(16);
-    setTotalHours(160);
-    setFeeINR(45000);
-    setDiscountedFeeINR(38000);
-    setLevel('Intermediate');
-    setTechnologies('Java, Spring Boot, Microservices, Docker');
-    setPrerequisites('Basic programming intuition');
-    setLearningOutcomes('Enterprise Architecture, Production Deployment');
-    setStatus('Published');
+    setFeeINR(0);
+    setLevel('Beginner');
+    setStatus('Draft');
     setIsModalOpen(true);
   };
 
   const handleOpenEdit = (course: Course) => {
     setEditingCourse(course);
     setTitle(course.title);
-    setCourseCode(course.courseCode || `CRS-${course.id.slice(-3).toUpperCase()}`);
-    setSlug(course.slug);
-    setCategory(course.category);
+    setCourseCode(course.courseCode || course.slug);
     setShortDescription(course.shortDescription);
-    setLongDescription(course.longDescription || course.shortDescription);
+    setLongDescription(course.longDescription);
     setDurationWeeks(course.durationWeeks);
-    setTotalHours(course.totalHours);
     setFeeINR(course.feeINR);
-    setDiscountedFeeINR(course.discountedFeeINR || course.feeINR);
     setLevel(course.level);
-    setTechnologies(course.technologies.join(', '));
-    setPrerequisites(course.prerequisites?.join(', ') || '');
-    setLearningOutcomes(course.learningOutcomes?.join(', ') || '');
     setStatus(course.status || (course.isPublished ? 'Published' : 'Draft'));
     setIsModalOpen(true);
   };
@@ -108,12 +87,10 @@ export const AdminCourseListPage: React.FC = () => {
     if (!user) return;
     const res = await adminService.toggleCoursePublish({ id: user.id, name: user.name }, courseId);
     if (res.success) {
-      showToast({
-        type: 'info',
-        title: 'Course Visibility Updated',
-        message: res.message || 'Course visibility updated.',
-      });
+      showToast({ type: 'info', title: 'Course Visibility Updated', message: res.message || 'Course visibility updated.' });
       loadCourses();
+    } else {
+      showToast({ type: 'error', title: 'Could not change visibility', message: res.error || 'Please retry.' });
     }
   };
 
@@ -122,12 +99,10 @@ export const AdminCourseListPage: React.FC = () => {
     if (window.confirm(`Archive "${course.title}"? It will no longer accept new student enrollments.`)) {
       const res = await adminService.archiveCourse({ id: user.id, name: user.name }, course.id);
       if (res.success) {
-        showToast({
-          type: 'warning',
-          title: 'Course Archived',
-          message: `${course.title} has been moved to the archived catalog.`,
-        });
+        showToast({ type: 'warning', title: 'Course Archived', message: `${course.title} has been archived.` });
         loadCourses();
+      } else {
+        showToast({ type: 'error', title: 'Could not archive course', message: res.error || 'Please retry.' });
       }
     }
   };
@@ -135,78 +110,55 @@ export const AdminCourseListPage: React.FC = () => {
   const handleSaveCourse = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !title.trim()) return;
+    const admin = { id: user.id, name: user.name };
+    const code = courseCode.trim().toLowerCase();
+    if (!editingCourse && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(code)) {
+      showToast({
+        type: 'warning',
+        message: 'Course code: lowercase letters, digits and single hyphens only (it is also the public URL).',
+      });
+      return;
+    }
 
     setIsSubmitting(true);
-    const techArray = technologies.split(',').map((t) => t.trim()).filter(Boolean);
-    const prereqArray = prerequisites.split(',').map((p) => p.trim()).filter(Boolean);
-    const outcomesArray = learningOutcomes.split(',').map((o) => o.trim()).filter(Boolean);
+    const fields = {
+      title: title.trim(),
+      shortDescription: shortDescription.trim(),
+      longDescription: (longDescription || shortDescription).trim(),
+      durationWeeks,
+      feeINR,
+      level,
+    };
 
-    if (editingCourse) {
-      const res = await adminService.updateCourse({ id: user.id, name: user.name }, editingCourse.id, {
-        title,
-        courseCode,
-        slug: slug.trim() || title.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-        shortDescription,
-        longDescription: longDescription || shortDescription,
-        durationWeeks,
-        totalHours,
-        feeINR,
-        discountedFeeINR,
-        level,
-        category,
-        technologies: techArray,
-        prerequisites: prereqArray,
-        learningOutcomes: outcomesArray,
-        isPublished: status === 'Published' || status === 'Active',
-        status,
-      });
+    const res = editingCourse
+      ? await adminService.updateCourse(admin, editingCourse.id, fields)
+      : await adminService.createCourse(admin, { ...fields, slug: code, courseCode: code } as Omit<Course, 'id'>);
+
+    if (!res.success || !res.data) {
       setIsSubmitting(false);
+      showToast({ type: 'error', title: 'Course not saved', message: res.error || 'Please retry.' });
+      return;
+    }
 
-      if (res.success) {
-        showToast({
-          type: 'success',
-          title: 'Course Updated',
-          message: `Program details for "${title}" have been updated successfully.`,
-        });
-        setIsModalOpen(false);
-        loadCourses();
-      }
+    // New courses start as Draft; lifecycle status has its own endpoint.
+    const currentStatus = res.data.status || (res.data.isPublished ? 'Published' : 'Draft');
+    let statusError: string | null = null;
+    if (status !== currentStatus) {
+      const st = await adminService.updateCourseStatus(admin, res.data.id, status);
+      if (!st.success) statusError = st.error || 'Status was not changed.';
+    }
+    setIsSubmitting(false);
+    setIsModalOpen(false);
+    loadCourses();
+
+    if (statusError) {
+      showToast({ type: 'warning', title: 'Course saved, status unchanged', message: statusError });
     } else {
-      const res = await adminService.createCourse(
-        { id: user.id, name: user.name },
-        {
-          courseCode,
-          slug: slug.trim() || title.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-          title,
-          shortDescription,
-          longDescription: longDescription || shortDescription,
-          thumbnailUrl: 'https://images.unsplash.com/photo-1517694712202-14dd9538aa97?auto=format&fit=crop&w=600&q=80',
-          durationWeeks,
-          totalHours,
-          feeINR,
-          discountedFeeINR,
-          level,
-          category,
-          technologies: techArray,
-          isPublished: status === 'Published' || status === 'Active',
-          status,
-          hasPlacementGuarantee: true,
-          prerequisites: prereqArray,
-          learningOutcomes: outcomesArray,
-          modules: [],
-        }
-      );
-      setIsSubmitting(false);
-
-      if (res.success) {
-        showToast({
-          type: 'success',
-          title: 'Course Program Created',
-          message: `${title} is now available in the curriculum catalog. (ADM-006)`,
-        });
-        setIsModalOpen(false);
-        loadCourses();
-      }
+      showToast({
+        type: 'success',
+        title: editingCourse ? 'Course Updated' : 'Course Created',
+        message: `"${fields.title}" saved.`,
+      });
     }
   };
 
@@ -251,6 +203,10 @@ export const AdminCourseListPage: React.FC = () => {
         </div>
       </div>
 
+      {loadError && (
+        <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-xs text-rose-800">{loadError}</div>
+      )}
+
       {/* Lifecycle Status Filter Tabs */}
       <div className="flex items-center gap-2 border-b border-slate-200 overflow-x-auto pb-px">
         {(['All', 'Published', 'Active', 'Draft', 'Inactive', 'Archived'] as const).map((tab) => (
@@ -293,7 +249,6 @@ export const AdminCourseListPage: React.FC = () => {
                         {course.courseCode}
                       </span>
                     )}
-                    <Badge variant="purple" size="sm">{course.category}</Badge>
                     <Badge
                       variant={
                         courseStatus === 'Published' || courseStatus === 'Active'
@@ -309,7 +264,7 @@ export const AdminCourseListPage: React.FC = () => {
                   </div>
                   <h3 className="text-base font-bold text-slate-900">{course.title}</h3>
                   <p className="text-xs text-slate-500">
-                    {course.durationWeeks} Weeks • {course.totalHours} Practical Hours • {course.level}
+                    {course.durationWeeks} Weeks • {course.level}
                   </p>
                 </div>
 
@@ -414,50 +369,43 @@ export const AdminCourseListPage: React.FC = () => {
           <form onSubmit={handleSaveCourse} className="space-y-4 text-xs text-slate-700">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="sm:col-span-2">
-                <label className="block font-semibold text-slate-800 mb-1">Course Title *</label>
+                <label htmlFor="crs-title" className="block font-semibold text-slate-800 mb-1">Course Title *</label>
                 <input
+                  id="crs-title"
                   type="text"
                   required
-                  placeholder="e.g. Artificial Intelligence & Deep Learning"
+                  maxLength={200}
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
                 />
               </div>
-
               <div>
-                <label className="block font-semibold text-slate-800 mb-1">Course Code</label>
+                <label htmlFor="crs-code" className="block font-semibold text-slate-800 mb-1">Course Code / URL *</label>
                 <input
+                  id="crs-code"
                   type="text"
-                  placeholder="e.g. CRS-AID-301"
+                  required
+                  maxLength={40}
+                  placeholder="e.g. java-full-stack"
                   value={courseCode}
+                  disabled={!!editingCourse}
                   onChange={(e) => setCourseCode(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono font-medium"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono font-medium disabled:bg-slate-50"
                 />
+                <p className="text-[10px] text-slate-500 mt-0.5">
+                  {editingCourse ? 'Fixed after creation (public URL).' : 'Lowercase, digits and hyphens.'}
+                </p>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
               <div>
-                <label className="block font-semibold text-slate-800 mb-1">Category *</label>
+                <label htmlFor="crs-level" className="block font-semibold text-slate-800 mb-1">Level *</label>
                 <select
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value as any)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
-                >
-                  <option value="Software Development">Software Development</option>
-                  <option value="Data & AI">Data & AI</option>
-                  <option value="Cloud & DevOps">Cloud & DevOps</option>
-                  <option value="Cybersecurity">Cybersecurity</option>
-                  <option value="Testing">Testing</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-800 mb-1">Level *</label>
-                <select
+                  id="crs-level"
                   value={level}
-                  onChange={(e) => setLevel(e.target.value as any)}
+                  onChange={(e) => setLevel(e.target.value as 'Beginner' | 'Intermediate' | 'Advanced')}
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
                 >
                   <option value="Beginner">Beginner</option>
@@ -465,82 +413,56 @@ export const AdminCourseListPage: React.FC = () => {
                   <option value="Advanced">Advanced</option>
                 </select>
               </div>
-
               <div>
-                <label className="block font-semibold text-slate-800 mb-1">Lifecycle Status</label>
+                <label htmlFor="crs-status" className="block font-semibold text-slate-800 mb-1">Lifecycle Status</label>
                 <select
+                  id="crs-status"
                   value={status}
                   onChange={(e) => setStatus(e.target.value as CourseStatus)}
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
                 >
-                  <option value="Published">Published (Public Catalog)</option>
-                  <option value="Draft">Draft (Internal Only)</option>
-                  <option value="Active">Active (Ongoing Sessions)</option>
+                  <option value="Draft">Draft (internal only)</option>
+                  <option value="Published">Published (public catalog)</option>
+                  <option value="Active">Active</option>
                   <option value="Inactive">Inactive</option>
                   <option value="Archived">Archived</option>
                 </select>
               </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
               <div>
-                <label className="block font-semibold text-slate-800 mb-1">Duration (Weeks)</label>
+                <label htmlFor="crs-weeks" className="block font-semibold text-slate-800 mb-1">Duration (weeks) *</label>
                 <input
+                  id="crs-weeks"
                   type="number"
                   min={1}
-                  max={52}
+                  max={104}
                   required
                   value={durationWeeks}
                   onChange={(e) => setDurationWeeks(Number(e.target.value))}
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
-
               <div>
-                <label className="block font-semibold text-slate-800 mb-1">Practical Hours</label>
+                <label htmlFor="crs-fee" className="block font-semibold text-slate-800 mb-1">Fee (₹) *</label>
                 <input
-                  type="number"
-                  min={10}
-                  max={600}
-                  required
-                  value={totalHours}
-                  onChange={(e) => setTotalHours(Number(e.target.value))}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-800 mb-1">Fee (INR ₹)</label>
-                <input
+                  id="crs-fee"
                   type="number"
                   min={0}
-                  step={500}
+                  step={1}
                   required
                   value={feeINR}
                   onChange={(e) => setFeeINR(Number(e.target.value))}
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
                 />
               </div>
-
-              <div>
-                <label className="block font-semibold text-slate-800 mb-1">Discounted (INR ₹)</label>
-                <input
-                  type="number"
-                  min={0}
-                  step={500}
-                  value={discountedFeeINR}
-                  onChange={(e) => setDiscountedFeeINR(Number(e.target.value))}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
-                />
-              </div>
             </div>
 
             <div>
-              <label className="block font-semibold text-slate-800 mb-1">Short Description (Catalog Blurb) *</label>
+              <label htmlFor="crs-short" className="block font-semibold text-slate-800 mb-1">Short Description *</label>
               <textarea
+                id="crs-short"
                 required
                 rows={2}
-                placeholder="High-level overview visible on course cards..."
+                maxLength={500}
                 value={shortDescription}
                 onChange={(e) => setShortDescription(e.target.value)}
                 className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -548,59 +470,28 @@ export const AdminCourseListPage: React.FC = () => {
             </div>
 
             <div>
-              <label className="block font-semibold text-slate-800 mb-1">Detailed Long Description</label>
+              <label htmlFor="crs-long" className="block font-semibold text-slate-800 mb-1">Detailed Description</label>
               <textarea
+                id="crs-long"
                 rows={3}
-                placeholder="In-depth program scope, target audience, and architecture topics..."
                 value={longDescription}
                 onChange={(e) => setLongDescription(e.target.value)}
                 className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
             </div>
 
-            <div>
-              <label className="block font-semibold text-slate-800 mb-1">
-                Technologies & Tools Covered (Comma-separated)
-              </label>
-              <input
-                type="text"
-                placeholder="Python, PyTorch, Docker, Kubernetes, LangChain"
-                value={technologies}
-                onChange={(e) => setTechnologies(e.target.value)}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
-              />
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block font-semibold text-slate-800 mb-1">Prerequisites (Comma-separated)</label>
-                <input
-                  type="text"
-                  placeholder="Basic programming intuition, Math fundamentals"
-                  value={prerequisites}
-                  onChange={(e) => setPrerequisites(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-800 mb-1">Learning Outcomes (Comma-separated)</label>
-                <input
-                  type="text"
-                  placeholder="Microservice architecture, Cloud deployment"
-                  value={learningOutcomes}
-                  onChange={(e) => setLearningOutcomes(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
+            <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 text-[11px] text-slate-600">
+              Category, thumbnail, practical hours, discounted fee, technologies, prerequisites, learning outcomes,
+              placement-guarantee flag and SEO cannot be saved yet: the course table has no columns for them. They will be
+              enabled once the proposed database change is approved.
             </div>
 
             <div className="pt-4 flex justify-end gap-3 border-t border-slate-100">
-              <Button variant="outline" size="sm" onClick={() => setIsModalOpen(false)}>
+              <Button variant="outline" size="sm" type="button" onClick={() => setIsModalOpen(false)}>
                 Cancel
               </Button>
               <Button variant="primary" size="sm" type="submit" isLoading={isSubmitting}>
-                {editingCourse ? 'Save Changes' : 'Publish Course'}
+                {editingCourse ? 'Save Changes' : 'Create Course'}
               </Button>
             </div>
           </form>

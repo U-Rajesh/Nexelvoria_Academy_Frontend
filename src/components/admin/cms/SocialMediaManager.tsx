@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
+import { useCmsPage } from '../../../hooks/useCmsPage';
 import {
   Share2,
   Plus,
@@ -48,7 +49,9 @@ export const SocialMediaManager: React.FC<SocialMediaManagerProps> = ({
   onUpdated,
 }) => {
   const { showToast } = useNotification();
-  const [links, setLinks] = useState<SocialMediaLink[]>(() => cmsService.getSocialMediaLinks());
+  // Loaded from the server when the screen opens; replaced only by what the server stored.
+  const page = useCmsPage<{ links: SocialMediaLink[] }>('social', { links: cmsService.getSocialMediaLinks() });
+  const links = page.config.links ?? [];
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -77,31 +80,19 @@ export const SocialMediaManager: React.FC<SocialMediaManagerProps> = ({
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [linkToDelete, setLinkToDelete] = useState<SocialMediaLink | null>(null);
 
-  // Listen to external CMS updates
-  useEffect(() => {
-    const handleSync = () => {
-      const refreshed = cmsService.getSocialMediaLinks();
-      setLinks(refreshed);
-    };
-    window.addEventListener('cms-social-update', handleSync);
-    window.addEventListener('storage', handleSync);
-    return () => {
-      window.removeEventListener('cms-social-update', handleSync);
-      window.removeEventListener('storage', handleSync);
-    };
-  }, []);
-
-  const saveAndSync = (updated: SocialMediaLink[], toastMessage?: string) => {
-    cmsService.saveSocialMediaLinks(updated);
-    setLinks(updated);
-    if (onUpdated) onUpdated(updated);
-    if (toastMessage) {
-      showToast({
-        type: 'success',
-        title: 'Social Links Updated',
-        message: toastMessage,
-      });
+  /** Saves the whole list on the server; the screen changes only when the server confirms. */
+  const saveAndSync = async (updated: SocialMediaLink[], toastMessage?: string): Promise<boolean> => {
+    const res = await page.run(async () => {
+      const r = await cmsService.saveSocialMediaLinks(updated);
+      return { ...r, data: { links: r.data } };
+    });
+    if (!res.success) {
+      showToast({ type: 'error', title: 'Not saved', message: res.error || 'The server did not save the social links. Please retry.' });
+      return false;
     }
+    if (onUpdated) onUpdated(res.data.links);
+    if (toastMessage) showToast({ type: 'success', title: 'Social Links Updated', message: toastMessage });
+    return true;
   };
 
   const handleOpenAddModal = () => {
@@ -142,7 +133,7 @@ export const SocialMediaManager: React.FC<SocialMediaManagerProps> = ({
     });
   };
 
-  const handleSaveModal = (e: React.FormEvent) => {
+  const handleSaveModal = async (e: React.FormEvent) => {
     e.preventDefault();
 
     // 1. Validation: platform must be selected
@@ -229,7 +220,7 @@ export const SocialMediaManager: React.FC<SocialMediaManagerProps> = ({
             }
           : item
       );
-      saveAndSync(updated, `Updated "${formData.platformName}" social profile.`);
+      if (!(await saveAndSync(updated, `Updated "${formData.platformName}" social profile.`))) return;
     } else {
       // Add new
       const newLink: SocialMediaLink = {
@@ -243,7 +234,7 @@ export const SocialMediaManager: React.FC<SocialMediaManagerProps> = ({
         showInContact: formData.showInContact,
         order: links.length + 1,
       };
-      saveAndSync([...links, newLink], `Added "${formData.platformName}" to social channels.`);
+      if (!(await saveAndSync([...links, newLink], `Added "${formData.platformName}" to social channels.`))) return;
     }
 
     setIsModalOpen(false);
@@ -269,10 +260,10 @@ export const SocialMediaManager: React.FC<SocialMediaManagerProps> = ({
     setDeleteConfirmOpen(true);
   };
 
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = async () => {
     if (!linkToDelete) return;
     const updated = links.filter((l) => l.id !== linkToDelete.id);
-    saveAndSync(updated, `Removed "${linkToDelete.platformName || linkToDelete.platform}" profile link.`);
+    if (!(await saveAndSync(updated, `Removed "${linkToDelete.platformName || linkToDelete.platform}" profile link.`))) return;
     setDeleteConfirmOpen(false);
     setLinkToDelete(null);
   };

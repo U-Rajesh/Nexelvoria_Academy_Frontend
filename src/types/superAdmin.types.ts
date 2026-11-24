@@ -29,96 +29,54 @@ export interface FinancialOverrideRequest {
   superAdminRemarks?: string;
 }
 
-export interface SystemConfig {
-  institute: {
-    name: string;
-    code: string;
-    affiliation: string;
-    supportEmail: string;
-    supportPhone: string;
-    whatsappNumber: string;
-    address: string;
-    website: string;
-    gstNumber: string;
-    currency: string;
-    timezone: string;
+/** GET /super-admin/system-config: what the server actually runs with. No secrets. */
+export interface SystemConfigStatus {
+  source: 'server_environment';
+  editable: false;
+  email: {
+    delivery: 'smtp' | 'development_log' | 'not_configured';
+    host?: string;
+    port?: number;
+    secure?: boolean;
+    user?: string;
+    from?: string;
+    configurationError?: string;
   };
-  branding: {
-    logoUrl: string;
-    faviconUrl: string;
-    primaryColor: string;
-    secondaryColor: string;
-    tagline: string;
-    motto: string;
-  };
-  academic: {
-    currentAcademicYear: string;
-    activeTerm: string;
-    isRegistrationOpen: boolean;
-    isCatalogPublic: boolean;
-    maxBatchCapacity: number;
-    minAttendancePercentage: number;
-    assignmentGracePeriodDays: number;
-    passPercentage: number;
-  };
-  paymentGateway: {
-    provider: 'razorpay' | 'stripe' | 'cashfree';
-    keyId: string;
-    keySecretMasked: string;
-    webhookSecretMasked: string;
-    isLiveMode: boolean;
-    autoReconcile: boolean;
-  };
-  emailSms: {
-    smtpHost: string;
-    smtpPort: number;
-    smtpUser: string;
-    smtpPasswordMasked: string;
-    senderName: string;
-    senderEmail: string;
-    isSmsEnabled: boolean;
-    smsProvider: string;
-    smsApiKeyMasked: string;
-  };
-  notifications: {
-    emailOnAdmission: boolean;
-    emailOnPayment: boolean;
-    emailOnExamResult: boolean;
-    smsOnClassReminder: boolean;
-    pushAnnouncements: boolean;
+  sms: { configured: false; note: string };
+  /** Presence only: no secret value is ever returned, and nothing claims a provider was verified. */
+  integrations: {
+    paymentGateway: { provider: 'razorpay'; webhookSecretConfigured: boolean; checkoutIntegrated: false; verified: false; note: string };
+    fileStorage: { configured: false; note: string };
+    whatsapp: { configured: false; note: string };
+    backups: { configured: false; note: string };
   };
   security: {
-    sessionTimeoutMinutes: number;
-    enforceTwoFactor: boolean;
-    maxFailedLogins: number;
-    passwordExpiryDays: number;
-    requireSpecialChars: boolean;
+    maxFailedLoginAttempts: number;
+    passwordMinLength: number;
+    accessTokenTtlMinutes: number;
+    refreshTokenTtlDays: number;
+    rememberMeRefreshTokenTtlDays: number;
   };
-  maintenance: {
-    isMaintenanceMode: boolean;
-    message: string;
-    allowedIps: string;
-  };
-  preferences: {
-    dateFormat: string;
-    timeFormat: string;
-    numberFormat: 'inr_lakhs' | 'international';
-    defaultLanguage: string;
-  };
+  otp: { channel: 'email'; ttlMinutes: number; maxVerifyAttempts: number; resendCooldownSeconds: number };
+  reporting: { timezone: string; financialYear: string; financialYearStartsAt: string };
+  environment: string;
 }
 
+/** A row of NXA_Roles as returned by GET /super-admin/roles. */
 export interface GlobalRole {
   id: string;
   name: string;
+  /** RoleCode. */
   slug: string;
   description: string;
   isSystemRole: boolean;
-  userCount: number;
+  isActive: boolean;
+  /** Empty until the permission catalog is verified; never invented. */
   permissions: string[];
   createdAt: string;
-  updatedAt: string;
 }
 
+/** `null` means "not available": no data source or no approved formula yet. */
 export interface SuperAdminDashboardStats {
   totalStudents: number;
   totalAdmins: number;
@@ -126,15 +84,21 @@ export interface SuperAdminDashboardStats {
   totalCourses: number;
   totalBatches: number;
   totalEnrollments: number;
-  totalRevenueINR: number;
+  totalRevenueINR: number | null;
+  /** Collected since 1 April of the current Indian financial year (IST). */
+  revenueYearToDateINR?: number | null;
+  /** e.g. "FY 2026-27"; absent when the server did not report it. */
+  financialYearLabel?: string;
+  /** Collected since the 1st of this month. */
+  revenueThisMonthINR?: number | null;
   outstandingFeesINR: number;
-  pendingRefundsCount: number;
-  pendingRefundsAmountINR: number;
-  pendingOverridesCount: number;
-  pendingOverridesAmountINR: number;
-  placementRatePercentage: number;
-  totalPlacedStudents: number;
-  activeHiringPartners: number;
-  averageAttendancePercentage: number;
+  pendingRefundsCount: number | null;
+  pendingRefundsAmountINR: number | null;
+  pendingOverridesCount: number | null;
+  pendingOverridesAmountINR: number | null;
+  placementRatePercentage: number | null;
+  totalPlacedStudents: number | null;
+  activeHiringPartners: number | null;
+  averageAttendancePercentage: number | null;
 }
 

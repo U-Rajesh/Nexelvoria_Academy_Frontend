@@ -226,55 +226,41 @@ export const paymentService = {
     }
 
     try {
-      // 1. Create order
-      const orderRes = await apiClient.post('/payments/orders', {
+      // 1. The student's OWN enrollment for this course - selecting the course
+      //    creates it (requires Admin approval; the server enforces this).
+      const mine = await apiClient.get('/enrollments/me');
+      const list: { enrollment?: { id: string; courseId: string; status: string } }[] = mine.data?.data ?? [];
+      let enrollment = list.map((x) => x.enrollment).find((e) => e?.courseId === course.id);
+      if (!enrollment) {
+        const created = await apiClient.post('/enrollments', { courseId: course.id });
+        enrollment = created.data?.data;
+      }
+      if (!enrollment || enrollment.status !== 'approved_unpaid') {
+        return {
+          success: false,
+          data: null as any,
+          error:
+            enrollment?.status === 'active'
+              ? 'This course is already active for you.'
+              : 'This enrollment is not awaiting payment.',
+        };
+      }
+
+      // 2. Ask the server for a gateway order. Until the Razorpay integration
+      //    exists the server answers 503 PAYMENT_GATEWAY_UNAVAILABLE, which is
+      //    shown as-is. Nothing here simulates a payment or a signature.
+      await apiClient.post('/payments/orders', {
         courseId: course.id,
-        enrollmentId: course.id,
+        enrollmentId: enrollment.id,
         couponCode: couponCode || undefined,
       });
 
-      const orderData = orderRes.data?.data?.order;
-      const orderId = orderData?.id;
-
-      // 2. Verify payment
-      const paymentId = `pay_rzp_${Date.now()}`;
-      const verifyRes = await apiClient.post('/payments/verify', {
-        orderId,
-        gatewayPaymentId: paymentId,
-        gatewaySignature: 'sandbox_signature_override',
-        paymentMethod,
-      });
-
-      const verifyData = verifyRes.data?.data;
-      const tx = verifyData?.transaction;
-      const receipt = verifyData?.receipt;
-
-      const finalAmount = orderData?.amount ?? Math.max(0, course.feeINR - discountAppliedINR);
-
-      const paymentTx: PaymentTransaction = {
-        id: tx?.id ?? `pay-${Date.now()}`,
-        orderId: orderId ?? `order-${Date.now()}`,
-        studentId: student.id,
-        studentName: student.name,
-        courseId: course.id,
-        courseTitle: course.title,
-        amountINR: course.feeINR,
-        discountAppliedINR,
-        couponCode,
-        finalAmountINR: finalAmount,
-        status: 'successful',
-        paymentMethod,
-        gatewayTransactionId: paymentId,
-        receiptNumber: receipt?.receiptNumber ?? `REC-2026-${Math.floor(1000 + Math.random() * 9000)}`,
-        paidAt: tx?.paidAt ?? new Date().toISOString(),
-        createdAt: tx?.createdAt ?? new Date().toISOString(),
-        isManualEntry: false,
-      };
-
+      // An order exists, but there is no checkout integration in this client
+      // to collect the payment, so it cannot be completed here.
       return {
-        success: true,
-        data: paymentTx,
-        message: 'Payment completed successfully. Your course has been unlocked!',
+        success: false,
+        data: null as any,
+        error: 'Online checkout is not available yet. Please contact the institute to complete your payment.',
       };
     } catch (err: any) {
       const errorMsg = err?.response?.data?.message || err?.message || 'Payment processing failed.';

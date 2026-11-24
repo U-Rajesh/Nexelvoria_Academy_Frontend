@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
+import { useCmsPage } from '../../../hooks/useCmsPage';
 import {
   Building2,
   Plus,
@@ -38,8 +39,28 @@ const LOGO_PRESETS = [
 ];
 
 export const CMSHiringPartnersTab: React.FC = () => {
-  const [partners, setPartners] = useState<HiringPartnerCompany[]>(() => cmsService.getHiringPartners());
-  const [marqueeConfig, setMarqueeConfig] = useState<MarqueeAnimationConfig>(() => cmsService.getMarqueeConfig());
+  // Partners are NXA_Companies rows loaded from the server (including hidden ones).
+  const [partners, setPartners] = useState<HiringPartnerCompany[]>([]);
+  const [partnersLoading, setPartnersLoading] = useState(true);
+  const [partnersError, setPartnersError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const marquee = useCmsPage<MarqueeAnimationConfig>('marquee', cmsService.getMarqueeConfig());
+  const marqueeConfig = marquee.config;
+  const setMarqueeConfig = marquee.setConfig;
+
+  const loadPartners = useCallback(async () => {
+    setPartnersLoading(true);
+    const res = await cmsService.getAdminHiringPartners();
+    setPartnersLoading(false);
+    if (res.success) {
+      setPartners(res.data);
+      setPartnersError(null);
+    } else setPartnersError(res.error || 'Hiring partners could not be loaded.');
+  }, []);
+
+  useEffect(() => {
+    loadPartners();
+  }, [loadPartners]);
   const [activeView, setActiveView] = useState<'partners' | 'animation' | 'preview'>('partners');
 
   const [partnerModalOpen, setPartnerModalOpen] = useState(false);
@@ -48,14 +69,13 @@ export const CMSHiringPartnersTab: React.FC = () => {
   const { showToast } = useNotification();
 
   const handleOpenAddPartner = () => {
+    // Empty id: the server creates the company and assigns its id.
     setEditingPartner({
-      id: `partner-${Date.now()}`,
+      id: '',
       name: '',
-      logoUrl: LOGO_PRESETS[0].url,
-      websiteUrl: 'https://example.com',
-      location: 'Hyderabad / Bengaluru',
-      activeOpenings: 5,
-      displayOrder: partners.length + 1,
+      logoUrl: '',
+      websiteUrl: '',
+      location: '',
       isActive: true,
     });
     setPartnerModalOpen(true);
@@ -66,84 +86,83 @@ export const CMSHiringPartnersTab: React.FC = () => {
     setPartnerModalOpen(true);
   };
 
-  const handleSavePartner = (e: React.FormEvent) => {
+  const handleSavePartner = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingPartner) return;
-    if (!editingPartner.name.trim() || !(editingPartner.logoUrl || '').trim()) {
-      showToast({
-        type: 'warning',
-        title: 'Validation Error',
-        message: 'Partner name and logo URL are required.',
-      });
+    if (!editingPartner.name.trim()) {
+      showToast({ type: 'warning', title: 'Validation Error', message: 'Partner name is required.' });
       return;
     }
-
-    const toSave: HiringPartnerCompany = {
+    setBusy(true);
+    const res = await cmsService.saveHiringPartner({
       ...editingPartner,
       isActive: editingPartner.isActive !== false,
       isVisible: editingPartner.isActive !== false,
-      website: editingPartner.websiteUrl || editingPartner.website,
       websiteUrl: editingPartner.websiteUrl || editingPartner.website,
-    };
-
-    cmsService.saveHiringPartner(toSave);
-    setPartners(cmsService.getHiringPartners());
-    setPartnerModalOpen(false);
-    showToast({
-      type: 'success',
-      title: 'Hiring Partner Saved',
-      message: `${toSave.name} updated in the hiring network.`,
     });
-  };
-
-  const handleDeletePartner = (id: string, name: string) => {
-    if (window.confirm(`Are you sure you want to remove "${name}" from hiring partners?`)) {
-      cmsService.deleteHiringPartner(id);
-      setPartners(cmsService.getHiringPartners());
-      showToast({
-        type: 'info',
-        title: 'Partner Removed',
-        message: `${name} has been removed.`,
-      });
+    setBusy(false);
+    if (!res.success) {
+      showToast({ type: 'error', title: 'Not saved', message: res.error || 'The server did not save the partner. Please retry.' });
+      return;
     }
+    setPartnerModalOpen(false);
+    await loadPartners();
+    showToast({ type: 'success', title: 'Hiring Partner Saved', message: res.message || `${res.data.name} saved.` });
   };
 
-  const handleTogglePartnerActive = (id: string) => {
+  const handleDeletePartner = async (id: string, name: string) => {
+    if (!window.confirm(`Permanently remove "${name}" from hiring partners? Hiding it keeps the record instead.`)) return;
+    const res = await cmsService.deleteHiringPartner(id);
+    if (!res.success) {
+      showToast({ type: 'error', title: 'Not removed', message: res.error || 'The server did not remove the partner.' });
+      return;
+    }
+    await loadPartners();
+    showToast({ type: 'info', title: 'Partner Removed', message: `${name} has been removed.` });
+  };
+
+  const handleTogglePartnerActive = async (id: string) => {
     const target = partners.find((p) => p.id === id);
     if (!target) return;
-    const nextStatus = target.isActive === false ? true : false;
-    const updated: HiringPartnerCompany = { ...target, isActive: nextStatus, isVisible: nextStatus };
-    cmsService.saveHiringPartner(updated);
-    setPartners(cmsService.getHiringPartners());
-    showToast({
-      type: 'success',
-      title: 'Status Updated',
-      message: `${target.name} is now ${nextStatus ? 'Active' : 'Hidden'}.`,
-    });
+    const nextStatus = target.isActive === false;
+    const res = await cmsService.saveHiringPartner({ ...target, isActive: nextStatus, isVisible: nextStatus });
+    if (!res.success) {
+      showToast({ type: 'error', title: 'Status not changed', message: res.error || 'The server did not change the status.' });
+      return;
+    }
+    await loadPartners();
+    showToast({ type: 'success', title: 'Status Updated', message: `${target.name} is now ${nextStatus ? 'Active' : 'Hidden'}.` });
   };
 
-  const handleSaveMarqueeConfig = () => {
-    cmsService.saveMarqueeConfig(marqueeConfig);
-    setMarqueeConfig(cmsService.getMarqueeConfig());
-    showToast({
-      type: 'success',
-      title: 'Marquee Settings Saved',
-      message: 'Continuous marquee scroll settings applied across public website.',
-    });
+  const handleSaveMarqueeConfig = async () => {
+    const res = await marquee.run(() => cmsService.saveMarqueeConfig(marqueeConfig));
+    showToast(
+      res.success
+        ? { type: 'success', title: 'Marquee Settings Saved', message: 'Continuous marquee scroll settings applied across public website.' }
+        : { type: 'error', title: 'Not saved', message: res.error || 'The server did not save the marquee settings.' }
+    );
   };
 
-  const handleResetMarquee = () => {
-    const def = cmsService.resetMarqueeConfig();
-    setMarqueeConfig(def);
-    showToast({
-      type: 'info',
-      title: 'Settings Reset',
-      message: 'Marquee settings restored to defaults.',
-    });
+  const handleResetMarquee = async () => {
+    if (!window.confirm('Reset marquee settings to the built-in defaults? This is saved to the server.')) return;
+    const res = await marquee.run(() => cmsService.resetMarqueeConfig());
+    showToast(
+      res.success
+        ? { type: 'info', title: 'Settings Reset', message: 'Marquee settings restored to defaults.' }
+        : { type: 'error', title: 'Not reset', message: res.error || 'The server did not save the defaults.' }
+    );
   };
 
   return (
     <div className="space-y-6">
+      {(partnersLoading || partnersError || marquee.loadError) && (
+        <div className={`p-3 rounded-lg border text-xs ${partnersError || marquee.loadError ? 'bg-rose-50 border-rose-200 text-rose-800' : 'bg-slate-50 border-slate-200 text-slate-500'}`}>
+          {partnersError || marquee.loadError || 'Loading hiring partners from the server...'}
+        </div>
+      )}
+      <div className="p-3 rounded-lg border border-amber-200 bg-amber-50 text-xs text-amber-900">
+        Hiring partners are stored as companies: name, industry, website and visibility. Logo, location, openings and display order have no database column and are not stored.
+      </div>
       {/* Action Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 rounded-xl border border-slate-200/90 shadow-xs">
         <div>
@@ -164,10 +183,10 @@ export const CMSHiringPartnersTab: React.FC = () => {
           )}
           {activeView === 'animation' && (
             <>
-              <Button variant="outline" size="sm" onClick={handleResetMarquee} leftIcon={<RotateCcw className="h-4 w-4 text-slate-400" />}>
+              <Button variant="outline" size="sm" onClick={handleResetMarquee} disabled={marquee.loading || marquee.saving} leftIcon={<RotateCcw className="h-4 w-4 text-slate-400" />}>
                 Reset
               </Button>
-              <Button variant="primary" size="sm" onClick={handleSaveMarqueeConfig} leftIcon={<Save className="h-4 w-4" />}>
+              <Button variant="primary" size="sm" onClick={handleSaveMarqueeConfig} isLoading={marquee.saving} disabled={marquee.loading || !!marquee.loadError} leftIcon={<Save className="h-4 w-4" />}>
                 Save Settings
               </Button>
             </>
@@ -542,10 +561,9 @@ export const CMSHiringPartnersTab: React.FC = () => {
             </div>
 
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Logo URL *</label>
+              <label className="block font-semibold text-slate-700 mb-1">Logo URL (not stored: no database column)</label>
               <input
                 type="url"
-                required
                 value={editingPartner.logoUrl}
                 onChange={(e) => setEditingPartner({ ...editingPartner, logoUrl: e.target.value })}
                 placeholder="https://..."
@@ -641,7 +659,7 @@ export const CMSHiringPartnersTab: React.FC = () => {
               <Button variant="outline" size="sm" type="button" onClick={() => setPartnerModalOpen(false)}>
                 Cancel
               </Button>
-              <Button variant="primary" size="sm" type="submit">
+              <Button variant="primary" size="sm" type="submit" isLoading={busy}>
                 Save Partner
               </Button>
             </div>

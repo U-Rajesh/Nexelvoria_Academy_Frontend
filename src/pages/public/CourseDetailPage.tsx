@@ -103,9 +103,9 @@ export const CourseDetailPage: React.FC = () => {
     });
   };
 
-  const handleEnquirySubmit = (e: React.FormEvent) => {
+  const handleEnquirySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    cmsService.submitEnquiry({
+    const sent = await cmsService.submitEnquiry({
       type: 'course_admission',
       name: enquiryForm.name,
       email: enquiryForm.email,
@@ -113,6 +113,10 @@ export const CourseDetailPage: React.FC = () => {
       courseOfInterest: course.title,
       message: enquiryForm.message,
     });
+    if (!sent.success) {
+      showToast({ type: 'error', title: 'Not sent', message: sent.error || 'Your request could not be sent. Please try again.' });
+      return;
+    }
     analytics.trackEvent('submit_course_detail_enquiry', 'Course', course.title);
 
     showToast({
@@ -138,7 +142,7 @@ export const CourseDetailPage: React.FC = () => {
         <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-10 items-center relative z-10">
           <div className="lg:col-span-2 space-y-5">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="purple" size="md">{course.category}</Badge>
+              {course.category && <Badge variant="purple" size="md">{course.category}</Badge>}
               <Badge variant="neutral" size="md">{course.level}</Badge>
               {course.hasPlacementGuarantee && (
                 <Badge variant="success" size="md">Placement Guarantee*</Badge>
@@ -153,13 +157,21 @@ export const CourseDetailPage: React.FC = () => {
               {course.longDescription}
             </p>
 
+            {course.prerequisites && course.prerequisites.length > 0 && (
+              <p className="text-xs text-slate-300">
+                <span className="font-semibold text-white">Prerequisite courses:</span> {course.prerequisites.join(', ')}
+              </p>
+            )}
+
             <div className="flex flex-wrap items-center gap-6 text-xs text-slate-300 pt-2">
               <span className="flex items-center gap-1.5">
                 <Clock className="h-4 w-4 text-indigo-400" /> {course.durationWeeks} Weeks Intensive
               </span>
-              <span className="flex items-center gap-1.5">
-                <BookOpen className="h-4 w-4 text-indigo-400" /> {course.totalHours} Practical Hours
-              </span>
+              {course.totalHours ? (
+                <span className="flex items-center gap-1.5">
+                  <BookOpen className="h-4 w-4 text-indigo-400" /> {course.totalHours} Practical Hours
+                </span>
+              ) : null}
               <span className="flex items-center gap-1.5">
                 <Award className="h-4 w-4 text-emerald-400" /> ISO Verifiable Certificate (BR-011)
               </span>

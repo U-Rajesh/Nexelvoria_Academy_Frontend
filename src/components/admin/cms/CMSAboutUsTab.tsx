@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useCmsPage } from '../../../hooks/useCmsPage';
 import {
   Compass,
   Target,
@@ -17,29 +18,27 @@ import { useNotification } from '../../../context/NotificationContext';
 import { cmsService, type AboutUsConfig } from '../../../services/cmsService';
 
 export const CMSAboutUsTab: React.FC = () => {
-  const [config, setConfig] = useState<AboutUsConfig>(() => cmsService.getAboutUsConfig());
+  const { config, setConfig, loading, loadError, saving, run } = useCmsPage<AboutUsConfig>('about', cmsService.getAboutUsConfig());
   const [activeSubSection, setActiveSubSection] = useState<'visibility' | 'vision-mission' | 'objectives' | 'pedagogy' | 'comparison' | 'campus'>('visibility');
   const { showToast } = useNotification();
 
-  const handleSave = () => {
-    cmsService.saveAboutUsConfig(config);
-    showToast({
-      type: 'success',
-      title: 'About Us Content Saved',
-      message: 'Changes are now live on the public /about-us page in real-time.',
-    });
+  const handleSave = async () => {
+    const res = await run(() => cmsService.saveAboutUsConfig(config));
+    showToast(
+      res.success
+        ? { type: 'success', title: 'About Us Content Saved', message: 'Changes are now live on the public /about-us page in real-time.' }
+        : { type: 'error', title: 'Not saved', message: res.error || 'The server did not save the changes. Please retry.' }
+    );
   };
 
-  const handleReset = () => {
-    if (window.confirm('Reset About Us content and section visibility to factory defaults?')) {
-      const def = cmsService.resetAboutUsConfig();
-      setConfig(def);
-      showToast({
-        type: 'info',
-        title: 'Reset to Defaults',
-        message: 'About Us restored to original default configuration.',
-      });
-    }
+  const handleReset = async () => {
+    if (!window.confirm('Reset this page content and section visibility to the built-in defaults? This is saved to the server.')) return;
+    const res = await run(() => cmsService.resetAboutUsConfig());
+    showToast(
+      res.success
+        ? { type: 'info', title: 'Reset to Defaults', message: 'The built-in default content was saved.' }
+        : { type: 'error', title: 'Not reset', message: res.error || 'The server did not save the defaults. Please retry.' }
+    );
   };
 
   const toggleSection = (sectionKey: keyof AboutUsConfig['sectionVisibility']) => {
@@ -81,6 +80,11 @@ export const CMSAboutUsTab: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      {(loading || loadError) && (
+        <div className={`p-3 rounded-lg border text-xs ${loadError ? 'bg-rose-50 border-rose-200 text-rose-800' : 'bg-slate-50 border-slate-200 text-slate-500'}`}>
+          {loadError || 'Loading the saved content from the server...'}
+        </div>
+      )}
       {/* Action Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 rounded-xl border border-slate-200/90 shadow-xs">
         <div>
@@ -94,10 +98,10 @@ export const CMSAboutUsTab: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={handleReset} leftIcon={<RotateCcw className="h-4 w-4 text-slate-400" />}>
+          <Button variant="outline" size="sm" onClick={handleReset} disabled={loading || saving} leftIcon={<RotateCcw className="h-4 w-4 text-slate-400" />}>
             Reset Defaults
           </Button>
-          <Button variant="primary" size="sm" onClick={handleSave} leftIcon={<Save className="h-4 w-4" />}>
+          <Button variant="primary" size="sm" onClick={handleSave} isLoading={saving} disabled={loading || !!loadError} leftIcon={<Save className="h-4 w-4" />}>
             Save All Changes
           </Button>
         </div>

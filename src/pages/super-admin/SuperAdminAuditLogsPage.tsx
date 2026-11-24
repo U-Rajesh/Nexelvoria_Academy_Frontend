@@ -28,6 +28,7 @@ import { Card } from '../../components/common/Card';
 import { Modal } from '../../components/feedback/Modal';
 import { MetricCard } from '../../components/charts/MetricCard';
 import { useNotification } from '../../context/NotificationContext';
+import { downloadCsv } from '../../utils/csv';
 import type { AuditLog } from '../../types';
 
 export const SuperAdminAuditLogsPage: React.FC = () => {
@@ -89,35 +90,13 @@ export const SuperAdminAuditLogsPage: React.FC = () => {
   }, [logs, roleFilter, moduleFilter, resultFilter, searchQuery]);
 
   const handleExportCSV = () => {
-    const headers = ['Event ID', 'Timestamp', 'Actor Name', 'Actor Role', 'Action', 'Module', 'Target Record', 'Result', 'IP Address', 'Details'];
-    const rows = filteredLogs.map((l) => [
-      l.id,
-      l.timestamp,
-      `"${l.actorName}"`,
-      l.actorRole,
-      l.action,
-      l.module || 'general',
-      `"${l.targetEntity}"`,
-      l.result || 'SUCCESS',
-      l.ipAddress || '127.0.0.1',
-      `"${l.details.replace(/"/g, '""')}"`,
-    ]);
-
-    const csvContent = [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `nexelvoria-system-audit-log-${Date.now()}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-
-    showToast({
-      type: 'success',
-      title: 'Audit Log Export Dispatched',
-      message: `Downloaded ${filteredLogs.length} audit entries to CSV.`,
-    });
+    // Exactly the entries filtered on screen; missing values stay empty (nothing is filled in).
+    downloadCsv(
+      `nexelvoria-audit-log-${new Date().toISOString().slice(0, 10)}.csv`,
+      ['Event ID', 'Timestamp', 'Actor Name', 'Actor Role', 'Action', 'Module', 'Target Record', 'Result', 'IP Address', 'Details'],
+      filteredLogs.map((l) => [l.id, l.timestamp, l.actorName, l.actorRole, l.action, l.module ?? '', l.targetEntity, l.result ?? '', l.ipAddress ?? '', l.details])
+    );
+    showToast({ type: 'success', title: 'Audit Log Exported', message: `Downloaded ${filteredLogs.length} audit entries to CSV.` });
   };
 
   const copyMetadata = () => {
