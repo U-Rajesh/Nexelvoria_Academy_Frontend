@@ -262,6 +262,7 @@ export const authService = {
     ApiResponse<LoginSuccessData> & {
       /** Present on a 403. Drives which banner the login page shows. */
       code?: AccountStateCode;
+      accountState?: AccountState;
       /** Present only with ACCOUNT_PENDING_VERIFICATION. */
       verificationTicket?: string;
     }
@@ -299,6 +300,7 @@ export const authService = {
       return {
         ...failure,
         ...(code === undefined ? {} : { code }),
+        ...(code === undefined ? {} : { accountState: ACCOUNT_STATE_BY_CODE[code] }),
         ...(ticket === undefined ? {} : { verificationTicket: ticket }),
       };
     }
@@ -647,7 +649,7 @@ export const authService = {
         email: newStudent.email,
         mobile: newStudent.mobile,
       },
-      message: 'Registration initiated. Please complete dual email and mobile OTP verification.',
+      message: 'Registration initiated. Please complete email OTP verification.',
     };
   },
 
