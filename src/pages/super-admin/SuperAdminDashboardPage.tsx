@@ -34,6 +34,7 @@ import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
 import { Card } from '../../components/common/Card';
 import { MetricCard } from '../../components/charts/MetricCard';
+import { DashboardAnalyticsPanel } from '../../components/reports/DashboardAnalyticsPanel';
 import { Modal } from '../../components/feedback/Modal';
 import type {
   SuperAdminDashboardStats,
@@ -49,6 +50,11 @@ export const SuperAdminDashboardPage: React.FC = () => {
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null);
+  const [statsError, setStatsError] = useState<string | null>(null);
+
+  /** No placeholder numbers: '…' while loading, 'N/A' when unavailable. */
+  const fmt = (v: number | null | undefined, f: (n: number) => string = (n) => String(n)): string =>
+    stats === null ? (statsError ? 'N/A' : '…') : v === null || v === undefined ? 'N/A' : f(v);
 
   const loadAll = React.useCallback(async () => {
     const [statsRes, refundsRes, overridesRes, logsRes] = await Promise.all([
@@ -58,7 +64,13 @@ export const SuperAdminDashboardPage: React.FC = () => {
       superAdminService.getAuditLogs(),
     ]);
 
-    if (statsRes.success) setStats(statsRes.data);
+    if (statsRes.success) {
+      setStats(statsRes.data);
+      setStatsError(null);
+    } else {
+      setStats(null);
+      setStatsError(statsRes.error || 'Dashboard statistics could not be loaded.');
+    }
     if (refundsRes.success) setRefunds(refundsRes.data);
     if (overridesRes.success) setOverrides(overridesRes.data);
     if (logsRes.success) setAuditLogs(logsRes.data);
@@ -151,9 +163,9 @@ export const SuperAdminDashboardPage: React.FC = () => {
             <CheckCircle2 className="h-4 w-4" />
           </div>
           <div className="min-w-0">
-            <p className="text-xs font-bold text-emerald-950">System Gateways Operational</p>
+            <p className="text-xs font-bold text-emerald-950">Integration Monitoring</p>
             <p className="text-[11px] text-emerald-700 truncate">
-              Razorpay API connected • SMTP verified • SSL TLS 1.3 Active
+              Gateway and email health checks are not yet monitored from this dashboard.
             </p>
           </div>
         </div>
@@ -195,48 +207,48 @@ export const SuperAdminDashboardPage: React.FC = () => {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <MetricCard
             title="Total Students"
-            value={stats ? stats.totalStudents : 48}
-            subtitle="42 Active • 6 Pending Approval"
+            value={fmt(stats?.totalStudents)}
+            subtitle="Registered student accounts"
             icon={<GraduationCap className="h-5 w-5" />}
             iconBgColor="bg-blue-50 text-blue-600"
           />
 
           <MetricCard
             title="Admin Accounts"
-            value={stats ? `${stats.totalAdmins} Staff` : '3 Staff'}
-            subtitle="2 Active • 1 Suspended"
+            value={fmt(stats?.totalAdmins, (n) => `${n} Staff`)}
+            subtitle="Active admin and super admin accounts"
             icon={<UserCheck className="h-5 w-5" />}
             iconBgColor="bg-indigo-50 text-indigo-600"
           />
 
           <MetricCard
             title="Teaching Faculty"
-            value={stats ? `${stats.totalTeachers} Instructors` : '6 Instructors'}
-            subtitle="100% Course Allocation"
+            value={fmt(stats?.totalTeachers, (n) => `${n} Instructors`)}
+            subtitle="Teacher accounts"
             icon={<BookOpen className="h-5 w-5" />}
             iconBgColor="bg-purple-50 text-purple-600"
           />
 
           <MetricCard
             title="Courses & Batches"
-            value={stats ? `${stats.totalCourses} Courses / ${stats.totalBatches} Batches` : '4 / 6'}
-            subtitle={`${stats?.totalEnrollments || 52} Total Enrollments`}
+            value={stats ? `${stats.totalCourses} Courses / ${stats.totalBatches} Batches` : fmt(null)}
+            subtitle={`${fmt(stats?.totalEnrollments)} Total Enrollments`}
             icon={<Layers className="h-5 w-5" />}
             iconBgColor="bg-amber-50 text-amber-600"
           />
 
           <MetricCard
             title="Gross Tuition Revenue"
-            value={formatINR(stats ? stats.totalRevenueINR : 485000)}
-            subtitle="All verified payment orders"
+            value={fmt(stats?.totalRevenueINR, formatINR)}
+            subtitle={`This month: ${fmt(stats?.revenueThisMonthINR, formatINR)} • ${stats?.financialYearLabel ?? 'FY'} to date: ${fmt(stats?.revenueYearToDateINR, formatINR)}`}
             icon={<DollarSign className="h-5 w-5" />}
             iconBgColor="bg-emerald-50 text-emerald-600"
           />
 
           <MetricCard
             title="Outstanding Dues"
-            value={formatINR(stats ? stats.outstandingFeesINR : 112000)}
-            subtitle="Pending student installment balance"
+            value={fmt(stats?.outstandingFeesINR, formatINR)}
+            subtitle="Approved enrollments awaiting payment"
             icon={<Receipt className="h-5 w-5" />}
             iconBgColor="bg-rose-50 text-rose-600"
           />
@@ -244,7 +256,7 @@ export const SuperAdminDashboardPage: React.FC = () => {
           <MetricCard
             title="Pending Refund Sign-offs"
             value={`${pendingRefunds.length} Request`}
-            subtitle={stats ? `${formatINR(stats.pendingRefundsAmountINR)} (BR-006)` : 'Exclusive to Owner'}
+            subtitle={`${fmt(stats?.pendingRefundsAmountINR, formatINR)} (BR-006)`}
             icon={<AlertTriangle className="h-5 w-5" />}
             iconBgColor="bg-rose-50 text-rose-600"
           />
@@ -252,30 +264,30 @@ export const SuperAdminDashboardPage: React.FC = () => {
           <MetricCard
             title="Pending Fee Overrides"
             value={`${pendingOverrides.length} Overrides`}
-            subtitle={stats ? `${formatINR(stats.pendingOverridesAmountINR)} (BR-007)` : 'Fee Waivers'}
+            subtitle={`Amount: ${fmt(stats?.pendingOverridesAmountINR, formatINR)} (BR-007)`}
             icon={<FileCheck2 className="h-5 w-5" />}
             iconBgColor="bg-amber-50 text-amber-600"
           />
 
           <MetricCard
             title="Placement Track Record"
-            value={stats ? `${stats.placementRatePercentage}%` : '92.4%'}
-            subtitle={`${stats?.totalPlacedStudents || 38} Students Placed`}
+            value={fmt(stats?.placementRatePercentage, (n) => `${n}%`)}
+            subtitle={`${fmt(stats?.totalPlacedStudents)} placement records`}
             icon={<Briefcase className="h-5 w-5" />}
             iconBgColor="bg-teal-50 text-teal-600"
           />
 
           <MetricCard
             title="Active Hiring Partners"
-            value={stats ? `${stats.activeHiringPartners} Corporates` : '14 Corporates'}
-            subtitle="TCS, Infosys, Wipro, Razorpay..."
+            value={fmt(stats?.activeHiringPartners, (n) => `${n} Corporates`)}
+            subtitle="Hiring partner metric not yet available"
             icon={<Users className="h-5 w-5" />}
             iconBgColor="bg-sky-50 text-sky-600"
           />
 
           <MetricCard
             title="Average Attendance"
-            value={stats ? `${stats.averageAttendancePercentage}%` : '86.8%'}
+            value={fmt(stats?.averageAttendancePercentage, (n) => `${n}%`)}
             subtitle="Mandatory SRS Threshold: 75%"
             icon={<Activity className="h-5 w-5" />}
             iconBgColor="bg-emerald-50 text-emerald-600"
@@ -291,118 +303,10 @@ export const SuperAdminDashboardPage: React.FC = () => {
         </div>
       </div>
 
-      {/* 4. Visual Financial & Cohort Analytics */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Revenue & Cash Flow Trajectory */}
-        <Card className="lg:col-span-2 p-6 space-y-5">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-4">
-            <div>
-              <h3 className="text-sm font-bold text-slate-900">
-                Tuition Collections &amp; Financial Run-Rate
-              </h3>
-              <p className="text-xs text-slate-500">
-                Monthly revenue inflows across online payment gateways &amp; manual reconciliations
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200">
-                +24.6% QoQ Growth
-              </span>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <div className="p-3 rounded-lg bg-slate-50 border border-slate-200/60">
-                <p className="text-[11px] text-slate-500">August 2026</p>
-                <p className="text-sm font-bold text-slate-800">₹ 85,000</p>
-                <div className="w-full bg-slate-200 h-1.5 rounded-full mt-2">
-                  <div className="bg-emerald-500 h-1.5 rounded-full" style={{ width: '45%' }} />
-                </div>
-              </div>
-              <div className="p-3 rounded-lg bg-slate-50 border border-slate-200/60">
-                <p className="text-[11px] text-slate-500">September 2026</p>
-                <p className="text-sm font-bold text-slate-800">₹ 1,20,000</p>
-                <div className="w-full bg-slate-200 h-1.5 rounded-full mt-2">
-                  <div className="bg-emerald-500 h-1.5 rounded-full" style={{ width: '65%' }} />
-                </div>
-              </div>
-              <div className="p-3 rounded-lg bg-slate-50 border border-slate-200/60">
-                <p className="text-[11px] text-slate-500">October 2026</p>
-                <p className="text-sm font-bold text-slate-800">₹ 1,42,000</p>
-                <div className="w-full bg-slate-200 h-1.5 rounded-full mt-2">
-                  <div className="bg-emerald-500 h-1.5 rounded-full" style={{ width: '80%' }} />
-                </div>
-              </div>
-              <div className="p-3 rounded-lg bg-rose-50/50 border border-rose-200/80">
-                <p className="text-[11px] text-rose-700 font-semibold">November 2026 (MTD)</p>
-                <p className="text-sm font-extrabold text-rose-900">₹ 1,38,000</p>
-                <div className="w-full bg-rose-200 h-1.5 rounded-full mt-2">
-                  <div className="bg-rose-600 h-1.5 rounded-full" style={{ width: '88%' }} />
-                </div>
-              </div>
-            </div>
-
-            <div className="p-4 bg-slate-50/80 rounded-xl border border-slate-200/80 space-y-2">
-              <div className="flex items-center justify-between text-xs text-slate-700">
-                <span className="font-semibold">Fiscal Year Target Realization (₹ 6,00,000 Target)</span>
-                <span className="font-bold text-slate-900">80.8% Achieved</span>
-              </div>
-              <div className="w-full bg-slate-200 h-2.5 rounded-full overflow-hidden">
-                <div className="bg-gradient-to-r from-emerald-500 to-rose-600 h-2.5 rounded-full" style={{ width: '80.8%' }} />
-              </div>
-            </div>
-          </div>
-        </Card>
-
-        {/* User Role Distribution */}
-        <Card className="p-6 space-y-4">
-          <div className="border-b border-slate-100 pb-3">
-            <h3 className="text-sm font-bold text-slate-900">System Role Breakdown</h3>
-            <p className="text-xs text-slate-500">Active credentials by authorization tier</p>
-          </div>
-
-          <div className="space-y-3.5">
-            <div className="flex items-center justify-between text-xs">
-              <div className="flex items-center gap-2">
-                <div className="h-3 w-3 rounded-full bg-rose-600" />
-                <span className="font-medium text-slate-800">Super Administrator (Owner)</span>
-              </div>
-              <span className="font-bold text-slate-900">1</span>
-            </div>
-
-            <div className="flex items-center justify-between text-xs">
-              <div className="flex items-center gap-2">
-                <div className="h-3 w-3 rounded-full bg-indigo-600" />
-                <span className="font-medium text-slate-800">Staff Administrators</span>
-              </div>
-              <span className="font-bold text-slate-900">3</span>
-            </div>
-
-            <div className="flex items-center justify-between text-xs">
-              <div className="flex items-center gap-2">
-                <div className="h-3 w-3 rounded-full bg-purple-600" />
-                <span className="font-medium text-slate-800">Teaching Faculty</span>
-              </div>
-              <span className="font-bold text-slate-900">6</span>
-            </div>
-
-            <div className="flex items-center justify-between text-xs">
-              <div className="flex items-center gap-2">
-                <div className="h-3 w-3 rounded-full bg-blue-500" />
-                <span className="font-medium text-slate-800">Enrolled Students</span>
-              </div>
-              <span className="font-bold text-slate-900">48</span>
-            </div>
-
-            <div className="pt-3 border-t border-slate-100">
-              <div className="p-3 bg-slate-50 rounded-lg text-center">
-                <span className="text-[11px] text-slate-500 block">Total Provisioned Accounts</span>
-                <span className="text-lg font-extrabold text-slate-900">58 Users</span>
-              </div>
-            </div>
-          </div>
-        </Card>
+      {/* 4. REP-001: revenue, registrations, attendance, assessments, placements and accounts from recorded data */}
+      <div className="space-y-3">
+        <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500">Trends and Operational Summaries</h2>
+        <DashboardAnalyticsPanel showAccounts />
       </div>
 
       {/* 5. Dual Queues: Pending Refunds (BR-006) & Financial Overrides (BR-007) */}
@@ -663,7 +567,7 @@ export const SuperAdminDashboardPage: React.FC = () => {
               <div>
                 <span className="text-slate-400 block text-[11px]">Client IP</span>
                 <span className="font-mono text-slate-800">
-                  {selectedLog.ipAddress || '103.21.144.12'}
+                  {selectedLog.ipAddress || 'Not recorded'}
                 </span>
               </div>
             </div>

@@ -121,6 +121,8 @@ import { SuperAdminFinancialOverridesPage } from '../pages/super-admin/SuperAdmi
 import { SuperAdminReportsPage } from '../pages/super-admin/SuperAdminReportsPage';
 import { SuperAdminRolesPage } from '../pages/super-admin/SuperAdminRolesPage';
 import { SuperAdminAuditLogsPage } from '../pages/super-admin/SuperAdminAuditLogsPage';
+import { AdminAccountSecurityPage } from '../pages/admin/AdminAccountSecurityPage';
+import { MessagesPage } from '../pages/common/MessagesPage';
 
 // Error Pages
 import { NotFoundPage } from '../pages/error/NotFoundPage';
@@ -191,6 +193,7 @@ export const AppRoutes: React.FC = () => {
         <Route path="notifications" element={<StudentNotificationsPage />} />
         <Route path="security" element={<StudentSecurityPage />} />
         <Route path="support" element={<StudentSupportPage />} />
+        <Route path="messages" element={<MessagesPage mode="student" />} />
         <Route path="change-password" element={<StudentChangePasswordPage />} />
         <Route index element={<Navigate to="/student/dashboard" replace />} />
       </Route>
@@ -262,9 +265,11 @@ export const AppRoutes: React.FC = () => {
         <Route path="website-cms" element={<AdminWebsiteCMSPage />} />
         <Route path="reports" element={<AdminReportsPage />} />
         <Route path="support" element={<AdminSupportPage />} />
+        <Route path="messages" element={<MessagesPage mode="staff" />} />
         <Route path="roles-permissions" element={<AdminRolePermissionPage />} />
         <Route path="activity-logs" element={<AdminActivityLogsPage />} />
         <Route path="settings" element={<AdminSettingsPage />} />
+        <Route path="security" element={<AdminAccountSecurityPage />} />
         <Route index element={<Navigate to="/admin/dashboard" replace />} />
       </Route>
 
@@ -287,6 +292,8 @@ export const AppRoutes: React.FC = () => {
         <Route path="roles-permissions" element={<SuperAdminRolesPage />} />
         <Route path="roles" element={<Navigate to="/super-admin/roles-permissions" replace />} />
         <Route path="audit-logs" element={<SuperAdminAuditLogsPage />} />
+        <Route path="security" element={<AdminAccountSecurityPage />} />
+        <Route path="messages" element={<MessagesPage mode="staff" />} />
         <Route path="website-cms" element={<AdminWebsiteCMSPage />} />
         <Route index element={<Navigate to="/super-admin/dashboard" replace />} />
       </Route>

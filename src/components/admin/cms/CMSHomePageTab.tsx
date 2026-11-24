@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { useCmsPage } from '../../../hooks/useCmsPage';
 import {
   Sparkles,
   Save,
@@ -15,31 +16,30 @@ import { Card } from '../../common/Card';
 import { Badge } from '../../common/Badge';
 import { useNotification } from '../../../context/NotificationContext';
 import { cmsService, type HomePageConfig } from '../../../services/cmsService';
+import { adminService, type DashboardStatsData } from '../../../services/adminService';
 
 export const CMSHomePageTab: React.FC = () => {
-  const [config, setConfig] = useState<HomePageConfig>(() => cmsService.getHomePageConfig());
+  const { config, setConfig, loading, loadError, saving, run } = useCmsPage<HomePageConfig>('homepage', cmsService.getHomePageConfig());
   const [activeSubSection, setActiveSubSection] = useState<'visibility' | 'hero' | 'stats' | 'advantage' | 'methodology'>('visibility');
   const { showToast } = useNotification();
 
-  const handleSave = () => {
-    cmsService.saveHomePageConfig(config);
-    showToast({
-      type: 'success',
-      title: 'Homepage Config Saved',
-      message: 'Changes are now live on the public website homepage in real-time.',
-    });
+  const handleSave = async () => {
+    const res = await run(() => cmsService.saveHomePageConfig(config));
+    showToast(
+      res.success
+        ? { type: 'success', title: 'Homepage Config Saved', message: 'Changes are now live on the public website homepage in real-time.' }
+        : { type: 'error', title: 'Not saved', message: res.error || 'The server did not save the changes. Please retry.' }
+    );
   };
 
-  const handleReset = () => {
-    if (window.confirm('Reset homepage content and section visibility to factory defaults?')) {
-      const def = cmsService.resetHomePageConfig();
-      setConfig(def);
-      showToast({
-        type: 'info',
-        title: 'Reset to Defaults',
-        message: 'Homepage restored to original default configuration.',
-      });
-    }
+  const handleReset = async () => {
+    if (!window.confirm('Reset this page content and section visibility to the built-in defaults? This is saved to the server.')) return;
+    const res = await run(() => cmsService.resetHomePageConfig());
+    showToast(
+      res.success
+        ? { type: 'info', title: 'Reset to Defaults', message: 'The built-in default content was saved.' }
+        : { type: 'error', title: 'Not reset', message: res.error || 'The server did not save the defaults. Please retry.' }
+    );
   };
 
   const toggleSection = (sectionKey: keyof HomePageConfig['sectionVisibility']) => {
@@ -59,6 +59,20 @@ export const CMSHomePageTab: React.FC = () => {
     });
     setConfig((prev) => ({ ...prev, sectionVisibility: updated }));
   };
+
+  // PUB-005 / D15: the computed placement figures, for the Admin to review.
+  // Nothing reaches the public site until the Admin applies a figure AND saves
+  // this page (the existing, audited CMS save).
+  const [computed, setComputed] = useState<Pick<DashboardStatsData, 'placementRate' | 'placementCohort' | 'financialYearLabel'> | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    adminService.getDashboardStats().then((res) => {
+      if (!cancelled && res.success) setComputed({ placementRate: res.data.placementRate, placementCohort: res.data.placementCohort, financialYearLabel: res.data.financialYearLabel });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const updateStat = (idx: number, field: string, val: any) => {
     const updated = [...config.statistics];
@@ -97,6 +111,11 @@ export const CMSHomePageTab: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      {(loading || loadError) && (
+        <div className={`p-3 rounded-lg border text-xs ${loadError ? 'bg-rose-50 border-rose-200 text-rose-800' : 'bg-slate-50 border-slate-200 text-slate-500'}`}>
+          {loadError || 'Loading the saved content from the server...'}
+        </div>
+      )}
       {/* Action Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 rounded-xl border border-slate-200/90 shadow-xs">
         <div>
@@ -110,10 +129,10 @@ export const CMSHomePageTab: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={handleReset} leftIcon={<RotateCcw className="h-4 w-4 text-slate-400" />}>
+          <Button variant="outline" size="sm" onClick={handleReset} disabled={loading || saving} leftIcon={<RotateCcw className="h-4 w-4 text-slate-400" />}>
             Reset Defaults
           </Button>
-          <Button variant="primary" size="sm" onClick={handleSave} leftIcon={<Save className="h-4 w-4" />}>
+          <Button variant="primary" size="sm" onClick={handleSave} isLoading={saving} disabled={loading || !!loadError} leftIcon={<Save className="h-4 w-4" />}>
             Save All Changes
           </Button>
         </div>
@@ -333,6 +352,29 @@ export const CMSHomePageTab: React.FC = () => {
             <h3 className="text-sm font-bold text-slate-900">5 Animated Key Statistics</h3>
             <p className="text-xs text-slate-500">These counters animate into view when the visitor scrolls onto the metrics bar.</p>
           </div>
+
+          {computed && (
+            <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-xs text-emerald-900 space-y-2">
+              <p className="font-semibold">Computed placement figures ({computed.financialYearLabel ?? 'current financial year'}) — review before publishing</p>
+              {computed.placementRate === null || !computed.placementCohort ? (
+                <p>No student has completed a course this financial year, so there is no placement rate to publish.</p>
+              ) : (
+                <>
+                  <p>
+                    Placement rate {computed.placementRate.toFixed(1)}%: {computed.placementCohort.placedStudents} of {computed.placementCohort.completedStudents} students who
+                    completed a course have a placement record. Applying a figure fills the value only; it is published when you save this page.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {config.statistics.map((stat, idx) => (
+                      <Button key={stat.id || idx} variant="outline" size="sm" onClick={() => updateStat(idx, 'value', `${Math.round(computed.placementRate as number)}%`)}>
+                        Use {Math.round(computed.placementRate as number)}% for STAT 0{idx + 1}
+                      </Button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {config.statistics.map((stat, idx) => (

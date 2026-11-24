@@ -1,4 +1,5 @@
 import { apiClient } from './api';
+import { fromBackendAuditLog, type BackendAuditLog } from './auditLogMapper';
 import {
   toApiFailure,
   toApiSuccess,
@@ -26,7 +27,7 @@ import {
 const USE_MOCK_AUTH = import.meta.env.VITE_USE_MOCK_AUTH === 'true';
 const USE_DEV_MOCKS = import.meta.env.VITE_USE_DEV_MOCKS === 'true';
 
-import { STORAGE_KEYS, APP_CONFIG } from '../constants/appConfig';
+import { STORAGE_KEYS } from '../constants/appConfig';
 import { getStorageItem, setStorageItem } from '../utils/storage';
 import {
   SEED_USERS,
@@ -34,19 +35,9 @@ import {
   SEED_BATCHES,
   SEED_ENROLLMENTS,
   SEED_PAYMENTS,
-  SEED_REFUNDS,
   SEED_CERTIFICATES,
-  SEED_COMPANIES,
-  SEED_JOBS,
   SEED_APPLICATIONS,
-  SEED_MOCK_INTERVIEWS,
-  SEED_ATTENDANCE_SESSIONS,
-  SEED_ASSIGNMENTS,
-  SEED_ASSIGNMENT_SUBMISSIONS,
-  SEED_TESTS,
-  SEED_TEST_ATTEMPTS,
   SEED_TICKETS,
-  SEED_NOTIFICATIONS,
   SEED_AUDIT_LOGS,
 } from '../mocks/seedData';
 import { recordAuditLog } from '../mocks/mockStorage';
@@ -57,28 +48,276 @@ import type {
   Batch,
   Enrollment,
   PaymentTransaction,
-  RefundRequest,
   CertificateRecord,
-  AttendanceSession,
-  Assignment,
-  AssignmentSubmission,
-  OnlineTest,
-  TestAttempt,
-  HiringCompany,
-  JobOpening,
   JobApplication,
-  MockInterviewSchedule,
   SupportTicket,
-  InAppNotification,
+  TicketCategory,
+  TicketStatus,
   AuditLog,
   CouponDiscount,
   ApiResponse,
   CourseStatus,
   BatchStatus,
   CourseModule,
+  AdminEnrollmentRow,
 } from '../types';
 
 const sleep = (ms: number = 150) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Extracts the server's error message from an axios error. */
+/** Body of POST /admin/students. Identity rules match self-registration. */
+export interface AdminCreateStudentInput {
+  name: string;
+  email: string;
+  mobile: string;
+  collegeName?: string;
+  degree?: string;
+  branch?: string;
+  passingYear?: number;
+  interestedCourseId?: string;
+  dateOfBirth?: string;
+  gender?: 'male' | 'female' | 'other';
+  city?: string;
+  state?: string;
+}
+
+/** Outcome of one BR-001 verification channel. */
+export type VerificationChannelStatus =
+  | { status: 'sent'; sentTo: string; expiresAt: string }
+  | { status: 'not_sent'; reason: string }
+  | { status: 'unavailable'; reason: string }
+  /** Not performed at launch by approved decision (CL-001); not a failure. */
+  | { status: 'deferred'; reason: string };
+
+export interface AdminCreatedStudentResult {
+  id: string;
+  name: string;
+  email: string;
+  mobile: string;
+  accountStatus: 'pending';
+  approvalStatus: 'pending';
+  isEmailVerified: false;
+  isMobileVerified: false;
+  accountState: 'pending_verification';
+  createdAt: string;
+  /** Shown once; never stored by the client. */
+  temporaryPassword: string;
+  verification: { email: VerificationChannelStatus; mobile: VerificationChannelStatus };
+}
+
+/**
+ * A certificate exactly as the server stores it. Issuing is blocked until
+ * BR-011 eligibility can be decided (Q8 and verified attendance/completion).
+ */
+export interface AdminCertificate {
+  id: string;
+  studentUserId: string;
+  studentNameAtIssue: string;
+  courseId: string;
+  courseNameAtIssue: string;
+  enrollmentId: string;
+  certificateNumber: string;
+  attendancePercentage: number;
+  passingMarksVerified: boolean;
+  courseCompletionVerified: boolean;
+  certificateStatus: 'valid' | 'revoked';
+  issuedAt: string;
+  issuedByUserId: string;
+  revokedAt?: string;
+  revocationReason?: string;
+}
+
+/** Backend notification types (support.validation createNotificationSchema). */
+export type AdminNotificationType = 'system' | 'academic' | 'payment' | 'placement' | 'announcement';
+/** Backend broadcast audience: role codes (NXA_Roles.RoleCode). */
+export type BroadcastAudienceRole = 'student' | 'teacher' | 'admin' | 'super_admin';
+
+/**
+ * Maps a backend support ticket (GET /support/admin/tickets, /support/tickets/:id)
+ * to the frontend model. The backend returns the student name but not the email,
+ * and the ticket text as `description`; replies become the conversation.
+ */
+const fromBackendTicket = (t: any): SupportTicket => {
+  const studentId = String(t?.studentUserId ?? '');
+  return {
+    id: String(t?.id ?? ''),
+    ticketNumber: t?.ticketNumber ?? '',
+    studentId,
+    studentName: t?.studentName ?? '',
+    studentEmail: '',
+    category: (t?.categoryName ?? String(t?.categoryId ?? '')) as TicketCategory,
+    categoryName: t?.categoryName,
+    subject: t?.subject ?? '',
+    description: t?.description,
+    status: t?.ticketStatus,
+    priority: t?.priority,
+    createdAt: t?.createdAt,
+    updatedAt: t?.closedAt ?? t?.createdAt,
+    assignedAdminId: t?.assignedToUserId,
+    assignedAdminName: t?.assignedToName,
+    messages: (Array.isArray(t?.replies) ? t.replies : []).map((r: any) => ({
+      id: String(r.id),
+      senderId: String(r.repliedByUserId),
+      senderName: r.repliedByName ?? '',
+      senderRole: String(r.repliedByUserId) === studentId ? 'student' : 'admin',
+      message: r.replyText,
+      sentAt: r.repliedAt,
+      isInternal: Boolean(r.isInternal),
+    })),
+  };
+};
+
+const apiErrorMessage = (err: any, fallback: string): string => {
+  const body = err?.response?.data;
+  const details: { field?: string; message?: string }[] = Array.isArray(body?.details) ? body.details : [];
+  const detailText = details.map((d) => (d.field ? `${d.field}: ${d.message}` : d.message)).filter(Boolean).join('; ');
+  const base = body?.message || err?.message || fallback;
+  return detailText ? `${base} (${detailText})` : base;
+};
+
+/**
+ * Course fields NXA_Courses can store. Everything else on the Course model
+ * (category, thumbnail, technologies, ...) has no column yet and is rejected by
+ * the server, so it is never sent.
+ */
+const toStorableCourseBody = (c: Partial<Course>) =>
+  Object.fromEntries(
+    Object.entries({
+      title: c.title,
+      shortDescription: c.shortDescription,
+      longDescription: c.longDescription,
+      durationWeeks: c.durationWeeks,
+      feeINR: c.feeINR,
+      level: c.level,
+    }).filter(([, v]) => v !== undefined)
+  );
+
+/**
+ * Fetches every page of a paginated admin endpoint ({ items, total }).
+ * The backend caps pageSize at 100.
+ */
+const fetchAllPages = async <T>(url: string, params: Record<string, unknown> = {}): Promise<T[]> => {
+  const all: T[] = [];
+  for (let page = 1; page <= 200; page += 1) {
+    const res = await apiClient.get(url, { params: { ...params, page, pageSize: 100 } });
+    const data = res.data?.data;
+    const items: T[] = Array.isArray(data) ? data : data?.items ?? [];
+    all.push(...items);
+    const total = typeof data?.total === 'number' ? data.total : all.length;
+    if (items.length === 0 || all.length >= total || Array.isArray(data)) break;
+  }
+  return all;
+};
+
+// ---------------------------------------------------------------------------
+// Backend contract adapters (admin API <-> frontend view models)
+// ---------------------------------------------------------------------------
+
+/** GET /admin/batches item (backend BatchRecord). */
+interface BackendBatch {
+  id: string;
+  courseId: string;
+  courseName?: string;
+  batchCode: string;
+  batchName: string;
+  startDate?: string;
+  endDate?: string;
+  capacity?: number;
+  scheduleDescription?: string;
+  status: string;
+  timeZoneId?: string;
+  currentEnrollments?: number;
+  allocatedTeacherIds?: string[];
+  allocatedTeacherNames?: string[];
+}
+
+const fromBackendBatch = (b: BackendBatch): Batch => ({
+  id: b.id,
+  courseId: b.courseId,
+  courseName: b.courseName ?? '',
+  name: b.batchName,
+  batchCode: b.batchCode,
+  startDate: b.startDate ?? '',
+  endDate: b.endDate ?? '',
+  scheduleTiming: b.scheduleDescription ?? '',
+  timezone: b.timeZoneId,
+  assignedTeacherIds: b.allocatedTeacherIds ?? [],
+  assignedTeacherNames: b.allocatedTeacherNames ?? [],
+  // The list endpoint returns a count, not the student ids.
+  enrolledStudentIds: [],
+  enrolledCount: b.currentEnrollments ?? 0,
+  status: b.status as BatchStatus,
+  ...(b.capacity !== undefined ? { maxCapacity: b.capacity } : {}),
+});
+
+/** Maps editable frontend batch fields onto the backend request body. */
+const toBackendBatchBody = (b: Partial<Batch>) => {
+  const body: Record<string, unknown> = {
+    courseId: b.courseId,
+    batchCode: b.batchCode,
+    batchName: b.name,
+    startDate: b.startDate || undefined,
+    endDate: b.endDate || undefined,
+    capacity: b.maxCapacity,
+    scheduleDescription: b.scheduleTiming || undefined,
+  };
+  return Object.fromEntries(Object.entries(body).filter(([, v]) => v !== undefined && v !== ''));
+};
+
+/** GET /admin/enrollments item (backend EnrollmentAdminRecord). */
+interface BackendEnrollment {
+  id: string;
+  studentUserId: string;
+  studentName?: string;
+  studentEmail?: string;
+  courseId: string;
+  courseTitle?: string;
+  batchId?: string;
+  batchCode?: string;
+  enrollmentNumber: string;
+  enrollmentStatus: string;
+  coursePrice: number;
+  discountAmount: number;
+  finalAmount: number;
+  currencyCode: string;
+  enrollmentSource: string;
+  activatedAt?: string;
+  completedAt?: string;
+  createdAt: string;
+}
+
+const fromBackendEnrollment = (e: BackendEnrollment): AdminEnrollmentRow => ({
+  id: e.id,
+  studentId: e.studentUserId,
+  courseId: e.courseId,
+  ...(e.batchId ? { batchId: e.batchId } : {}),
+  enrollmentType: e.enrollmentSource === 'admin' ? 'admin' : 'self',
+  status: e.enrollmentStatus as Enrollment['status'],
+  enrolledAt: e.createdAt,
+  ...(e.completedAt ? { completedAt: e.completedAt } : {}),
+  // Lesson progress is not part of the admin enrollment API.
+  progressPercentage: 0,
+  completedLessonIds: [],
+  bookmarkedLessonIds: [],
+  studentName: e.studentName,
+  studentEmail: e.studentEmail,
+  courseTitle: e.courseTitle,
+  batchCode: e.batchCode,
+  enrollmentNumber: e.enrollmentNumber,
+  coursePrice: e.coursePrice,
+  discountAmount: e.discountAmount,
+  finalAmount: e.finalAmount,
+  activatedAt: e.activatedAt,
+});
+
+/** Dev-mock mode only: localStorage enrollments carry no fee fields. */
+const asMockAdminRow = (e: Enrollment): AdminEnrollmentRow => ({
+  ...e,
+  enrollmentNumber: e.id,
+  coursePrice: 0,
+  discountAmount: 0,
+  finalAmount: 0,
+});
 
 export interface DashboardStatsData {
   totalStudents: number;
@@ -87,37 +326,403 @@ export interface DashboardStatsData {
   totalCourses: number;
   activeBatches: number;
   totalTeachers: number;
-  totalRevenueINR: number;
+  /** `null` = not available (source unreadable or no approved formula). */
+  totalRevenueINR: number | null;
+  /** Collected since 1 April of the current Indian financial year (IST). */
+  revenueFinancialYearINR?: number | null;
+  /** e.g. "FY 2026-27". */
+  financialYearLabel?: string;
   pendingFeesINR: number;
-  certificatesIssued: number;
-  placementRate: number;
-  activePlacements: number;
-  supportTicketsCount: number;
-  systemAlertsCount: number;
+  certificatesIssued: number | null;
+  /** D15: cohort placement rate % (unrounded) for `placementRatePeriod`; null = no completed students. */
+  placementRate: number | null;
+  placementRatePeriod?: { from: string; to: string };
+  placementCohort?: { completedStudents: number; placedStudents: number };
+  activePlacements: number | null;
+  supportTicketsCount: number | null;
+  /** D15: total of the open action queues. */
+  systemAlertsCount: number | null;
+  systemAlerts?: { pendingStudentApprovals: number; pendingRefundRequests: number; pendingFinancialOverrides: number };
   totalEnrollments: number;
-  placementsCount: number;
+  placementsCount: number | null;
 }
 
-export interface InstituteSettings {
-  instituteName: string;
-  tagline: string;
-  supportEmail: string;
-  supportPhone: string;
-  whatsappNumber: string;
-  address: string;
-  academicSession: string;
-  minAttendancePercentage: number;
-  minExamPassPercentage: number;
-  defaultMaxBatchCapacity: number;
-  paymentGatewayMode: 'test' | 'live';
-  currency: string;
-  receiptPrefix: string;
+/** D15: GET /admin/dashboard/placement-rate for an inclusive IST date range. */
+export interface PlacementRateResult {
+  from: string;
+  to: string;
+  completedStudents: number;
+  placedStudents: number;
+  placementRate: number | null;
 }
+
+/**
+ * Institute settings exactly as GET/PUT /admin/settings store them
+ * (NXA_InstituteSettings). Unset values are absent, never defaulted.
+ */
+export interface InstituteSettings {
+  instituteName?: string;
+  tagline?: string;
+  supportEmail?: string;
+  supportPhone?: string;
+  whatsappNumber?: string;
+  address?: string;
+  timezone?: string;
+  minAttendancePercentage?: number;
+  /** D1 / D9: BR-011 floor 60; stored until test scoring and certificates exist. */
+  minExamPercentage?: number;
+  /** D9: starting values for newly created lessons. */
+  defaultLessonSequentialUnlock?: boolean;
+  defaultLessonDownloadAllowed?: boolean;
+  /** D7: failed sign-ins before lockout (3-10; 5 when never saved). */
+  maxFailedLoginAttempts?: number;
+  currencySymbol?: string;
+  gstNumber?: string;
+  isSmsEnabled?: boolean;
+  maintenanceMode?: boolean;
+  maintenanceMessage?: string;
+}
+
+/* ---------- Financial administration (/payments/admin, /admin/finance) ---------- */
+
+/** NXA_ManualPaymentRecords.PaymentMode values the server accepts. */
+export type ManualPaymentMode = 'cash' | 'bank_transfer' | 'cheque' | 'pos_card' | 'other';
+
+/** One NXA_FinancialAuditHistory row. */
+export interface FinancialHistoryEntry {
+  id: string;
+  entityType: string;
+  entityId: string;
+  actionType: string;
+  oldValues?: unknown;
+  newValues?: unknown;
+  reason?: string;
+  performedByUserId: string;
+  performedByName?: string;
+  performedAt: string;
+}
+
+/* ---------- Placement administration (/placements), server shapes ---------- */
+
+/** A status change that may have been a no-op. */
+export interface Changed<T> {
+  record: T;
+  changed: boolean;
+}
+
+export type PlacementJobStatus = 'open' | 'closed' | 'draft';
+export type PlacementApplicationStatus = 'applied' | 'shortlisted' | 'rejected' | 'selected';
+export type QuestionDifficulty = 'beginner' | 'intermediate' | 'advanced';
+
+export interface PlacementCompanyInput {
+  companyName: string;
+  websiteUrl?: string;
+  industry?: string;
+  description?: string;
+  address?: string;
+  contactName?: string;
+  contactEmail?: string;
+  contactMobile?: string;
+}
+
+export interface PlacementCompany extends PlacementCompanyInput {
+  id: string;
+  isActive: boolean;
+  createdAt: string;
+}
+
+export interface PlacementJobInput {
+  jobTitle: string;
+  employmentType: 'full_time' | 'internship' | 'contract';
+  workLocation: string;
+  salaryMin?: number | null;
+  salaryMax?: number | null;
+  minExperienceYears: number;
+  applicationDeadline?: string | null;
+  jobDescription: string;
+}
+
+export interface PlacementJob extends PlacementJobInput {
+  id: string;
+  companyId: string;
+  companyName?: string;
+  jobStatus: PlacementJobStatus;
+  publishedAt?: string;
+  createdAt: string;
+}
+
+export interface PlacementEligibilityCriterion {
+  id: string;
+  criterionType: string;
+  operator: string;
+  criterionValue: string;
+}
+
+export interface PlacementApplication {
+  id: string;
+  jobId: string;
+  jobTitle?: string;
+  companyId?: string;
+  companyName?: string;
+  studentUserId: string;
+  studentName?: string;
+  applicationStatus: PlacementApplicationStatus;
+  coverLetter?: string;
+  appliedAt: string;
+  updatedAt: string;
+}
+
+export interface PlacementStatusChange {
+  id: string;
+  previousStatus?: string;
+  newStatus: string;
+  changeReason?: string;
+  changedByUserId?: string;
+  changedByName?: string;
+  changedAt: string;
+}
+
+export interface PlacementRound {
+  id: string;
+  jobApplicationId: string;
+  roundNumber: number;
+  roundName: string;
+  scheduledAt?: string;
+  meetingUrl?: string;
+  feedback?: string;
+  /** As stored (table default); round results cannot be set yet. */
+  roundStatus?: string;
+}
+
+export interface PlacementOffer {
+  id: string;
+  jobApplicationId: string;
+  offerReference: string;
+  offeredSalary?: number;
+  offerDate?: string;
+  joiningDate?: string;
+  offerStatus?: string;
+  hasLetter: boolean;
+  createdAt: string;
+}
+
+export interface PlacementRecordRow {
+  id: string;
+  studentUserId: string;
+  studentName?: string;
+  companyId: string;
+  companyName?: string;
+  jobId: string;
+  jobTitle?: string;
+  jobApplicationId: string;
+  offerId?: string;
+  packageOffered?: number;
+  joiningDate?: string;
+  employmentStatus?: string;
+  verificationStatus: 'verified' | 'pending';
+  verifiedAt?: string;
+}
+
+export interface EmployerFeedback {
+  id: string;
+  companyId: string;
+  companyName?: string;
+  jobApplicationId?: string;
+  studentUserId?: string;
+  studentName?: string;
+  feedbackText: string;
+  submittedAt: string;
+}
+
+export interface PlacementAnalyticsData {
+  companies: { total: number; active: number };
+  jobs: { total: number; byStatus: Record<string, number> };
+  applications: { total: number; byStatus: Record<string, number> };
+  interviewRounds: number;
+  offers: { total: number; averageOfferedSalary: number | null; highestOfferedSalary: number | null };
+  placements: { total: number; verified: number; pending: number };
+  mockInterviews: { total: number; byStatus: Record<string, number>; averageScore: number | null };
+  placementsByCompany: Array<{ companyId: string; companyName?: string; placements: number }>;
+}
+
+export interface PlacementPackageRow {
+  id: string;
+  packageName: string;
+  packageType: string;
+  description?: string;
+  price: number;
+  isActive: boolean;
+  studentCount: number;
+}
+
+export interface AdminMockInterview {
+  id: string;
+  studentUserId: string;
+  studentName?: string;
+  teacherUserId: string;
+  teacherName?: string;
+  scheduledAt: string;
+  meetingUrl?: string;
+  interviewStatus: 'scheduled' | 'completed' | 'cancelled';
+  overallScore?: number;
+  feedback?: string;
+}
+
+export interface AdminInterviewQuestion {
+  id: string;
+  category: string;
+  questionText: string;
+  difficultyLevel?: QuestionDifficulty;
+  sampleAnswer?: string;
+  isActive?: boolean;
+}
+
+/* ---------- Admin academic oversight (/admin/academics), server shapes ---------- */
+
+/** BR-010 statuses accepted when Admin marks attendance. */
+export type AcademicAttendanceStatus = 'present' | 'absent' | 'leave';
+
+export interface AcademicSession {
+  id: string;
+  batchId: string;
+  batchCode?: string;
+  courseId: string;
+  courseName?: string;
+  teacherUserId: string;
+  teacherName?: string;
+  sessionTitle: string;
+  startsAt: string;
+  endsAt: string;
+  meetingUrl?: string;
+  /** As stored; its allowed values are not published by the server. */
+  sessionStatus?: string;
+}
+
+export interface AcademicRosterEntry {
+  studentUserId: string;
+  studentName?: string;
+  /** Absent until attendance is recorded. `status` is as stored (teacher records may hold other values). */
+  record?: { id: string; status: string; remarks?: string; markedAt: string; markedByUserId: string };
+}
+
+export interface AcademicAttendanceRow extends AcademicRosterEntry {
+  session: AcademicSession;
+}
+
+export interface AcademicAttendanceChange {
+  id: string;
+  attendanceRecordId: string;
+  studentUserId: string;
+  oldStatus: string;
+  newStatus: string;
+  changeReason: string;
+  changedByUserId: string;
+  changedByName?: string;
+  changedAt: string;
+}
+
+export interface AcademicAssignment {
+  id: string;
+  courseId: string;
+  courseName?: string;
+  batchId?: string;
+  batchCode?: string;
+  title: string;
+  instructions?: string;
+  dueAt?: string;
+  maximumMarks: number;
+  status?: string;
+  createdByTeacherUserId: string;
+  teacherName?: string;
+  submissionCount: number;
+  evaluatedCount: number;
+}
+
+export interface AcademicSubmission {
+  id: string;
+  assignmentId: string;
+  studentUserId: string;
+  studentName?: string;
+  submissionType: string;
+  submissionStatus?: string;
+  submissionVersion: number;
+  submittedAt: string;
+  gitHubUrl?: string;
+  objectKey?: string;
+  textContent?: string;
+  latestEvaluation?: {
+    id: string;
+    marksAwarded: number;
+    feedback?: string;
+    evaluationVersion: number;
+    evaluatedByUserId: string;
+    evaluatedAt: string;
+  };
+}
+
+export interface AcademicTest {
+  id: string;
+  courseId: string;
+  courseName?: string;
+  batchId?: string;
+  batchCode?: string;
+  title: string;
+  durationMinutes: number;
+  maximumMarks: number;
+  passingMarks?: number;
+  maxAttempts: number;
+  startsAt?: string;
+  endsAt?: string;
+  status?: string;
+  createdByTeacherUserId: string;
+  attemptCount: number;
+}
+
+export interface AcademicTestAttempt {
+  id: string;
+  testId: string;
+  studentUserId: string;
+  studentName?: string;
+  attemptNumber: number;
+  attemptStatus?: string;
+  startedAt: string;
+  submittedAt?: string;
+  totalMarks?: number;
+}
+
+export interface AcademicRetake {
+  id: string;
+  testId: string;
+  studentUserId: string;
+  studentName?: string;
+  additionalAttempts: number;
+  reason?: string;
+  authorizedByUserId: string;
+  authorizedAt: string;
+}
+
+/** Calls an /admin/academics endpoint; failures carry the server's message, never fake data. */
+const academicsCall = async <T,>(
+  request: () => Promise<{ data?: { data?: T } }>,
+  empty: T,
+  fallbackMessage: string
+): Promise<ApiResponse<T>> => {
+  try {
+    const res = await request();
+    return { success: true, data: (res.data?.data ?? empty) as T };
+  } catch (err: any) {
+    return { success: false, data: empty, error: apiErrorMessage(err, fallbackMessage) };
+  }
+};
 
 export const adminService = {
   /**
    * 1. Dashboard Overview Statistics (ADM-001)
    */
+  async getPlacementRate(from: string, to: string): Promise<ApiResponse<PlacementRateResult | null>> {
+    return academicsCall(() => apiClient.get('/admin/dashboard/placement-rate', { params: { from, to } }), null, 'The placement rate could not be calculated.');
+  },
+
   async getDashboardStats(): Promise<ApiResponse<DashboardStatsData>> {
     if (USE_DEV_MOCKS) {
       await sleep();
@@ -209,13 +814,23 @@ export const adminService = {
   /**
    * 2. Student Management & Approvals (ADM-002, ADM-003, ADM-004)
    */
-  async getStudents(): Promise<ApiResponse<StudentProfile[]>> {
-    await sleep();
-    const students = getStorageItem<StudentProfile[]>(STORAGE_KEYS.STUDENTS, [
-      SEED_USERS.student,
-      SEED_USERS.studentPending,
-    ]);
-    return { success: true, data: students };
+  async getStudents(filter: { approvalStatus?: string; search?: string } = {}): Promise<ApiResponse<StudentProfile[]>> {
+    if (USE_DEV_MOCKS) {
+      await sleep();
+      const students = getStorageItem<StudentProfile[]>(STORAGE_KEYS.STUDENTS, [
+        SEED_USERS.student,
+        SEED_USERS.studentPending,
+      ]);
+      return { success: true, data: students };
+    }
+
+    try {
+      // GET /students (admin): paginated, server-side search/filter.
+      const students = await fetchAllPages<StudentProfile>('/students', filter);
+      return { success: true, data: students };
+    } catch (err: any) {
+      return { success: false, data: [], error: apiErrorMessage(err, 'Failed to fetch students.') };
+    }
   },
 
   /**
@@ -308,58 +923,20 @@ export const adminService = {
       : { success: false, data: 0, error: stats.error };
   },
 
-  async addStudent(
-    admin: { id: string; name: string },
-    data: Omit<StudentProfile, 'id' | 'createdAt' | 'isEmailVerified' | 'isMobileVerified' | 'enrolledCourseIds' | 'role'> & {
-      directEnrollCourseId?: string;
-      directEnrollBatchId?: string;
+  /**
+   * ADM-003: POST /admin/students. The server creates the account as
+   * PENDING_VERIFICATION (never active or approved), generates a one-time
+   * temporary password, and issues the email OTP. Mobile OTP is reported as
+   * unavailable until an SMS provider exists. There is no offline fallback:
+   * creating an account locally would be a fake success.
+   */
+  async createStudent(input: AdminCreateStudentInput): Promise<ApiResponse<AdminCreatedStudentResult>> {
+    try {
+      const res = await apiClient.post('/admin/students', input);
+      return { success: true, data: res.data?.data, message: res.data?.message };
+    } catch (err: any) {
+      return { success: false, data: null as any, error: apiErrorMessage(err, 'The student account could not be created.') };
     }
-  ): Promise<ApiResponse<StudentProfile>> {
-    await sleep(250);
-    const students = getStorageItem<StudentProfile[]>(STORAGE_KEYS.STUDENTS, []);
-    const newId = `user-stu-${Date.now().toString().slice(-4)}`;
-
-    const newStudent: StudentProfile = {
-      ...data,
-      id: newId,
-      createdAt: new Date().toISOString(),
-      isEmailVerified: true,
-      isMobileVerified: true,
-      role: 'student',
-      status: data.status || 'active',
-      adminApprovalStatus: data.adminApprovalStatus || 'approved',
-      approvedAt: data.adminApprovalStatus === 'approved' ? new Date().toISOString() : undefined,
-      enrolledCourseIds: data.directEnrollCourseId ? [data.directEnrollCourseId] : [],
-    };
-
-    const updated = [newStudent, ...students];
-    setStorageItem(STORAGE_KEYS.STUDENTS, updated);
-
-    // If batch & course assigned, create enrollment directly
-    if (data.directEnrollCourseId) {
-      const enrollments = getStorageItem<Enrollment[]>(STORAGE_KEYS.ENROLLMENTS, SEED_ENROLLMENTS);
-      const newEnrollment: Enrollment = {
-        id: `enr-${Date.now()}`,
-        studentId: newId,
-        courseId: data.directEnrollCourseId,
-        batchId: data.directEnrollBatchId,
-        status: 'active',
-        enrolledAt: new Date().toISOString(),
-        progressPercentage: 0,
-        completedLessonIds: [],
-        bookmarkedLessonIds: [],
-      };
-      setStorageItem(STORAGE_KEYS.ENROLLMENTS, [newEnrollment, ...enrollments]);
-    }
-
-    recordAuditLog(
-      { id: admin.id, name: admin.name, role: 'admin' },
-      'ADMIN_ADD_STUDENT',
-      `Student: ${newStudent.name} (${newId})`,
-      `Direct student creation by Administrator. Approval status: ${newStudent.adminApprovalStatus}.`
-    );
-
-    return { success: true, data: newStudent, message: 'Student registered successfully.' };
   },
 
   async updateStudentStatus(
@@ -367,6 +944,16 @@ export const adminService = {
     studentId: string,
     status: 'active' | 'suspended' | 'deactivated'
   ): Promise<ApiResponse<StudentProfile>> {
+    if (!USE_DEV_MOCKS) {
+      try {
+        // PATCH /students/:id/status (admin). The server revokes the student's
+        // sessions on suspension/deactivation and records the change.
+        const res = await apiClient.patch(`/students/${encodeURIComponent(studentId)}/status`, { status });
+        return { success: true, data: res.data?.data, message: res.data?.message || `Student marked as ${status}.` };
+      } catch (err: any) {
+        return { success: false, data: null as any, error: apiErrorMessage(err, 'Failed to update student status.') };
+      }
+    }
     await sleep(200);
     const students = getStorageItem<StudentProfile[]>(STORAGE_KEYS.STUDENTS, []);
     const idx = students.findIndex((s) => s.id === studentId);
@@ -537,34 +1124,49 @@ export const adminService = {
   /**
    * 3. Enrollment Management (ADM-005)
    */
-  async getEnrollments(): Promise<ApiResponse<Enrollment[]>> {
+  async getEnrollments(
+    filter: { studentId?: string; courseId?: string; batchId?: string; status?: string } = {}
+  ): Promise<ApiResponse<AdminEnrollmentRow[]>> {
     if (USE_DEV_MOCKS) {
       await sleep();
       const enrollments = getStorageItem<Enrollment[]>(STORAGE_KEYS.ENROLLMENTS, SEED_ENROLLMENTS);
-      return { success: true, data: enrollments };
+      return {
+        success: true,
+        data: enrollments.map(asMockAdminRow),
+      };
     }
 
     try {
-      const res = await apiClient.get('/admin/enrollments');
-      const items = res.data?.data?.items ?? res.data?.data ?? [];
-      return { success: true, data: Array.isArray(items) ? items : [] };
+      const res = await apiClient.get('/admin/enrollments', { params: filter });
+      const items: BackendEnrollment[] = res.data?.data?.items ?? res.data?.data ?? [];
+      return { success: true, data: Array.isArray(items) ? items.map(fromBackendEnrollment) : [] };
     } catch (err: any) {
-      const message = err?.response?.data?.message || err?.message || 'Failed to fetch enrollments.';
-      return { success: false, data: [], error: message };
+      return { success: false, data: [], error: apiErrorMessage(err, 'Failed to fetch enrollments.') };
     }
   },
 
+  /**
+   * POST /admin/enrollments. The server takes the price from the course and
+   * creates APPROVED_UNPAID (student pays) unless `freeAccessOverride` is set,
+   * which creates an ACTIVE enrollment and requires an audited reason.
+   */
   async createEnrollment(
     admin: { id: string; name: string },
     data: {
       studentId: string;
       courseId: string;
       batchId?: string;
-      discountAmountINR?: number;
-      paymentMode?: string;
+      discountCode?: string;
+      freeAccessOverride?: boolean;
+      overrideReason?: string;
+      /** D6: required to exceed a full batch (audited by the server). */
+      capacityOverrideReason?: string;
+      /** D4: required when a prerequisite course is not completed (audited by the server). */
+      prerequisiteOverrideReason?: string;
+      /** Dev-mock only. */
       paymentStatus?: 'active' | 'pending_approval' | 'approved_unpaid';
     }
-  ): Promise<ApiResponse<Enrollment>> {
+  ): Promise<ApiResponse<AdminEnrollmentRow>> {
     if (USE_DEV_MOCKS) {
       await sleep(300);
       const enrollments = getStorageItem<Enrollment[]>(STORAGE_KEYS.ENROLLMENTS, SEED_ENROLLMENTS);
@@ -576,7 +1178,7 @@ export const adminService = {
         enr.batchId = data.batchId || enr.batchId;
         enr.status = data.paymentStatus || 'active';
         setStorageItem(STORAGE_KEYS.ENROLLMENTS, enrollments);
-        return { success: true, data: enr, message: 'Existing enrollment updated.' };
+        return { success: true, data: asMockAdminRow(enr), message: 'Existing enrollment updated.' };
       }
 
       const newEnr: Enrollment = {
@@ -606,26 +1208,48 @@ export const adminService = {
         { id: admin.id, name: admin.name, role: 'admin' },
         'STUDENT_ENROLLED',
         `Student ID: ${data.studentId} Course: ${data.courseId}`,
-        `Enrolled into Course: ${data.courseId}, Batch: ${data.batchId || 'Default'}. Discount Applied: ₹${data.discountAmountINR || 0}.`
+        `Enrolled into Course: ${data.courseId}, Batch: ${data.batchId || 'Default'}. Discount code: ${data.discountCode || "none"}.`
       );
 
-      return { success: true, data: newEnr, message: 'Student successfully enrolled.' };
+      return { success: true, data: asMockAdminRow(newEnr), message: 'Student successfully enrolled.' };
     }
 
     try {
-      const res = await apiClient.post('/admin/enrollments', data);
-      return { success: true, data: res.data?.data, message: res.data?.message || 'Student successfully enrolled.' };
+      const res = await apiClient.post('/admin/enrollments', {
+        studentUserId: data.studentId,
+        courseId: data.courseId,
+        ...(data.batchId ? { batchId: data.batchId } : {}),
+        ...(data.discountCode ? { discountCode: data.discountCode } : {}),
+        ...(data.freeAccessOverride ? { freeAccessOverride: true, overrideReason: data.overrideReason } : {}),
+        ...(data.capacityOverrideReason ? { capacityOverrideReason: data.capacityOverrideReason } : {}),
+        ...(data.prerequisiteOverrideReason ? { prerequisiteOverrideReason: data.prerequisiteOverrideReason } : {}),
+      });
+      return {
+        success: true,
+        data: fromBackendEnrollment(res.data?.data),
+        message: res.data?.message || 'Student successfully enrolled.',
+      };
     } catch (err: any) {
-      const message = err?.response?.data?.message || err?.message || 'Failed to create enrollment.';
-      return { success: false, data: null as any, error: message };
+      const errorCode = err?.response?.data?.error;
+      return {
+        success: false,
+        data: null as any,
+        error: apiErrorMessage(err, 'Failed to create enrollment.'),
+        ...(typeof errorCode === 'string' ? { errorCode } : {}),
+      };
     }
   },
 
+  /**
+   * PATCH /admin/enrollments/:id/status. Activating manually bypasses payment
+   * verification, so the server requires and audits a `reason`.
+   */
   async updateEnrollmentStatus(
     admin: { id: string; name: string },
     enrollmentId: string,
-    status: 'active' | 'completed' | 'cancelled' | 'suspended' | 'pending_approval' | 'approved_unpaid'
-  ): Promise<ApiResponse<Enrollment>> {
+    status: 'active' | 'completed' | 'cancelled' | 'suspended' | 'pending_approval' | 'approved_unpaid',
+    reason?: string
+  ): Promise<ApiResponse<AdminEnrollmentRow | Enrollment>> {
     if (USE_DEV_MOCKS) {
       await sleep(200);
       const enrollments = getStorageItem<Enrollment[]>(STORAGE_KEYS.ENROLLMENTS, SEED_ENROLLMENTS);
@@ -646,11 +1270,17 @@ export const adminService = {
     }
 
     try {
-      const res = await apiClient.patch(`/admin/enrollments/${encodeURIComponent(enrollmentId)}/status`, { status });
-      return { success: true, data: res.data?.data, message: res.data?.message || 'Enrollment status updated.' };
+      const res = await apiClient.patch(`/admin/enrollments/${encodeURIComponent(enrollmentId)}/status`, {
+        status,
+        ...(reason ? { reason } : {}),
+      });
+      return {
+        success: true,
+        data: fromBackendEnrollment(res.data?.data),
+        message: res.data?.message || 'Enrollment status updated.',
+      };
     } catch (err: any) {
-      const message = err?.response?.data?.message || err?.message || 'Failed to update enrollment status.';
-      return { success: false, data: null as any, error: message };
+      return { success: false, data: null as any, error: apiErrorMessage(err, 'Failed to update enrollment status.') };
     }
   },
 
@@ -658,12 +1288,32 @@ export const adminService = {
    * 4. Course Management (ADM-006)
    */
   async getCourses(): Promise<ApiResponse<Course[]>> {
-    await sleep();
-    const courses = getStorageItem<Course[]>(STORAGE_KEYS.COURSES, SEED_COURSES);
-    return { success: true, data: courses };
+    if (USE_DEV_MOCKS) {
+      await sleep();
+      const courses = getStorageItem<Course[]>(STORAGE_KEYS.COURSES, SEED_COURSES);
+      return { success: true, data: courses };
+    }
+
+    try {
+      // GET /courses/manage (admin): every course including drafts.
+      const courses = await fetchAllPages<Course>('/courses/manage');
+      return { success: true, data: courses };
+    } catch (err: any) {
+      return { success: false, data: [], error: apiErrorMessage(err, 'Failed to fetch courses.') };
+    }
   },
 
   async createCourse(admin: { id: string; name: string }, courseData: Omit<Course, 'id'>): Promise<ApiResponse<Course>> {
+    if (!USE_DEV_MOCKS) {
+      try {
+        // POST /courses (admin). The course code is also the public slug.
+        const code = (courseData.courseCode || courseData.slug || '').trim().toLowerCase();
+        const res = await apiClient.post('/courses', { slug: code, courseCode: code, ...toStorableCourseBody(courseData) });
+        return { success: true, data: res.data?.data, message: res.data?.message || 'Course created.' };
+      } catch (err: any) {
+        return { success: false, data: null as any, error: apiErrorMessage(err, 'Failed to create course.') };
+      }
+    }
     await sleep(300);
     const courses = getStorageItem<Course[]>(STORAGE_KEYS.COURSES, SEED_COURSES);
     const newCourse: Course = {
@@ -683,6 +1333,14 @@ export const adminService = {
   },
 
   async updateCourse(admin: { id: string; name: string }, courseId: string, updates: Partial<Course>): Promise<ApiResponse<Course>> {
+    if (!USE_DEV_MOCKS) {
+      try {
+        const res = await apiClient.patch(`/courses/${encodeURIComponent(courseId)}`, toStorableCourseBody(updates));
+        return { success: true, data: res.data?.data, message: res.data?.message || 'Course updated.' };
+      } catch (err: any) {
+        return { success: false, data: null as any, error: apiErrorMessage(err, 'Failed to update course.') };
+      }
+    }
     await sleep(250);
     const courses = getStorageItem<Course[]>(STORAGE_KEYS.COURSES, SEED_COURSES);
     const idx = courses.findIndex((c) => c.id === courseId);
@@ -702,6 +1360,14 @@ export const adminService = {
   },
 
   async toggleCoursePublish(admin: { id: string; name: string }, courseId: string): Promise<ApiResponse<Course>> {
+    if (!USE_DEV_MOCKS) {
+      try {
+        const res = await apiClient.patch(`/courses/${encodeURIComponent(courseId)}/publish`);
+        return { success: true, data: res.data?.data, message: res.data?.message || 'Course visibility updated.' };
+      } catch (err: any) {
+        return { success: false, data: null as any, error: apiErrorMessage(err, 'Failed to change course visibility.') };
+      }
+    }
     await sleep(200);
     const courses = getStorageItem<Course[]>(STORAGE_KEYS.COURSES, SEED_COURSES);
     const idx = courses.findIndex((c) => c.id === courseId);
@@ -726,6 +1392,14 @@ export const adminService = {
     courseId: string,
     status: CourseStatus
   ): Promise<ApiResponse<Course>> {
+    if (!USE_DEV_MOCKS) {
+      try {
+        const res = await apiClient.patch(`/courses/${encodeURIComponent(courseId)}/status`, { status });
+        return { success: true, data: res.data?.data, message: res.data?.message || `Course status set to ${status}.` };
+      } catch (err: any) {
+        return { success: false, data: null as any, error: apiErrorMessage(err, 'Failed to change course status.') };
+      }
+    }
     await sleep(200);
     const courses = getStorageItem<Course[]>(STORAGE_KEYS.COURSES, SEED_COURSES);
     const idx = courses.findIndex((c) => c.id === courseId);
@@ -745,11 +1419,37 @@ export const adminService = {
     return { success: true, data: courses[idx], message: `Course status set to ${status}.` };
   },
 
+  /** GET /courses/manage/:id - full course including its curriculum tree. */
+  async getCourseById(courseId: string): Promise<ApiResponse<Course>> {
+    if (USE_DEV_MOCKS) {
+      await sleep(100);
+      const courses = getStorageItem<Course[]>(STORAGE_KEYS.COURSES, SEED_COURSES);
+      const course = courses.find((c) => c.id === courseId);
+      return course ? { success: true, data: course } : { success: false, data: null as any, error: 'Course not found.' };
+    }
+    try {
+      const res = await apiClient.get(`/courses/manage/${encodeURIComponent(courseId)}`);
+      return { success: true, data: res.data?.data };
+    } catch (err: any) {
+      return { success: false, data: null as any, error: apiErrorMessage(err, 'Failed to load course.') };
+    }
+  },
+
   async updateCourseCurriculum(
     admin: { id: string; name: string },
     courseId: string,
     modules: CourseModule[]
   ): Promise<ApiResponse<Course>> {
+    if (!USE_DEV_MOCKS) {
+      try {
+        // PUT /courses/:id/curriculum. Existing ids are preserved server-side;
+        // new items carry client ids and are inserted.
+        const res = await apiClient.put(`/courses/${encodeURIComponent(courseId)}/curriculum`, { modules });
+        return { success: true, data: res.data?.data, message: res.data?.message || 'Curriculum saved.' };
+      } catch (err: any) {
+        return { success: false, data: null as any, error: apiErrorMessage(err, 'Failed to save curriculum.') };
+      }
+    }
     await sleep(250);
     const courses = getStorageItem<Course[]>(STORAGE_KEYS.COURSES, SEED_COURSES);
     const idx = courses.findIndex((c) => c.id === courseId);
@@ -787,11 +1487,10 @@ export const adminService = {
 
     try {
       const res = await apiClient.get('/admin/batches');
-      const items = res.data?.data?.items ?? res.data?.data ?? [];
-      return { success: true, data: Array.isArray(items) ? items : [] };
+      const items: BackendBatch[] = res.data?.data?.items ?? res.data?.data ?? [];
+      return { success: true, data: Array.isArray(items) ? items.map(fromBackendBatch) : [] };
     } catch (err: any) {
-      const message = err?.response?.data?.message || err?.message || 'Failed to fetch batches.';
-      return { success: false, data: [], error: message };
+      return { success: false, data: [], error: apiErrorMessage(err, 'Failed to fetch batches.') };
     }
   },
 
@@ -806,10 +1505,9 @@ export const adminService = {
 
     try {
       const res = await apiClient.get(`/admin/batches/${encodeURIComponent(batchId)}`);
-      return { success: true, data: res.data?.data };
+      return { success: true, data: fromBackendBatch(res.data?.data) };
     } catch (err: any) {
-      const message = err?.response?.data?.message || err?.message || 'Batch not found.';
-      return { success: false, data: null as any, error: message };
+      return { success: false, data: null as any, error: apiErrorMessage(err, 'Batch not found.') };
     }
   },
 
@@ -832,12 +1530,23 @@ export const adminService = {
     }
 
     try {
-      const res = await apiClient.get(`/admin/batches/${encodeURIComponent(batchId)}/students`);
-      const items = res.data?.data?.items ?? res.data?.data ?? [];
-      return { success: true, data: Array.isArray(items) ? items : [] };
+      // The roster endpoint returns students; their enrollment in this batch
+      // comes from the enrollment list filtered by batch.
+      const [studentsRes, enrollmentsRes] = await Promise.all([
+        apiClient.get(`/admin/batches/${encodeURIComponent(batchId)}/students`),
+        apiClient.get('/admin/enrollments', { params: { batchId } }),
+      ]);
+      const students: StudentProfile[] = studentsRes.data?.data ?? [];
+      const enrollments: BackendEnrollment[] = enrollmentsRes.data?.data ?? [];
+      const roster = students
+        .map((student) => {
+          const enr = enrollments.find((e) => e.studentUserId === student.id);
+          return enr ? { student, enrollment: fromBackendEnrollment(enr) } : null;
+        })
+        .filter(Boolean) as { student: StudentProfile; enrollment: Enrollment }[];
+      return { success: true, data: roster };
     } catch (err: any) {
-      const message = err?.response?.data?.message || err?.message || 'Failed to fetch batch students.';
-      return { success: false, data: [], error: message };
+      return { success: false, data: [], error: apiErrorMessage(err, 'Failed to fetch batch students.') };
     }
   },
 
@@ -863,11 +1572,14 @@ export const adminService = {
     }
 
     try {
-      const res = await apiClient.post('/admin/batches', batchData);
-      return { success: true, data: res.data?.data, message: res.data?.message || 'New batch cohort created successfully.' };
+      const res = await apiClient.post('/admin/batches', toBackendBatchBody(batchData));
+      return {
+        success: true,
+        data: fromBackendBatch(res.data?.data),
+        message: res.data?.message || 'New batch cohort created successfully.',
+      };
     } catch (err: any) {
-      const message = err?.response?.data?.message || err?.message || 'Failed to create batch cohort.';
-      return { success: false, data: null as any, error: message };
+      return { success: false, data: null as any, error: apiErrorMessage(err, 'Failed to create batch cohort.') };
     }
   },
 
@@ -892,11 +1604,12 @@ export const adminService = {
     }
 
     try {
-      const res = await apiClient.put(`/admin/batches/${encodeURIComponent(batchId)}`, updates);
-      return { success: true, data: res.data?.data, message: res.data?.message || 'Batch cohort updated.' };
+      // courseId and batchCode are not editable after creation.
+      const { courseId: _c, batchCode: _b, ...editable } = toBackendBatchBody(updates);
+      const res = await apiClient.put(`/admin/batches/${encodeURIComponent(batchId)}`, editable);
+      return { success: true, data: fromBackendBatch(res.data?.data), message: res.data?.message || 'Batch cohort updated.' };
     } catch (err: any) {
-      const message = err?.response?.data?.message || err?.message || 'Failed to update batch.';
-      return { success: false, data: null as any, error: message };
+      return { success: false, data: null as any, error: apiErrorMessage(err, 'Failed to update batch.') };
     }
   },
 
@@ -911,10 +1624,9 @@ export const adminService = {
 
     try {
       const res = await apiClient.patch(`/admin/batches/${encodeURIComponent(batchId)}/status`, { status });
-      return { success: true, data: res.data?.data, message: res.data?.message || 'Batch status updated.' };
+      return { success: true, data: fromBackendBatch(res.data?.data), message: res.data?.message || 'Batch status updated.' };
     } catch (err: any) {
-      const message = err?.response?.data?.message || err?.message || 'Failed to update batch status.';
-      return { success: false, data: null as any, error: message };
+      return { success: false, data: null as any, error: apiErrorMessage(err, 'Failed to update batch status.') };
     }
   },
 
@@ -938,7 +1650,40 @@ export const adminService = {
     }
   },
 
-  async addTeacher(admin: { id: string; name: string }, teacherData: Omit<TeacherProfile, 'id' | 'createdAt' | 'role' | 'status' | 'assignedCourseIds' | 'assignedBatchIds' | 'rating'>): Promise<ApiResponse<TeacherProfile>> {
+  /**
+   * PUT /admin/teachers/:id - name and profile fields (email and mobile are
+   * sign-in identifiers and are not edited here). Audited server-side.
+   */
+  async updateTeacher(
+    teacherId: string,
+    changes: { name?: string; specialization?: string | null; experienceYears?: number; qualifications?: string | null; bio?: string | null }
+  ): Promise<ApiResponse<{ record: TeacherProfile; changed: boolean } | null>> {
+    try {
+      const res = await apiClient.put(`/admin/teachers/${encodeURIComponent(teacherId)}`, changes);
+      return { success: true, data: res.data?.data ?? null, message: res.data?.message };
+    } catch (err: any) {
+      return { success: false, data: null, error: apiErrorMessage(err, 'The teacher could not be updated.') };
+    }
+  },
+
+  /** PATCH /admin/teachers/:id/status - activate or deactivate; deactivation signs the teacher out. */
+  async setTeacherStatus(
+    teacherId: string,
+    status: 'active' | 'deactivated',
+    reason?: string
+  ): Promise<ApiResponse<{ record: TeacherProfile; changed: boolean } | null>> {
+    try {
+      const res = await apiClient.patch(`/admin/teachers/${encodeURIComponent(teacherId)}/status`, { status, ...(reason ? { reason } : {}) });
+      return { success: true, data: res.data?.data ?? null, message: res.data?.message };
+    } catch (err: any) {
+      return { success: false, data: null, error: apiErrorMessage(err, 'The teacher status could not be changed.') };
+    }
+  },
+
+  async addTeacher(
+    admin: { id: string; name: string },
+    teacherData: Omit<TeacherProfile, 'id' | 'createdAt' | 'role' | 'status' | 'assignedCourseIds' | 'assignedBatchIds' | 'rating'>
+  ): Promise<ApiResponse<TeacherProfile & { temporaryPassword?: string }>> {
     if (USE_DEV_MOCKS) {
       await sleep(250);
       const teachers = getStorageItem<TeacherProfile[]>(STORAGE_KEYS.TEACHERS, [SEED_USERS.teacher]);
@@ -1024,8 +1769,10 @@ export const adminService = {
     }
 
     try {
+      // Approved decision: the (course, batch, teacher) triple; the server
+      // verifies the batch belongs to the course.
       const res = await apiClient.post(`/admin/batches/${encodeURIComponent(batchId)}/allocations`, {
-        teacherId,
+        teacherUserId: teacherId,
         courseId,
       });
       return {
@@ -1082,535 +1829,623 @@ export const adminService = {
   },
 
   /**
-   * 7. Payments & Discounts (ADM-009, ADM-010)
+   * 7. Payments & Discounts (ADM-009, ADM-010, PAY-008/009/013). Live:
+   * /payments/admin/* and /admin/finance/*.
+   */
+  /**
+   * Gateway transactions (GET /payments/admin/all) plus Admin-recorded offline
+   * payments (GET /payments/admin/manual), newest first. Transactions do not
+   * store the discount, so `discountAppliedINR` is 0 and never displayed.
    */
   async getPayments(): Promise<ApiResponse<PaymentTransaction[]>> {
-    await sleep();
-    const payments = getStorageItem<PaymentTransaction[]>(STORAGE_KEYS.PAYMENTS, SEED_PAYMENTS);
-    return { success: true, data: payments };
+    try {
+      const [txRes, manualRes] = await Promise.all([apiClient.get('/payments/admin/all'), apiClient.get('/payments/admin/manual')]);
+      const txs: any[] = Array.isArray(txRes.data?.data) ? txRes.data.data : [];
+      const manual: any[] = Array.isArray(manualRes.data?.data) ? manualRes.data.data : [];
+      const online: PaymentTransaction[] = txs.map((t) => ({
+        id: `tx-${t.id}`,
+        orderId: String(t.paymentOrderId ?? ''),
+        studentId: String(t.studentUserId ?? ''),
+        studentName: t.studentName || `Student #${t.studentUserId ?? '?'}`,
+        courseId: String(t.courseId ?? ''),
+        courseTitle: t.courseTitle || '',
+        amountINR: Number(t.amount),
+        discountAppliedINR: 0,
+        finalAmountINR: Number(t.amount),
+        status: t.transactionStatus as PaymentTransaction['status'],
+        paymentMethod: t.paymentMethod as PaymentTransaction['paymentMethod'],
+        gatewayTransactionId: t.gatewayPaymentId || undefined,
+        receiptNumber: t.receiptNumber || '—',
+        paidAt: t.paidAt,
+        createdAt: t.createdAt,
+        isManualEntry: false,
+      }));
+      const offline: PaymentTransaction[] = manual.map((m) => ({
+        id: `manual-${m.id}`,
+        orderId: `manual-${m.id}`,
+        studentId: String(m.studentUserId),
+        studentName: m.studentName || `Student #${m.studentUserId}`,
+        courseId: String(m.courseId ?? ''),
+        courseTitle: m.courseTitle || '',
+        amountINR: Number(m.amount),
+        discountAppliedINR: 0,
+        finalAmountINR: Number(m.amount),
+        // The recording Admin verifies the payment; any other stored value is shown as pending.
+        status: String(m.verificationStatus).toLowerCase() === 'verified' ? 'successful' : 'pending',
+        paymentMethod: `manual_${m.paymentMode}` as PaymentTransaction['paymentMethod'],
+        receiptNumber: m.referenceNumber || '—',
+        paidAt: m.verifiedAt,
+        createdAt: m.createdAt,
+        isManualEntry: true,
+        manualEnteredByAdminId: String(m.enteredByUserId),
+      }));
+      const all = [...online, ...offline].sort((a, b) => (b.paidAt || b.createdAt).localeCompare(a.paidAt || a.createdAt));
+      return { success: true, data: all };
+    } catch (err: any) {
+      return { success: false, data: [], error: apiErrorMessage(err, 'Payments could not be loaded.') };
+    }
   },
 
-  async recordManualPayment(
-    admin: { id: string; name: string },
-    data: {
-      studentId: string;
-      studentName: string;
-      courseId: string;
-      courseTitle: string;
-      amountINR: number;
-      paymentMethod: any;
-      receiptNumber: string;
-      notes: string;
+  /**
+   * POST /payments/admin/manual. The enrollment must be APPROVED_UNPAID and the
+   * amount its full FinalAmount (BR-005). The server activates the enrollment
+   * and writes audit + financial history in one transaction.
+   */
+  async recordManualPayment(input: {
+    studentUserId: string;
+    enrollmentId: string;
+    amount: number;
+    paymentMode: ManualPaymentMode;
+    referenceNumber: string;
+  }): Promise<ApiResponse<{ id: string } | null>> {
+    try {
+      const res = await apiClient.post('/payments/admin/manual', input);
+      return { success: true, data: res.data?.data ?? null, message: res.data?.message };
+    } catch (err: any) {
+      return { success: false, data: null, error: apiErrorMessage(err, 'The payment could not be recorded.') };
     }
-  ): Promise<ApiResponse<PaymentTransaction>> {
-    await sleep(300);
-    const payments = getStorageItem<PaymentTransaction[]>(STORAGE_KEYS.PAYMENTS, SEED_PAYMENTS);
-    const enrollments = getStorageItem<Enrollment[]>(STORAGE_KEYS.ENROLLMENTS, SEED_ENROLLMENTS);
-
-    const newTx: PaymentTransaction = {
-      id: `pay-${Date.now()}`,
-      orderId: `manual_${Date.now()}`,
-      studentId: data.studentId,
-      studentName: data.studentName,
-      courseId: data.courseId,
-      courseTitle: data.courseTitle,
-      amountINR: data.amountINR,
-      discountAppliedINR: 0,
-      finalAmountINR: data.amountINR,
-      status: 'successful',
-      paymentMethod: data.paymentMethod,
-      receiptNumber: data.receiptNumber,
-      paidAt: new Date().toISOString(),
-      createdAt: new Date().toISOString(),
-      isManualEntry: true,
-      manualEnteredByAdminId: admin.id,
-      manualNotes: data.notes,
-    };
-
-    setStorageItem(STORAGE_KEYS.PAYMENTS, [newTx, ...payments]);
-
-    // Activate enrollment
-    let enr = enrollments.find((e) => e.studentId === data.studentId && e.courseId === data.courseId);
-    if (enr) {
-      enr.status = 'active';
-    } else {
-      enr = {
-        id: `enr-${Date.now()}`,
-        studentId: data.studentId,
-        courseId: data.courseId,
-        status: 'active',
-        enrolledAt: new Date().toISOString(),
-        progressPercentage: 0,
-        completedLessonIds: [],
-        bookmarkedLessonIds: [],
-      };
-      enrollments.push(enr);
-    }
-    setStorageItem(STORAGE_KEYS.ENROLLMENTS, enrollments);
-
-    recordAuditLog(
-      { id: admin.id, name: admin.name, role: 'admin' },
-      'MANUAL_PAYMENT_ENTRY',
-      `Payment: ${data.receiptNumber} Student: ${data.studentName}`,
-      `Recorded manual ${data.paymentMethod} payment of ₹ ${data.amountINR}. Notes: ${data.notes}. Enrollment activated (BR-017).`
-    );
-
-    return {
-      success: true,
-      data: newTx,
-      message: 'Manual payment recorded and course access activated.',
-    };
   },
 
   async getDiscounts(): Promise<ApiResponse<CouponDiscount[]>> {
-    await sleep();
-    const discounts = getStorageItem<CouponDiscount[]>(STORAGE_KEYS.DISCOUNTS, [
-      {
-        id: 'disc-01',
-        code: 'DIWALI2026',
-        description: 'Festive scholarship flat reduction for early applicants',
-        discountType: 'fixed_amount',
-        value: 7000,
-        applicableCourseIds: [],
-        isActive: true,
-        validUntil: '2026-12-31',
-      },
-      {
-        id: 'disc-02',
-        code: 'MERIT25',
-        description: 'Merit scholarship for university toppers & 8.5+ CGPA',
-        discountType: 'percentage',
-        value: 25,
-        applicableCourseIds: ['course-fsd-01', 'course-ds-03'],
-        isActive: true,
-        validUntil: '2027-03-31',
-      },
-    ]);
-    return { success: true, data: discounts };
+    try {
+      // GET /payments/admin/discounts: NXA_Coupons joined to NXA_Discounts.
+      const res = await apiClient.get('/payments/admin/discounts');
+      const items: CouponDiscount[] = res.data?.data ?? [];
+      return { success: true, data: Array.isArray(items) ? items : [] };
+    } catch (err: any) {
+      return { success: false, data: [], error: apiErrorMessage(err, 'Failed to fetch discounts.') };
+    }
   },
 
-  async createDiscount(
-    admin: { id: string; name: string },
-    data: Omit<CouponDiscount, 'id'>
-  ): Promise<ApiResponse<CouponDiscount>> {
-    await sleep(200);
-    const discounts = (await this.getDiscounts()).data;
-    const newDiscount: CouponDiscount = {
-      ...data,
-      id: `disc-${Date.now().toString().slice(-4)}`,
-    };
-    const updated = [newDiscount, ...discounts];
-    setStorageItem(STORAGE_KEYS.DISCOUNTS, updated);
-
-    recordAuditLog(
-      { id: admin.id, name: admin.name, role: 'admin' },
-      'DISCOUNT_COUPON_CREATED',
-      `Coupon: ${newDiscount.code}`,
-      `Created coupon code of value ${newDiscount.value} (${newDiscount.discountType}). Valid until ${newDiscount.validUntil}.`
-    );
-
-    return { success: true, data: newDiscount, message: 'Discount coupon created.' };
+  /** POST /payments/admin/discounts. Course-restricted coupons cannot be stored (no mapping table). */
+  async createDiscount(input: {
+    code: string;
+    description: string;
+    discountType: 'percentage' | 'fixed_amount';
+    value: number;
+    validUntil?: string;
+    usageLimit?: number;
+    perUserLimit?: number;
+  }): Promise<ApiResponse<CouponDiscount | null>> {
+    try {
+      const res = await apiClient.post('/payments/admin/discounts', { ...input, applicableCourseIds: [], isActive: true });
+      return { success: true, data: res.data?.data ?? null, message: res.data?.message };
+    } catch (err: any) {
+      return { success: false, data: null, error: apiErrorMessage(err, 'The coupon could not be created.') };
+    }
   },
 
-  async toggleDiscount(admin: { id: string; name: string }, discountId: string): Promise<ApiResponse<CouponDiscount>> {
-    await sleep(150);
-    const discounts = (await this.getDiscounts()).data;
-    const idx = discounts.findIndex((d) => d.id === discountId);
-    if (idx === -1) return { success: false, data: null as any, error: 'Discount not found.' };
-
-    discounts[idx].isActive = !discounts[idx].isActive;
-    setStorageItem(STORAGE_KEYS.DISCOUNTS, discounts);
-
-    return { success: true, data: discounts[idx], message: `Coupon is now ${discounts[idx].isActive ? 'Active' : 'Inactive'}.` };
+  /** PATCH /admin/finance/coupons/:id/status. Coupons are never deleted; redemptions are kept. */
+  async setCouponActive(
+    couponId: string,
+    isActive: boolean,
+    reason?: string
+  ): Promise<ApiResponse<{ changed: boolean } | null>> {
+    try {
+      const res = await apiClient.patch(`/admin/finance/coupons/${encodeURIComponent(couponId)}/status`, {
+        isActive,
+        ...(reason ? { reason } : {}),
+      });
+      return { success: true, data: { changed: Boolean(res.data?.data?.changed) }, message: res.data?.message };
+    } catch (err: any) {
+      return { success: false, data: null, error: apiErrorMessage(err, 'The coupon status could not be changed.') };
+    }
   },
 
-  async deleteDiscount(admin: { id: string; name: string }, discountId: string): Promise<ApiResponse<boolean>> {
-    await sleep(150);
-    const discounts = (await this.getDiscounts()).data;
-    const updated = discounts.filter((d) => d.id !== discountId);
-    setStorageItem(STORAGE_KEYS.DISCOUNTS, updated);
-
-    recordAuditLog(
-      { id: admin.id, name: admin.name, role: 'admin' },
-      'DISCOUNT_COUPON_DELETED',
-      `Discount ID: ${discountId}`,
-      'Removed coupon from promotional ledger.'
-    );
-
-    return { success: true, data: true, message: 'Coupon deleted.' };
+  /** GET /admin/finance/history (PAY-013). Refund history is Super Admin only. */
+  async getFinancialHistory(
+    entityType: 'Coupon' | 'ManualPayment' | 'CouponRedemption' | 'EnrollmentOverride' | 'Scholarship',
+    entityId: string
+  ): Promise<ApiResponse<FinancialHistoryEntry[]>> {
+    try {
+      const res = await apiClient.get('/admin/finance/history', { params: { entityType, entityId } });
+      return { success: true, data: Array.isArray(res.data?.data) ? res.data.data : [] };
+    } catch (err: any) {
+      return { success: false, data: [], error: apiErrorMessage(err, 'History could not be loaded.') };
+    }
   },
 
   /**
-   * 8. Attendance Management (ADM-011)
+   * 8. Academic oversight (ADM-011, ATT-001/002/005/009, ASM-005/011, BR-010/012)
+   * Live: /admin/academics. Ids are numeric strings from the server.
    */
-  async getAttendanceSessions(): Promise<ApiResponse<AttendanceSession[]>> {
-    await sleep();
-    const sessions = getStorageItem<AttendanceSession[]>(STORAGE_KEYS.ATTENDANCE, SEED_ATTENDANCE_SESSIONS);
-    return { success: true, data: sessions };
+  /** ATT-010 (D2): per-student attendance % for a batch, computed by the server. */
+  async getAttendanceSummary(batchId: string): Promise<ApiResponse<AttendanceSummary | null>> {
+    return academicsCall(() => apiClient.get('/admin/academics/attendance/summary', { params: { batchId } }), null, 'The attendance summary could not be loaded.');
   },
 
-  async correctAttendanceRecord(
-    admin: { id: string; name: string },
+  async getClassSessions(filter: { batchId?: string } = {}): Promise<ApiResponse<AcademicSession[]>> {
+    return academicsCall(() => apiClient.get('/admin/academics/class-sessions', { params: filter }), [], 'Class sessions could not be loaded.');
+  },
+
+  async createClassSession(input: {
+    batchId: string;
+    teacherUserId: string;
+    sessionTitle: string;
+    startsAt: string;
+    endsAt: string;
+    meetingUrl?: string;
+  }): Promise<ApiResponse<AcademicSession | null>> {
+    return academicsCall(() => apiClient.post('/admin/academics/class-sessions', input), null, 'The session could not be scheduled.');
+  },
+
+  async updateClassSession(
     sessionId: string,
-    studentId: string,
-    newStatus: 'present' | 'absent' | 'leave',
-    auditRemarks: string
-  ): Promise<ApiResponse<AttendanceSession>> {
-    await sleep(250);
-    const sessions = getStorageItem<AttendanceSession[]>(STORAGE_KEYS.ATTENDANCE, SEED_ATTENDANCE_SESSIONS);
-    const idx = sessions.findIndex((s) => s.id === sessionId);
-    if (idx === -1) return { success: false, data: null as any, error: 'Session not found.' };
-
-    const recIdx = sessions[idx].records.findIndex((r) => r.studentId === studentId);
-    if (recIdx === -1) return { success: false, data: null as any, error: 'Student record not found in this session.' };
-
-    const oldStatus = sessions[idx].records[recIdx].status;
-    sessions[idx].records[recIdx].status = newStatus;
-    setStorageItem(STORAGE_KEYS.ATTENDANCE, sessions);
-
-    recordAuditLog(
-      { id: admin.id, name: admin.name, role: 'admin' },
-      'ATTENDANCE_RECORD_CORRECTED',
-      `Session: ${sessions[idx].topicCovered} (${sessions[idx].sessionDate}) - Student: ${sessions[idx].records[recIdx].studentName}`,
-      `Changed status from ${oldStatus.toUpperCase()} to ${newStatus.toUpperCase()}. Reason: ${auditRemarks}`
+    changes: { teacherUserId?: string; sessionTitle?: string; startsAt?: string; endsAt?: string; meetingUrl?: string }
+  ): Promise<ApiResponse<AcademicSession | null>> {
+    return academicsCall(
+      () => apiClient.patch(`/admin/academics/class-sessions/${encodeURIComponent(sessionId)}`, changes),
+      null,
+      'The session could not be updated.'
     );
-
-    return { success: true, data: sessions[idx], message: 'Attendance record audited and updated.' };
   },
 
-  /**
-   * 9. Assignments & Tests (ADM-011)
-   */
-  async getAssignments(): Promise<ApiResponse<Assignment[]>> {
-    await sleep();
-    const assignments = getStorageItem<Assignment[]>(STORAGE_KEYS.ASSIGNMENTS, SEED_ASSIGNMENTS);
-    return { success: true, data: assignments };
+  async getSessionAttendance(sessionId: string): Promise<ApiResponse<{ session: AcademicSession; roster: AcademicRosterEntry[] } | null>> {
+    return academicsCall(
+      () => apiClient.get(`/admin/academics/class-sessions/${encodeURIComponent(sessionId)}/attendance`),
+      null,
+      'Attendance could not be loaded.'
+    );
   },
 
-  async getAssignmentSubmissions(): Promise<ApiResponse<AssignmentSubmission[]>> {
-    await sleep();
-    const subs = getStorageItem<AssignmentSubmission[]>(STORAGE_KEYS.SUBMISSIONS, SEED_ASSIGNMENT_SUBMISSIONS);
-    return { success: true, data: subs };
+  /** New records are created; a changed status is a correction and needs `reason` (kept in the change history). */
+  async markSessionAttendance(
+    sessionId: string,
+    records: Array<{ studentUserId: string; status: AcademicAttendanceStatus; remarks?: string }>,
+    reason?: string
+  ): Promise<ApiResponse<{ created: number; corrected: number; unchanged: number } | null>> {
+    return academicsCall(
+      () =>
+        apiClient.put(`/admin/academics/class-sessions/${encodeURIComponent(sessionId)}/attendance`, {
+          records,
+          ...(reason ? { reason } : {}),
+        }),
+      null,
+      'Attendance could not be saved.'
+    );
   },
 
-  async getTests(): Promise<ApiResponse<OnlineTest[]>> {
-    await sleep();
-    const tests = getStorageItem<OnlineTest[]>(STORAGE_KEYS.TESTS, SEED_TESTS);
-    return { success: true, data: tests };
+  async getAttendanceHistory(sessionId: string): Promise<ApiResponse<AcademicAttendanceChange[]>> {
+    return academicsCall(
+      () => apiClient.get(`/admin/academics/class-sessions/${encodeURIComponent(sessionId)}/attendance/history`),
+      [],
+      'Attendance history could not be loaded.'
+    );
   },
 
-  async getTestAttempts(): Promise<ApiResponse<TestAttempt[]>> {
-    await sleep();
-    const attempts = getStorageItem<TestAttempt[]>(STORAGE_KEYS.TEST_ATTEMPTS, SEED_TEST_ATTEMPTS);
-    return { success: true, data: attempts };
+  /** Attendance rows for every session (optionally of one batch): one row per rostered student. */
+  async getAttendanceReportRows(batchId?: string): Promise<ApiResponse<AcademicAttendanceRow[]>> {
+    const sessions = await this.getClassSessions(batchId ? { batchId } : {});
+    if (!sessions.success) return { success: false, data: [], error: sessions.error };
+    const rosters = await Promise.all(sessions.data.map((s) => this.getSessionAttendance(s.id)));
+    const failed = rosters.find((r) => !r.success);
+    if (failed) return { success: false, data: [], error: failed.error };
+    const rows: AcademicAttendanceRow[] = [];
+    rosters.forEach((r) => {
+      if (!r.data) return;
+      const { session, roster } = r.data;
+      roster.forEach((entry) => rows.push({ session, ...entry }));
+    });
+    return { success: true, data: rows };
   },
 
+  async getAcademicAssignments(filter: { courseId?: string; batchId?: string } = {}): Promise<ApiResponse<AcademicAssignment[]>> {
+    return academicsCall(() => apiClient.get('/admin/academics/assignments', { params: filter }), [], 'Assignments could not be loaded.');
+  },
+
+  async getAssignmentSubmissions(assignmentId: string): Promise<ApiResponse<AcademicSubmission[]>> {
+    return academicsCall(
+      () => apiClient.get(`/admin/academics/assignments/${encodeURIComponent(assignmentId)}/submissions`),
+      [],
+      'Submissions could not be loaded.'
+    );
+  },
+
+  /** Adds a new evaluation version; earlier evaluations are kept. */
+  async evaluateSubmission(
+    submissionId: string,
+    input: { marksAwarded: number; feedback?: string }
+  ): Promise<ApiResponse<AcademicSubmission | null>> {
+    return academicsCall(
+      () => apiClient.post(`/admin/academics/assignment-submissions/${encodeURIComponent(submissionId)}/evaluations`, input),
+      null,
+      'The evaluation could not be saved.'
+    );
+  },
+
+  /** ASM-012: every evaluation version of a submission, newest first. */
+  async getEvaluationHistory(submissionId: string): Promise<ApiResponse<EvaluationVersion[]>> {
+    return academicsCall(
+      () => apiClient.get(`/admin/academics/assignment-submissions/${encodeURIComponent(submissionId)}/evaluations`),
+      [],
+      'The evaluation history could not be loaded.'
+    );
+  },
+
+  async getAcademicTests(filter: { courseId?: string; batchId?: string } = {}): Promise<ApiResponse<AcademicTest[]>> {
+    return academicsCall(() => apiClient.get('/admin/academics/tests', { params: filter }), [], 'Tests could not be loaded.');
+  },
+
+  async getTestAttempts(testId: string): Promise<ApiResponse<AcademicTestAttempt[]>> {
+    return academicsCall(
+      () => apiClient.get(`/admin/academics/tests/${encodeURIComponent(testId)}/attempts`),
+      [],
+      'Test attempts could not be loaded.'
+    );
+  },
+
+  async getRetakeAuthorizations(testId: string): Promise<ApiResponse<AcademicRetake[]>> {
+    return academicsCall(
+      () => apiClient.get(`/admin/academics/tests/${encodeURIComponent(testId)}/retake-authorizations`),
+      [],
+      'Retake authorizations could not be loaded.'
+    );
+  },
+
+  /** BR-012: Admin override recorded in NXA_RetakeAuthorizations (audited server-side). */
   async authorizeTestRetake(
-    admin: { id: string; name: string },
-    attemptId: string,
-    reason: string
-  ): Promise<ApiResponse<TestAttempt>> {
-    await sleep(250);
-    const attempts = getStorageItem<TestAttempt[]>(STORAGE_KEYS.TEST_ATTEMPTS, SEED_TEST_ATTEMPTS);
-    const idx = attempts.findIndex((a) => a.id === attemptId);
-    if (idx === -1) return { success: false, data: null as any, error: 'Test attempt not found.' };
-
-    attempts[idx].isRetakeAuthorized = true;
-    attempts[idx].retakeAuthorizedBy = admin.id;
-    attempts[idx].retakeOverrideByAdmin = true;
-    attempts[idx].retakeRequestStatus = 'approved';
-    setStorageItem(STORAGE_KEYS.TEST_ATTEMPTS, attempts);
-
-    recordAuditLog(
-      { id: admin.id, name: admin.name, role: 'admin' },
-      'EXAM_RETAKE_AUTHORIZED_ADMIN',
-      `Attempt: ${attemptId} Student: ${attempts[idx].studentName}`,
-      `Admin authorized retake override (SRS BR-012). Reason: ${reason}`
+    testId: string,
+    input: { studentUserId: string; additionalAttempts: number; reason: string }
+  ): Promise<ApiResponse<AcademicRetake | null>> {
+    return academicsCall(
+      () => apiClient.post(`/admin/academics/tests/${encodeURIComponent(testId)}/retake-authorizations`, input),
+      null,
+      'The retake could not be authorized.'
     );
+  },
 
+  /** Every attempt of every test (for report export). */
+  async getAllTestAttempts(): Promise<ApiResponse<Array<AcademicTestAttempt & { testTitle: string }>>> {
+    const tests = await this.getAcademicTests();
+    if (!tests.success) return { success: false, data: [], error: tests.error };
+    const lists = await Promise.all(tests.data.map((t) => this.getTestAttempts(t.id)));
+    const failed = lists.find((l) => !l.success);
+    if (failed) return { success: false, data: [], error: failed.error };
     return {
       success: true,
-      data: attempts[idx],
-      message: 'Student granted authorized exam retake override.',
+      data: lists.flatMap((l, i) => l.data.map((a) => ({ ...a, testTitle: tests.data[i]!.title }))),
     };
   },
 
   /**
    * 10. Certificates (ADM-012)
    */
-  async getCertificates(): Promise<ApiResponse<CertificateRecord[]>> {
-    await sleep();
-    const certificates = getStorageItem<CertificateRecord[]>(STORAGE_KEYS.CERTIFICATES, SEED_CERTIFICATES);
-    return { success: true, data: certificates };
-  },
-
-  async issueCertificate(
-    admin: { id: string; name: string },
-    data: {
-      studentId: string;
-      studentName: string;
-      courseId: string;
-      courseTitle: string;
-      attendancePercentage: number;
-      examScorePercentage: number;
-      templateId?: 'standard_dark' | 'executive_gold' | 'minimal_blue';
+  /** All certificates, from GET /certificates/admin/all (server records only). */
+  async getCertificates(): Promise<ApiResponse<AdminCertificate[]>> {
+    try {
+      const res = await apiClient.get('/certificates/admin/all');
+      const list = res.data?.data;
+      return { success: true, data: Array.isArray(list) ? list : [] };
+    } catch (err: any) {
+      return { success: false, data: [], error: apiErrorMessage(err, 'Certificates could not be loaded.') };
     }
-  ): Promise<ApiResponse<CertificateRecord>> {
-    await sleep(300);
-    const certificates = getStorageItem<CertificateRecord[]>(STORAGE_KEYS.CERTIFICATES, SEED_CERTIFICATES);
-    const certNumber = `NEX-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
-
-    const newCert: CertificateRecord = {
-      id: `cert-${Date.now()}`,
-      certificateNumber: certNumber,
-      studentId: data.studentId,
-      studentName: data.studentName,
-      courseId: data.courseId,
-      courseTitle: data.courseTitle,
-      issueDate: new Date().toISOString().split('T')[0],
-      completionDate: new Date().toISOString().split('T')[0],
-      attendancePercentage: data.attendancePercentage,
-      examScorePercentage: data.examScorePercentage,
-      status: 'valid',
-      qrVerificationUrl: `/verify-certificate?id=${certNumber}`,
-      templateId: data.templateId || 'standard_dark',
-      issuedManuallyByAdminId: admin.id,
-    };
-
-    setStorageItem(STORAGE_KEYS.CERTIFICATES, [newCert, ...certificates]);
-
-    recordAuditLog(
-      { id: admin.id, name: admin.name, role: 'admin' },
-      'CERTIFICATE_ISSUED_MANUAL',
-      `Certificate: ${certNumber} (${data.studentName})`,
-      `Admin manual issuance verified. Template: ${data.templateId || 'standard_dark'}. Attendance: ${data.attendancePercentage}%, Exam: ${data.examScorePercentage}% (BR-011).`
-    );
-
-    return { success: true, data: newCert, message: `Certificate ${certNumber} successfully issued.` };
   },
 
-  async revokeCertificate(
-    admin: { id: string; name: string },
-    certificateId: string,
-    reason: string
-  ): Promise<ApiResponse<CertificateRecord>> {
-    await sleep(250);
-    const certificates = getStorageItem<CertificateRecord[]>(STORAGE_KEYS.CERTIFICATES, SEED_CERTIFICATES);
-    const idx = certificates.findIndex((c) => c.id === certificateId);
-    if (idx === -1) return { success: false, data: null as any, error: 'Certificate not found.' };
-
-    certificates[idx].status = 'revoked';
-    certificates[idx].revokedAt = new Date().toISOString();
-    certificates[idx].revokedByUserId = admin.id;
-    certificates[idx].revocationReason = reason;
-    setStorageItem(STORAGE_KEYS.CERTIFICATES, certificates);
-
-    recordAuditLog(
-      { id: admin.id, name: admin.name, role: 'admin' },
-      'CERTIFICATE_REVOKED',
-      `Certificate: ${certificates[idx].certificateNumber}`,
-      `Revocation reason: ${reason} (CER-008).`
-    );
-
-    return { success: true, data: certificates[idx], message: 'Certificate has been revoked.' };
+  /** POST /certificates/:id/revoke - recorded by the server (CER-008). */
+  async revokeCertificate(certificateId: string, reason: string): Promise<ApiResponse<AdminCertificate>> {
+    try {
+      const res = await apiClient.post(`/certificates/${encodeURIComponent(certificateId)}/revoke`, { reason });
+      return { success: true, data: res.data?.data, message: res.data?.message || 'Certificate revoked.' };
+    } catch (err: any) {
+      return { success: false, data: null as any, error: apiErrorMessage(err, 'The certificate could not be revoked.') };
+    }
   },
 
   /**
-   * 11. Placement & Mock Interviews (ADM-012)
+   * 11. Placement Administration (ADM-012, PLC-001..PLC-015). Live: /placements.
+   * Status vocabulary (D1): jobs open/closed/draft; applications
+   * applied/shortlisted/rejected/selected; interview progress = rounds.
    */
-  async getHiringCompanies(): Promise<ApiResponse<HiringCompany[]>> {
-    await sleep();
-    const companies = getStorageItem<HiringCompany[]>(STORAGE_KEYS.JOBS, SEED_COMPANIES as any);
-    return { success: true, data: companies };
+  async getPlacementCompanies(): Promise<ApiResponse<PlacementCompany[]>> {
+    return academicsCall(() => apiClient.get('/placements/companies'), [], 'Companies could not be loaded.');
   },
 
-  async getJobOpenings(): Promise<ApiResponse<JobOpening[]>> {
-    await sleep();
-    const jobs = getStorageItem<JobOpening[]>(STORAGE_KEYS.JOBS, SEED_JOBS);
-    return { success: true, data: jobs };
+  async createPlacementCompany(input: PlacementCompanyInput & { hiringStatus?: 'active' | 'inactive' }): Promise<ApiResponse<PlacementCompany | null>> {
+    return academicsCall(() => apiClient.post('/placements/companies', input), null, 'The company could not be created.');
   },
 
-  async createJobOpening(
-    admin: { id: string; name: string },
-    jobData: Omit<JobOpening, 'id' | 'postedAt' | 'isActive'>
-  ): Promise<ApiResponse<JobOpening>> {
-    await sleep(250);
-    const jobs = getStorageItem<JobOpening[]>(STORAGE_KEYS.JOBS, SEED_JOBS);
-    const newJob: JobOpening = {
-      ...jobData,
-      id: `job-${Date.now().toString().slice(-4)}`,
-      postedAt: new Date().toISOString().split('T')[0],
-      isActive: true,
-    };
-    setStorageItem(STORAGE_KEYS.JOBS, [newJob, ...jobs]);
+  /** Edits columns only; send null to clear an optional field. */
+  async updatePlacementCompany(id: string, changes: Partial<Record<keyof PlacementCompanyInput, string | null>>): Promise<ApiResponse<Changed<PlacementCompany> | null>> {
+    return academicsCall(() => apiClient.patch(`/placements/companies/${encodeURIComponent(id)}`, changes), null, 'The company could not be updated.');
+  },
 
-    recordAuditLog(
-      { id: admin.id, name: admin.name, role: 'admin' },
-      'JOB_OPENING_CREATED',
-      `Job: ${newJob.title} at ${newJob.companyName}`,
-      `Package: ${newJob.salaryPackageCTC}. Openings: ${newJob.openingsCount}.`
+  /** Companies are never deleted (D2); deactivation keeps their jobs and records. */
+  async setPlacementCompanyActive(id: string, isActive: boolean, reason?: string): Promise<ApiResponse<Changed<PlacementCompany> | null>> {
+    return academicsCall(
+      () => apiClient.patch(`/placements/companies/${encodeURIComponent(id)}/status`, { isActive, ...(reason ? { reason } : {}) }),
+      null,
+      'The company status could not be changed.'
     );
-
-    return { success: true, data: newJob, message: 'Campus placement drive posted.' };
   },
 
-  async getJobApplications(): Promise<ApiResponse<JobApplication[]>> {
-    await sleep();
-    const apps = getStorageItem<JobApplication[]>(STORAGE_KEYS.APPLICATIONS, SEED_APPLICATIONS);
-    return { success: true, data: apps };
+  async getPlacementJobs(): Promise<ApiResponse<PlacementJob[]>> {
+    // Admin listing: every status (the public /placements/jobs shows open jobs only).
+    return academicsCall(() => apiClient.get('/placements/admin/jobs'), [], 'Jobs could not be loaded.');
   },
 
-  async updateJobApplicationStatus(
-    admin: { id: string; name: string },
+  async createPlacementJob(input: PlacementJobInput & { companyId: string; jobStatus: PlacementJobStatus }): Promise<ApiResponse<PlacementJob | null>> {
+    return academicsCall(() => apiClient.post('/placements/jobs', input), null, 'The job could not be created.');
+  },
+
+  async updatePlacementJob(id: string, changes: Partial<PlacementJobInput>): Promise<ApiResponse<Changed<PlacementJob> | null>> {
+    return academicsCall(() => apiClient.patch(`/placements/jobs/${encodeURIComponent(id)}`, changes), null, 'The job could not be updated.');
+  },
+
+  async setPlacementJobStatus(id: string, status: PlacementJobStatus): Promise<ApiResponse<(PlacementJob & { changed: boolean }) | null>> {
+    return academicsCall(() => apiClient.patch(`/placements/jobs/${encodeURIComponent(id)}/status`, { status }), null, 'The job status could not be changed.');
+  },
+
+  /** In-app placement alert to students with an active enrollment (BR-013). Once per job. */
+  async announcePlacementJob(id: string): Promise<ApiResponse<{ jobId: string; recipientCount: number } | null>> {
+    return academicsCall(() => apiClient.post(`/placements/jobs/${encodeURIComponent(id)}/announce`, {}), null, 'The placement alert could not be sent.');
+  },
+
+  /** Read-only: criteria cannot be edited until their vocabulary is approved (PLC-003/PLC-015). */
+  async getJobEligibility(id: string): Promise<ApiResponse<PlacementEligibilityCriterion[]>> {
+    return academicsCall(() => apiClient.get(`/placements/jobs/${encodeURIComponent(id)}/eligibility`), [], 'Eligibility criteria could not be loaded.');
+  },
+
+  async getPlacementApplications(filter: { jobId?: string; companyId?: string; status?: PlacementApplicationStatus } = {}): Promise<ApiResponse<PlacementApplication[]>> {
+    return academicsCall(() => apiClient.get('/placements/applications', { params: filter }), [], 'Applications could not be loaded.');
+  },
+
+  async updatePlacementApplicationStatus(id: string, status: PlacementApplicationStatus, reason?: string): Promise<ApiResponse<PlacementApplication | null>> {
+    return academicsCall(
+      () => apiClient.patch(`/placements/applications/${encodeURIComponent(id)}/status`, { status, ...(reason ? { reason } : {}) }),
+      null,
+      'The application status could not be changed.'
+    );
+  },
+
+  async getApplicationHistory(id: string): Promise<ApiResponse<PlacementStatusChange[]>> {
+    return academicsCall(() => apiClient.get(`/placements/applications/${encodeURIComponent(id)}/history`), [], 'History could not be loaded.');
+  },
+
+  async getInterviewRounds(applicationId: string): Promise<ApiResponse<PlacementRound[]>> {
+    return academicsCall(() => apiClient.get(`/placements/applications/${encodeURIComponent(applicationId)}/rounds`), [], 'Interview rounds could not be loaded.');
+  },
+
+  async createInterviewRound(
     applicationId: string,
-    status: any,
-    currentRoundNotes?: string,
-    offerSalaryCTC?: string
-  ): Promise<ApiResponse<JobApplication>> {
-    await sleep(200);
-    const apps = getStorageItem<JobApplication[]>(STORAGE_KEYS.APPLICATIONS, SEED_APPLICATIONS);
-    const idx = apps.findIndex((a) => a.id === applicationId);
-    if (idx === -1) return { success: false, data: null as any, error: 'Application not found.' };
-
-    apps[idx].status = status;
-    if (currentRoundNotes) apps[idx].currentRoundNotes = currentRoundNotes;
-    if (offerSalaryCTC) apps[idx].offerSalaryCTC = offerSalaryCTC;
-    setStorageItem(STORAGE_KEYS.APPLICATIONS, apps);
-
-    recordAuditLog(
-      { id: admin.id, name: admin.name, role: 'admin' },
-      'JOB_APPLICATION_STAGE_UPDATED',
-      `Candidate: ${apps[idx].studentName} - Job: ${apps[idx].jobTitle}`,
-      `Status changed to: ${status}. Notes: ${currentRoundNotes || 'None'}.`
-    );
-
-    return { success: true, data: apps[idx], message: 'Candidate recruitment status updated.' };
+    input: { roundName: string; roundNumber?: number; scheduledAt?: string; meetingUrl?: string }
+  ): Promise<ApiResponse<PlacementRound | null>> {
+    return academicsCall(() => apiClient.post(`/placements/applications/${encodeURIComponent(applicationId)}/rounds`, input), null, 'The interview round could not be added.');
   },
 
-  async getMockInterviews(): Promise<ApiResponse<MockInterviewSchedule[]>> {
-    await sleep();
-    const mocks = getStorageItem<MockInterviewSchedule[]>(STORAGE_KEYS.MOCK_INTERVIEWS, SEED_MOCK_INTERVIEWS);
-    return { success: true, data: mocks };
+  async updateInterviewRound(
+    roundId: string,
+    changes: { roundName?: string; scheduledAt?: string | null; meetingUrl?: string | null; feedback?: string | null }
+  ): Promise<ApiResponse<Changed<PlacementRound> | null>> {
+    return academicsCall(() => apiClient.patch(`/placements/rounds/${encodeURIComponent(roundId)}`, changes), null, 'The interview round could not be updated.');
   },
 
-  async scheduleMockInterview(
-    admin: { id: string; name: string },
-    data: Omit<MockInterviewSchedule, 'id' | 'status'>
-  ): Promise<ApiResponse<MockInterviewSchedule>> {
-    await sleep(250);
-    const mocks = getStorageItem<MockInterviewSchedule[]>(STORAGE_KEYS.MOCK_INTERVIEWS, SEED_MOCK_INTERVIEWS);
-    const newMock: MockInterviewSchedule = {
-      ...data,
-      id: `mock-${Date.now().toString().slice(-4)}`,
-      status: 'scheduled',
-    };
-    setStorageItem(STORAGE_KEYS.MOCK_INTERVIEWS, [newMock, ...mocks]);
+  async getApplicationOffers(applicationId: string): Promise<ApiResponse<PlacementOffer[]>> {
+    return academicsCall(() => apiClient.get(`/placements/applications/${encodeURIComponent(applicationId)}/offers`), [], 'Offers could not be loaded.');
+  },
 
-    recordAuditLog(
-      { id: admin.id, name: admin.name, role: 'admin' },
-      'MOCK_INTERVIEW_SCHEDULED',
-      `Student: ${data.studentName} with Trainer: ${data.trainerName}`,
-      `Interview Type: ${data.interviewType} on ${data.scheduledAt}. Meeting Link: ${data.meetingLink}.`
-    );
+  /** The offer letter file cannot be stored yet (no file storage). */
+  async createPlacementOffer(
+    applicationId: string,
+    input: { offerReference: string; offeredSalary?: number; offerDate?: string; joiningDate?: string }
+  ): Promise<ApiResponse<PlacementOffer | null>> {
+    return academicsCall(() => apiClient.post(`/placements/applications/${encodeURIComponent(applicationId)}/offers`, input), null, 'The offer could not be recorded.');
+  },
 
-    return { success: true, data: newMock, message: 'Mock interview scheduled.' };
+  async getPlacementRecords(): Promise<ApiResponse<PlacementRecordRow[]>> {
+    return academicsCall(() => apiClient.get('/placements/records'), [], 'Placement records could not be loaded.');
+  },
+
+  async createPlacementRecord(input: { jobApplicationId: string; offerId?: string; joiningDate?: string }): Promise<ApiResponse<PlacementRecordRow | null>> {
+    return academicsCall(() => apiClient.post('/placements/records', { ...input, verificationStatus: 'pending' }), null, 'The placement record could not be created.');
+  },
+
+  async verifyPlacementRecord(id: string): Promise<ApiResponse<PlacementRecordRow | null>> {
+    return academicsCall(() => apiClient.patch(`/placements/records/${encodeURIComponent(id)}/verify`, {}), null, 'The placement record could not be verified.');
+  },
+
+  async getEmployerFeedback(companyId?: string): Promise<ApiResponse<EmployerFeedback[]>> {
+    return academicsCall(() => apiClient.get('/placements/feedback', { params: companyId ? { companyId } : {} }), [], 'Employer feedback could not be loaded.');
+  },
+
+  async createEmployerFeedback(companyId: string, input: { feedbackText: string; jobApplicationId?: string }): Promise<ApiResponse<EmployerFeedback | null>> {
+    return academicsCall(() => apiClient.post(`/placements/companies/${encodeURIComponent(companyId)}/feedback`, input), null, 'The feedback could not be recorded.');
+  },
+
+  async getPlacementAnalytics(): Promise<ApiResponse<PlacementAnalyticsData | null>> {
+    return academicsCall(() => apiClient.get('/placements/analytics'), null, 'Placement analytics could not be loaded.');
+  },
+
+  async getPlacementPackages(): Promise<ApiResponse<PlacementPackageRow[]>> {
+    return academicsCall(() => apiClient.get('/placements/packages'), [], 'Placement packages could not be loaded.');
+  },
+
+  async getMockInterviews(): Promise<ApiResponse<AdminMockInterview[]>> {
+    return academicsCall(() => apiClient.get('/placements/mock-interviews/all'), [], 'Mock interviews could not be loaded.');
+  },
+
+  /** The interviewer must be a teacher and the candidate an eligible student (server-checked). */
+  async scheduleMockInterview(input: { studentUserId: string; teacherUserId: string; scheduledAt: string; meetingUrl?: string }): Promise<ApiResponse<AdminMockInterview | null>> {
+    return academicsCall(() => apiClient.post('/placements/mock-interviews/schedule', input), null, 'The mock interview could not be scheduled.');
+  },
+
+  /** Only a scheduled interview can be evaluated or cancelled; results are never overwritten. */
+  async evaluateMockInterview(
+    id: string,
+    input: { overallScore: number; feedback: string; status: 'completed' | 'cancelled' }
+  ): Promise<ApiResponse<AdminMockInterview | null>> {
+    return academicsCall(() => apiClient.post(`/placements/mock-interviews/${encodeURIComponent(id)}/evaluate`, input), null, 'The evaluation could not be saved.');
+  },
+
+  async getInterviewQuestions(includeInactive = true): Promise<ApiResponse<AdminInterviewQuestion[]>> {
+    return academicsCall(() => apiClient.get('/placements/questions', { params: includeInactive ? { includeInactive: 'true' } : {} }), [], 'Questions could not be loaded.');
+  },
+
+  async addInterviewQuestion(input: { category: string; questionText: string; difficultyLevel: QuestionDifficulty; sampleAnswer?: string }): Promise<ApiResponse<AdminInterviewQuestion | null>> {
+    return academicsCall(() => apiClient.post('/placements/questions', input), null, 'The question could not be added.');
+  },
+
+  async updateInterviewQuestion(
+    id: string,
+    changes: { category?: string; questionText?: string; difficultyLevel?: QuestionDifficulty; sampleAnswer?: string | null }
+  ): Promise<ApiResponse<Changed<AdminInterviewQuestion> | null>> {
+    return academicsCall(() => apiClient.patch(`/placements/questions/${encodeURIComponent(id)}`, changes), null, 'The question could not be updated.');
+  },
+
+  async setInterviewQuestionActive(id: string, isActive: boolean): Promise<ApiResponse<Changed<AdminInterviewQuestion> | null>> {
+    return academicsCall(() => apiClient.patch(`/placements/questions/${encodeURIComponent(id)}/status`, { isActive }), null, 'The question status could not be changed.');
   },
 
   /**
-   * 12. Notifications & Broadcast Alerts (ADM-013)
+   * 12. Notifications & Broadcast Alerts (ADM-013) - live backend only.
+   *
+   *   POST /support/notifications/send       one recipient (numeric user id)
+   *   POST /support/notifications/broadcast  audience = backend role codes;
+   *                                          returns the real recipient count
+   *
+   * The backend delivers in-app notifications only (no email / WhatsApp
+   * provider is configured), and it does not list sent notifications. The
+   * broadcast history shown to Admins is the audit trail of BROADCAST_NOTIFICATION
+   * records (module COMMUNICATION).
    */
-  async getNotifications(): Promise<ApiResponse<InAppNotification[]>> {
-    await sleep();
-    const notifs = getStorageItem<InAppNotification[]>(STORAGE_KEYS.NOTIFICATIONS, SEED_NOTIFICATIONS);
-    return { success: true, data: notifs };
-  },
-
-  async sendBroadcastNotification(
-    admin: { id: string; name: string },
-    data: {
-      targetGroup: 'all' | 'students' | 'teachers' | string;
-      title: string;
-      message: string;
-      category: 'academic' | 'exam' | 'placement' | 'general' | 'fee';
-      linkUrl?: string;
+  async sendNotification(data: {
+    recipientUserId: string;
+    title: string;
+    messageBody: string;
+    notificationType: AdminNotificationType;
+    priority?: 'low' | 'normal' | 'high';
+  }): Promise<ApiResponse<{ id: string; recipientUserId: string }>> {
+    try {
+      const res = await apiClient.post('/support/notifications/send', {
+        recipientUserId: data.recipientUserId,
+        title: data.title.trim(),
+        messageBody: data.messageBody,
+        notificationType: data.notificationType,
+        priority: data.priority ?? 'normal',
+      });
+      const n = res.data?.data;
+      if (!n?.id) return { success: false, data: null as any, error: 'The server did not confirm the notification.' };
+      return { success: true, data: { id: String(n.id), recipientUserId: String(n.recipientUserId) }, message: res.data?.message };
+    } catch (err: any) {
+      return { success: false, data: null as any, error: apiErrorMessage(err, 'The notification could not be sent.') };
     }
-  ): Promise<ApiResponse<InAppNotification>> {
-    await sleep(250);
-    const notifs = getStorageItem<InAppNotification[]>(STORAGE_KEYS.NOTIFICATIONS, SEED_NOTIFICATIONS);
-    const newNotif: InAppNotification = {
-      id: `notif-${Date.now()}`,
-      userId: data.targetGroup,
-      targetRole: (data.targetGroup === 'students' ? 'student' : data.targetGroup === 'teachers' ? 'teacher' : data.targetGroup === 'all' ? 'all' : undefined) as any,
-      title: data.title,
-      message: data.message,
-      category: data.category as any,
-      isRead: false,
-      createdAt: new Date().toISOString(),
-      linkUrl: data.linkUrl,
-    };
+  },
 
-    setStorageItem(STORAGE_KEYS.NOTIFICATIONS, [newNotif, ...notifs]);
+  async broadcastNotification(data: {
+    audience: BroadcastAudienceRole[];
+    title: string;
+    messageBody: string;
+    notificationType: AdminNotificationType;
+    priority?: 'low' | 'normal' | 'high';
+  }): Promise<ApiResponse<{ recipientCount: number }>> {
+    try {
+      const res = await apiClient.post('/support/notifications/broadcast', {
+        audience: data.audience,
+        title: data.title.trim(),
+        messageBody: data.messageBody,
+        notificationType: data.notificationType,
+        priority: data.priority ?? 'normal',
+      });
+      const count = res.data?.data?.recipientCount;
+      if (typeof count !== 'number') {
+        return { success: false, data: null as any, error: 'The server did not confirm the broadcast.' };
+      }
+      return { success: true, data: { recipientCount: count }, message: res.data?.message };
+    } catch (err: any) {
+      return { success: false, data: null as any, error: apiErrorMessage(err, 'The broadcast could not be sent.') };
+    }
+  },
 
-    recordAuditLog(
-      { id: admin.id, name: admin.name, role: 'admin' },
-      'BROADCAST_ALERT_SENT',
-      `Audience: ${data.targetGroup.toUpperCase()} - Title: ${data.title}`,
-      `Category: ${data.category}. Message: ${data.message.slice(0, 100)}...`
-    );
-
-    return { success: true, data: newNotif, message: 'Broadcast announcement dispatched.' };
+  /** Broadcasts as recorded in the activity log (the only server-side send history). */
+  async getBroadcastHistory(): Promise<ApiResponse<AuditLog[]>> {
+    const res = await this.getActivityLogs({ moduleCode: 'COMMUNICATION' });
+    if (!res.success) return res;
+    return { success: true, data: res.data.filter((l) => l.action === 'BROADCAST_NOTIFICATION') };
   },
 
   /**
-   * 13. Support Ticket Management (ADM-016)
+   * 13. Support Ticket Management (ADM-016) - live backend only.
+   *
+   *   GET   /support/admin/tickets               list (no conversation)
+   *   GET   /support/tickets/:id                 one ticket with replies (internal notes included for staff)
+   *   POST  /support/tickets/:id/replies         reply (staff reply moves an open ticket to in_progress)
+   *   PATCH /support/admin/tickets/:id/status    status and/or assignee (Admin / Super Admin only)
    */
-  async getTickets(): Promise<ApiResponse<SupportTicket[]>> {
-    await sleep();
-    const tickets = getStorageItem<SupportTicket[]>(STORAGE_KEYS.TICKETS, SEED_TICKETS);
-    return { success: true, data: tickets };
+  async getTickets(filter: { status?: TicketStatus } = {}): Promise<ApiResponse<SupportTicket[]>> {
+    try {
+      const res = await apiClient.get('/support/admin/tickets', { params: filter.status ? { status: filter.status } : {} });
+      const items = res.data?.data ?? [];
+      return { success: true, data: Array.isArray(items) ? items.map(fromBackendTicket) : [] };
+    } catch (err: any) {
+      return { success: false, data: [], error: apiErrorMessage(err, 'Support tickets could not be loaded.') };
+    }
   },
 
-  async replyTicket(
-    admin: { id: string; name: string },
+  async getTicket(ticketId: string): Promise<ApiResponse<SupportTicket>> {
+    try {
+      const res = await apiClient.get(`/support/tickets/${encodeURIComponent(ticketId)}`);
+      return { success: true, data: fromBackendTicket(res.data?.data) };
+    } catch (err: any) {
+      return { success: false, data: null as any, error: apiErrorMessage(err, 'The ticket could not be loaded.') };
+    }
+  },
+
+  async replyTicket(ticketId: string, replyText: string, isInternal = false): Promise<ApiResponse<{ id: string }>> {
+    try {
+      const res = await apiClient.post(`/support/tickets/${encodeURIComponent(ticketId)}/replies`, { replyText, isInternal });
+      const id = res.data?.data?.id;
+      if (!id) return { success: false, data: null as any, error: 'The server did not confirm the reply.' };
+      return { success: true, data: { id: String(id) } };
+    } catch (err: any) {
+      return { success: false, data: null as any, error: apiErrorMessage(err, 'The reply could not be posted.') };
+    }
+  },
+
+  async updateTicketStatus(
     ticketId: string,
-    message: string,
-    newStatus: 'open' | 'in_progress' | 'resolved' | 'closed'
+    status: TicketStatus,
+    assignedToUserId?: string
   ): Promise<ApiResponse<SupportTicket>> {
-    await sleep(250);
-    const tickets = getStorageItem<SupportTicket[]>(STORAGE_KEYS.TICKETS, SEED_TICKETS);
-    const idx = tickets.findIndex((t) => t.id === ticketId);
-    if (idx === -1) return { success: false, data: null as any, error: 'Ticket not found.' };
-
-    const newMsg = {
-      id: `msg-${Date.now()}`,
-      senderId: admin.id,
-      senderName: admin.name,
-      senderRole: 'admin' as const,
-      message,
-      sentAt: new Date().toISOString(),
-    };
-
-    tickets[idx].messages.push(newMsg);
-    tickets[idx].status = newStatus;
-    tickets[idx].updatedAt = new Date().toISOString();
-    tickets[idx].assignedAdminId = admin.id;
-
-    setStorageItem(STORAGE_KEYS.TICKETS, tickets);
-
-    recordAuditLog(
-      { id: admin.id, name: admin.name, role: 'admin' },
-      'SUPPORT_TICKET_REPLIED',
-      `Ticket: ${tickets[idx].ticketNumber} (${tickets[idx].studentName})`,
-      `Status: ${newStatus.toUpperCase()}. Response sent by Admin.`
-    );
-
-    return { success: true, data: tickets[idx], message: 'Reply posted to support ticket.' };
+    try {
+      const res = await apiClient.patch(`/support/admin/tickets/${encodeURIComponent(ticketId)}/status`, {
+        status,
+        ...(assignedToUserId ? { assignedToUserId } : {}),
+      });
+      return { success: true, data: fromBackendTicket(res.data?.data) };
+    } catch (err: any) {
+      return { success: false, data: null as any, error: apiErrorMessage(err, 'The ticket could not be updated.') };
+    }
   },
 
   /**
    * 14. Activity Logs (ADM-016)
    */
-  async getActivityLogs(): Promise<ApiResponse<AuditLog[]>> {
+  /**
+   * GET /admin/activity-logs (NXA_AuditLogs, newest first, max 200 per call).
+   * Dates are YYYY-MM-DD in the institute time zone (IST).
+   */
+  async getActivityLogs(
+    filter: { moduleCode?: string; startDate?: string; endDate?: string } = {}
+  ): Promise<ApiResponse<AuditLog[]>> {
     if (USE_DEV_MOCKS) {
       await sleep();
       const logs = getStorageItem<AuditLog[]>(STORAGE_KEYS.AUDIT_LOGS, SEED_AUDIT_LOGS);
@@ -1618,242 +2453,162 @@ export const adminService = {
     }
 
     try {
-      const res = await apiClient.get('/admin/activity-logs');
-      const items = res.data?.data?.items ?? res.data?.data ?? [];
-      return { success: true, data: Array.isArray(items) ? items : [] };
+      const params: Record<string, string> = {};
+      if (filter.moduleCode) params.moduleCode = filter.moduleCode;
+      // Whole IST days -> UTC instants.
+      if (filter.startDate) params.startDate = new Date(`${filter.startDate}T00:00:00+05:30`).toISOString();
+      if (filter.endDate) params.endDate = new Date(`${filter.endDate}T23:59:59.999+05:30`).toISOString();
+      const res = await apiClient.get('/admin/activity-logs', { params });
+      const items: BackendAuditLog[] = res.data?.data?.items ?? res.data?.data ?? [];
+      return { success: true, data: Array.isArray(items) ? items.map(fromBackendAuditLog) : [] };
     } catch (err: any) {
-      const message = err?.response?.data?.message || err?.message || 'Failed to fetch activity logs.';
-      return { success: false, data: [], error: message };
+      return { success: false, data: [], error: apiErrorMessage(err, 'Failed to fetch activity logs.') };
     }
-  },
-
-  /**
-   * 15. Role & Permission Management (ADM-016)
-   */
-  async getRolesPermissions(): Promise<ApiResponse<Record<string, string[]>>> {
-    await sleep();
-    const defaultMatrix: Record<string, string[]> = {
-      super_admin: [
-        'manage_all',
-        'approve_students',
-        'manage_courses',
-        'manage_batches',
-        'manage_teachers',
-        'manage_payments',
-        'manual_payment_entry',
-        'override_financials',
-        'manage_certificates',
-        'revoke_certificates',
-        'manage_placements',
-        'view_reports',
-        'manage_website',
-        'system_settings',
-      ],
-      admin: [
-        'approve_students',
-        'manage_students',
-        'manage_courses',
-        'manage_batches',
-        'manage_teachers',
-        'manage_payments',
-        'manual_payment_entry',
-        'manage_certificates',
-        'revoke_certificates',
-        'manage_placements',
-        'view_reports',
-        'manage_website',
-        'manage_support',
-      ],
-      teacher: [
-        'teacher_profile_view',
-        'teacher_profile_edit',
-        'my_courses_view',
-        'my_batches_view',
-        'my_batches_edit',
-        'student_list_view',
-        'attendance_view',
-        'attendance_create',
-        'attendance_edit',
-        'attendance_history_view',
-        'materials_view',
-        'materials_create',
-        'materials_edit',
-        'recordings_view',
-        'recordings_create',
-        'recordings_edit',
-        'live_classes_view',
-        'live_classes_create',
-        'live_classes_edit',
-        'live_classes_manage',
-        'assignments_view',
-        'assignments_create',
-        'assignments_edit',
-        'assignment_eval_view',
-        'assignment_eval_edit',
-        'tests_view',
-        'tests_create',
-        'tests_edit',
-        'test_eval_view',
-        'test_eval_edit',
-        'performance_view',
-        'announcements_view',
-        'announcements_create',
-        'doubts_view',
-        'doubts_create',
-        'doubts_edit',
-        'timetable_view',
-        'timetable_edit',
-        'mock_interviews_view',
-        'mock_interviews_manage',
-        'mock_interviews_edit',
-        'reports_view',
-        'reports_create',
-        'notifications_view',
-        'retakes_view',
-        'retakes_approve',
-        'password_edit',
-      ],
-      student: [
-        'view_enrolled_courses',
-        'submit_assignments',
-        'take_tests',
-        'view_attendance',
-        'apply_jobs',
-        'book_mock_interview',
-        'raise_ticket',
-      ],
-    };
-
-    const matrix = getStorageItem<Record<string, string[]>>(STORAGE_KEYS.ROLES_PERMISSIONS, defaultMatrix);
-    return { success: true, data: matrix };
-  },
-
-  async updateRolePermissions(
-    admin: { id: string; name: string },
-    role: string,
-    permissions: string[]
-  ): Promise<ApiResponse<Record<string, string[]>>> {
-    await sleep(250);
-    const current = (await this.getRolesPermissions()).data;
-    current[role] = permissions;
-    setStorageItem(STORAGE_KEYS.ROLES_PERMISSIONS, current);
-
-    recordAuditLog(
-      { id: admin.id, name: admin.name, role: 'admin' },
-      'ROLE_PERMISSIONS_UPDATED',
-      `Role: ${role.toUpperCase()}`,
-      `Updated active permissions list (${permissions.length} grants active).`
-    );
-
-    return { success: true, data: current, message: `Permissions updated for role ${role}.` };
   },
 
   /**
    * 16. Institute Settings (ADM-016)
    */
   async getInstituteSettings(): Promise<ApiResponse<InstituteSettings>> {
-    if (USE_DEV_MOCKS) {
-      await sleep();
-      const defaultSettings: InstituteSettings = {
-        instituteName: APP_CONFIG.name,
-        tagline: APP_CONFIG.tagline,
-        supportEmail: APP_CONFIG.supportEmail,
-        supportPhone: APP_CONFIG.supportPhone,
-        whatsappNumber: APP_CONFIG.whatsappNumber,
-        address: APP_CONFIG.address,
-        academicSession: '2026-27 Cohort',
-        minAttendancePercentage: 75,
-        minExamPassPercentage: 60,
-        defaultMaxBatchCapacity: 40,
-        paymentGatewayMode: 'test',
-        currency: 'INR (₹)',
-        receiptPrefix: 'REC-NEX',
-      };
-
-      const settings = getStorageItem<InstituteSettings>(STORAGE_KEYS.SETTINGS, defaultSettings);
-      return { success: true, data: settings };
-    }
-
     try {
       const res = await apiClient.get('/admin/settings');
-      return { success: true, data: res.data?.data };
+      return { success: true, data: res.data?.data ?? {} };
     } catch (err: any) {
-      const message = err?.response?.data?.message || err?.message || 'Failed to fetch institute settings.';
-      return { success: false, data: null as any, error: message };
+      return { success: false, data: {}, error: apiErrorMessage(err, 'Failed to fetch institute settings.') };
     }
   },
 
-  async saveInstituteSettings(
-    admin: { id: string; name: string },
-    settings: InstituteSettings
-  ): Promise<ApiResponse<InstituteSettings>> {
-    if (USE_DEV_MOCKS) {
-      await sleep(250);
-      setStorageItem(STORAGE_KEYS.SETTINGS, settings);
-
-      recordAuditLog(
-        { id: admin.id, name: admin.name, role: 'admin' },
-        'INSTITUTE_SETTINGS_SAVED',
-        'System Configuration',
-        `Academic Session: ${settings.academicSession}, Attendance Threshold: ${settings.minAttendancePercentage}%, Exam Gate: ${settings.minExamPassPercentage}%.`
-      );
-
-      return { success: true, data: settings, message: 'Institute operational settings saved.' };
-    }
-
+  /** Sends only the changed fields; the server audits old and new values. */
+  async saveInstituteSettings(changes: Partial<InstituteSettings>): Promise<ApiResponse<InstituteSettings>> {
     try {
-      const res = await apiClient.put('/admin/settings', settings);
-      return { success: true, data: res.data?.data, message: res.data?.message || 'Institute operational settings saved.' };
+      const res = await apiClient.put('/admin/settings', changes);
+      return { success: true, data: res.data?.data ?? {}, message: res.data?.message || 'Institute settings saved.' };
     } catch (err: any) {
-      const message = err?.response?.data?.message || err?.message || 'Failed to save institute settings.';
-      return { success: false, data: null as any, error: message };
+      return { success: false, data: {}, error: apiErrorMessage(err, 'Failed to save institute settings.') };
     }
   },
 
-  /**
-   * Refund Processing Workflow (CRD BR-006): Admin initiates request for Super Admin authorization
-   */
-  async getRefundRequests(): Promise<ApiResponse<RefundRequest[]>> {
-    await sleep(150);
-    const refunds = getStorageItem<RefundRequest[]>(STORAGE_KEYS.REFUNDS, SEED_REFUNDS);
-    return { success: true, data: refunds };
+  /** Every setting with who may change it and whether it is applied or blocked (and why). */
+  async getSettingsCatalog(): Promise<ApiResponse<SettingDefinition[]>> {
+    try {
+      const res = await apiClient.get('/admin/settings/catalog');
+      return { success: true, data: res.data?.data ?? [] };
+    } catch (err: any) {
+      return { success: false, data: [], error: apiErrorMessage(err, 'The settings catalog could not be loaded.') };
+    }
   },
 
-  async requestRefund(
-    admin: { id: string; name: string },
-    data: {
-      transactionId: string;
-      studentId: string;
-      studentName: string;
-      courseId: string;
-      courseTitle: string;
-      amountINR: number;
-      reason: string;
-    }
-  ): Promise<ApiResponse<RefundRequest>> {
-    await sleep(250);
-    const refunds = getStorageItem<RefundRequest[]>(STORAGE_KEYS.REFUNDS, SEED_REFUNDS);
-    const newRefund: RefundRequest = {
-      id: `ref-${Date.now().toString().slice(-4)}`,
-      transactionId: data.transactionId,
-      studentId: data.studentId,
-      studentName: data.studentName,
-      courseId: data.courseId,
-      courseTitle: data.courseTitle,
-      amountINR: data.amountINR,
-      reason: data.reason,
-      status: 'pending_super_admin',
-      requestedAt: new Date().toISOString(),
-    };
+  // ---- SUP-005 ticket status history
+  async getTicketHistory(ticketId: string): Promise<ApiResponse<TicketStatusChange[]>> {
+    return academicsCall(() => apiClient.get(`/support/admin/tickets/${encodeURIComponent(ticketId)}/history`), [], 'The ticket history could not be loaded.');
+  },
 
-    setStorageItem(STORAGE_KEYS.REFUNDS, [newRefund, ...refunds]);
-    recordAuditLog(
-      { id: admin.id, name: admin.name, role: 'admin' },
-      'REFUND_REQUESTED',
-      `Payment: ${data.transactionId} | Student: ${data.studentName}`,
-      `Initiated refund request of ₹${data.amountINR.toLocaleString('en-IN')}. Awaiting Super Admin authorization (BR-006).`
-    );
+  // ---- SUP-006 ticket categories (deactivate instead of delete)
+  async getSupportCategories(): Promise<ApiResponse<SupportCategoryAdmin[]>> {
+    return academicsCall(() => apiClient.get('/support/admin/categories'), [], 'Categories could not be loaded.');
+  },
+  async createSupportCategory(name: string): Promise<ApiResponse<SupportCategoryAdmin | null>> {
+    return academicsCall(() => apiClient.post('/support/admin/categories', { name }), null, 'The category could not be created.');
+  },
+  async updateSupportCategory(id: string, changes: { name?: string; isActive?: boolean }): Promise<ApiResponse<SupportCategoryAdmin | null>> {
+    return academicsCall(() => apiClient.patch(`/support/admin/categories/${encodeURIComponent(id)}`, changes), null, 'The category could not be updated.');
+  },
 
-    return { success: true, data: newRefund, message: 'Refund request submitted to Super Admin for approval.' };
+  // ---- COM-008 notification history across recipients
+  async getNotificationHistory(filter: NotificationHistoryQuery): Promise<ApiResponse<NotificationHistoryPage | null>> {
+    const params = Object.fromEntries(Object.entries(filter).filter(([, v]) => v !== undefined && v !== ''));
+    return academicsCall(() => apiClient.get('/support/admin/notifications', { params }), null, 'Notification history could not be loaded.');
   },
 };
+
+export interface EvaluationVersion {
+  id: string;
+  evaluationVersion: number;
+  marksAwarded: number;
+  feedback?: string;
+  evaluatedByUserId: string;
+  evaluatedByName?: string;
+  evaluatedAt: string;
+}
+
+export interface TicketStatusChange {
+  id: string;
+  previousStatus?: string;
+  newStatus: string;
+  changedByUserId?: string;
+  changedByName?: string;
+  changeReason?: string;
+  changedAt: string;
+}
+
+export interface SupportCategoryAdmin {
+  id: string;
+  name: string;
+  isActive: boolean;
+}
+
+export interface NotificationHistoryQuery {
+  recipientUserId?: string;
+  notificationType?: string;
+  from?: string;
+  to?: string;
+  search?: string;
+  page: number;
+  pageSize: number;
+}
+
+export interface NotificationHistoryPage {
+  rows: Array<{
+    id: string;
+    recipientUserId: string;
+    recipientName?: string;
+    notificationType: string;
+    title: string;
+    messageBody: string;
+    priority: string;
+    readAt?: string;
+    createdAt: string;
+  }>;
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
+/** ATT-010: the server applies D2 (Present ÷ marked sessions; Leave not attended; unmarked not counted). */
+export interface AttendanceSummaryRow {
+  studentUserId: string;
+  studentName?: string;
+  present: number;
+  absent: number;
+  leave: number;
+  /** Records with a status outside Present / Absent / Leave; not part of the percentage. */
+  other: number;
+  markedSessions?: number;
+  /** null when nothing is marked. */
+  attendancePercentage?: number | null;
+  attendancePercentageDisplay?: string | null;
+  belowMinimum?: boolean | null;
+}
+
+export interface AttendanceSummary {
+  batchId: string;
+  heldSessions: number;
+  minimumAttendancePercentage?: number;
+  students: AttendanceSummaryRow[];
+}
+
+export interface SettingDefinition {
+  key: string;
+  label: string;
+  group: 'institute' | 'academic' | 'courses' | 'payments' | 'notifications' | 'security' | 'system';
+  type: 'text' | 'email' | 'phone' | 'number' | 'boolean';
+  editableBy: 'admin' | 'super_admin';
+  /** stored: saved and validated, but its consumers are not available yet (see note). */
+  status: 'applied' | 'profile' | 'stored' | 'blocked';
+  note: string;
+  min?: number;
+  max?: number;
+  /** Value in force when never saved. */
+  defaultValue?: number | boolean;
+}

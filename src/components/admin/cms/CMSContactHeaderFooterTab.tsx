@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useCmsPage } from '../../../hooks/useCmsPage';
 import {
   Phone,
   Globe,
@@ -19,40 +20,41 @@ import {
 import { SocialMediaManager } from './SocialMediaManager';
 
 export const CMSContactHeaderFooterTab: React.FC = () => {
-  const [contactConfig, setContactConfig] = useState<ContactInfoConfig>(() => cmsService.getContactInfo());
-  const [headerFooterConfig, setHeaderFooterConfig] = useState<HeaderFooterConfig>(() => cmsService.getHeaderFooterConfig());
+  const contact = useCmsPage<ContactInfoConfig>('contact', cmsService.getContactInfo());
+  const headerFooter = useCmsPage<HeaderFooterConfig>('headerFooter', cmsService.getHeaderFooterConfig());
+  const contactConfig = contact.config;
+  const setContactConfig = contact.setConfig;
+  const headerFooterConfig = headerFooter.config;
+  const setHeaderFooterConfig = headerFooter.setConfig;
+  const loading = contact.loading || headerFooter.loading;
+  const loadError = contact.loadError || headerFooter.loadError;
   const [activeSection, setActiveSection] = useState<'contact' | 'header-footer'>('contact');
 
   const { showToast } = useNotification();
 
-  const handleSaveContact = () => {
-    cmsService.saveContactInfo(contactConfig);
-    showToast({
-      type: 'success',
-      title: 'Contact Info Saved',
-      message: 'Support phone, email, WhatsApp, and campus address updated across public pages.',
-    });
+  const report = (ok: boolean, title: string, message: string, error?: string) =>
+    showToast(ok ? { type: 'success', title, message } : { type: 'error', title: 'Not saved', message: error || 'The server did not save the changes. Please retry.' });
+
+  const handleSaveContact = async () => {
+    const res = await contact.run(() => cmsService.saveContactInfo(contactConfig));
+    report(res.success, 'Contact Info Saved', 'Support phone, email, WhatsApp, and campus address updated across public pages.', res.error);
   };
 
-  const handleResetContact = () => {
-    const def = cmsService.resetContactInfo();
-    setContactConfig(def);
-    showToast({ type: 'info', title: 'Contact Reset', message: 'Contact settings restored to defaults.' });
+  const handleResetContact = async () => {
+    if (!window.confirm('Reset contact settings to the built-in defaults? This is saved to the server.')) return;
+    const res = await contact.run(() => cmsService.resetContactInfo());
+    report(res.success, 'Contact Reset', 'Contact settings restored to defaults.', res.error);
   };
 
-  const handleSaveHeaderFooter = () => {
-    cmsService.saveHeaderFooterConfig(headerFooterConfig);
-    showToast({
-      type: 'success',
-      title: 'Header & Footer Saved',
-      message: 'Navbar links, logo labels, and footer description updated.',
-    });
+  const handleSaveHeaderFooter = async () => {
+    const res = await headerFooter.run(() => cmsService.saveHeaderFooterConfig(headerFooterConfig));
+    report(res.success, 'Header & Footer Saved', 'Navbar links, logo labels, and footer description updated.', res.error);
   };
 
-  const handleResetHeaderFooter = () => {
-    const def = cmsService.resetHeaderFooterConfig();
-    setHeaderFooterConfig(def);
-    showToast({ type: 'info', title: 'Header/Footer Reset', message: 'Restored to defaults.' });
+  const handleResetHeaderFooter = async () => {
+    if (!window.confirm('Reset header and footer to the built-in defaults? This is saved to the server.')) return;
+    const res = await headerFooter.run(() => cmsService.resetHeaderFooterConfig());
+    report(res.success, 'Header/Footer Reset', 'Restored to defaults.', res.error);
   };
 
   const handleAddNavLink = () => {
@@ -80,6 +82,11 @@ export const CMSContactHeaderFooterTab: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      {(loading || loadError) && (
+        <div className={`p-3 rounded-lg border text-xs ${loadError ? 'bg-rose-50 border-rose-200 text-rose-800' : 'bg-slate-50 border-slate-200 text-slate-500'}`}>
+          {loadError || 'Loading the saved content from the server...'}
+        </div>
+      )}
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 rounded-xl border border-slate-200/90 shadow-xs">
         <div>
@@ -95,19 +102,19 @@ export const CMSContactHeaderFooterTab: React.FC = () => {
         <div className="flex items-center gap-2">
           {activeSection === 'contact' ? (
             <>
-              <Button variant="outline" size="sm" onClick={handleResetContact} leftIcon={<RotateCcw className="h-4 w-4 text-slate-400" />}>
+              <Button variant="outline" size="sm" onClick={handleResetContact} disabled={loading || contact.saving} leftIcon={<RotateCcw className="h-4 w-4 text-slate-400" />}>
                 Reset
               </Button>
-              <Button variant="primary" size="sm" onClick={handleSaveContact} leftIcon={<Save className="h-4 w-4" />}>
+              <Button variant="primary" size="sm" onClick={handleSaveContact} isLoading={contact.saving} disabled={loading || !!loadError} leftIcon={<Save className="h-4 w-4" />}>
                 Save Contact Info
               </Button>
             </>
           ) : (
             <>
-              <Button variant="outline" size="sm" onClick={handleResetHeaderFooter} leftIcon={<RotateCcw className="h-4 w-4 text-slate-400" />}>
+              <Button variant="outline" size="sm" onClick={handleResetHeaderFooter} disabled={loading || headerFooter.saving} leftIcon={<RotateCcw className="h-4 w-4 text-slate-400" />}>
                 Reset
               </Button>
-              <Button variant="primary" size="sm" onClick={handleSaveHeaderFooter} leftIcon={<Save className="h-4 w-4" />}>
+              <Button variant="primary" size="sm" onClick={handleSaveHeaderFooter} isLoading={headerFooter.saving} disabled={loading || !!loadError} leftIcon={<Save className="h-4 w-4" />}>
                 Save Header & Footer
               </Button>
             </>

@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useCmsPage } from '../../../hooks/useCmsPage';
 import {
   Laptop,
   Users,
@@ -79,7 +80,12 @@ const SUGGESTED_TOPICS = [
 ];
 
 export const CMSCorporateTrainingTab: React.FC = () => {
-  const [config, setConfig] = useState<CorporateTrainingConfig>(() => cmsService.getCorporateTraining());
+  // Page settings (header, offerings, clients, visibility) and services are separate server records.
+  const page = useCmsPage<CorporateTrainingConfig>('corporate', cmsService.getCorporateTraining());
+  const [serviceList, setServiceList] = useState<CorporateTrainingService[]>([]);
+  const [servicesLoading, setServicesLoading] = useState(true);
+  const [servicesError, setServicesError] = useState<string | null>(null);
+  const config = useMemo<CorporateTrainingConfig>(() => ({ ...page.config, services: serviceList }), [page.config, serviceList]);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
 
@@ -103,18 +109,30 @@ export const CMSCorporateTrainingTab: React.FC = () => {
   const { showToast } = useNotification();
 
   // Load and subscribe to cross-panel updates
-  const reloadData = () => {
-    setConfig(cmsService.getCorporateTraining());
-  };
+  const reloadData = useCallback(async () => {
+    setServicesLoading(true);
+    const res = await cmsService.getAdminCorporateServices();
+    setServicesLoading(false);
+    if (res.success) {
+      setServiceList(res.data);
+      setServicesError(null);
+    } else setServicesError(res.error || 'Corporate training services could not be loaded.');
+  }, []);
 
   useEffect(() => {
-    window.addEventListener('cms-update', reloadData);
-    window.addEventListener('app-storage-update', reloadData);
-    return () => {
-      window.removeEventListener('cms-update', reloadData);
-      window.removeEventListener('app-storage-update', reloadData);
-    };
-  }, []);
+    reloadData();
+  }, [reloadData]);
+
+  /** Saves the page settings; the screen changes only when the server confirms. */
+  const savePageSettings = async (updated: CorporateTrainingConfig, okTitle: string, okMessage: string) => {
+    const res = await page.run(() => cmsService.saveCorporateTraining(updated));
+    showToast(
+      res.success
+        ? { type: 'success', title: okTitle, message: okMessage }
+        : { type: 'error', title: 'Not saved', message: res.error || 'The server did not save the page settings.' }
+    );
+    return res.success;
+  };
 
   const services = useMemo(() => {
     return Array.isArray(config.services)
@@ -265,7 +283,7 @@ export const CMSCorporateTrainingTab: React.FC = () => {
   };
 
   // --- Handlers: Form Submission & Validation ---
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingService) return;
 
@@ -294,7 +312,7 @@ export const CMSCorporateTrainingTab: React.FC = () => {
     }
 
     setIsSaving(true);
-    const result = cmsService.saveCorporateTrainingService(editingService);
+    const result = await cmsService.saveCorporateTrainingService(editingService);
     setIsSaving(false);
 
     if (result.success) {
@@ -316,8 +334,10 @@ export const CMSCorporateTrainingTab: React.FC = () => {
   };
 
   // --- Handlers: Toggle Status ---
-  const handleToggleStatus = (id: string, currentTitle: string) => {
-    const result = cmsService.toggleCorporateTrainingServiceStatus(id);
+  const handleToggleStatus = async (id: string, currentTitle: string) => {
+    const current = serviceList.find((s) => s.id === id);
+    if (!current) return;
+    const result = await cmsService.setCorporateTrainingServiceStatus(id, current.status !== 'active');
     if (result.success) {
       showToast({
         type: 'success',
@@ -335,9 +355,9 @@ export const CMSCorporateTrainingTab: React.FC = () => {
   };
 
   // --- Handlers: Delete Service ---
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = async () => {
     if (!serviceToDelete) return;
-    const result = cmsService.deleteCorporateTrainingService(serviceToDelete.id);
+    const result = await cmsService.deleteCorporateTrainingService(serviceToDelete.id);
     if (result.success) {
       showToast({
         type: 'info',
@@ -357,7 +377,7 @@ export const CMSCorporateTrainingTab: React.FC = () => {
   };
 
   // --- Handlers: Reordering ---
-  const handleMove = (index: number, direction: 'up' | 'down') => {
+  const handleMove = async (index: number, direction: 'up' | 'down') => {
     const targetIndex = direction === 'up' ? index - 1 : index + 1;
     if (targetIndex < 0 || targetIndex >= services.length) return;
 
@@ -366,7 +386,7 @@ export const CMSCorporateTrainingTab: React.FC = () => {
     newOrder.splice(targetIndex, 0, moved);
 
     const reorderedIds = newOrder.map((s) => s.id);
-    const result = cmsService.reorderCorporateTrainingServices(reorderedIds);
+    const result = await cmsService.reorderCorporateTrainingServices(reorderedIds);
     if (result.success) {
       showToast({
         type: 'success',
@@ -393,7 +413,7 @@ export const CMSCorporateTrainingTab: React.FC = () => {
     setClientModalOpen(true);
   };
 
-  const handleSaveClient = (e: React.FormEvent) => {
+  const handleSaveClient = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingClient || !editingClient.name.trim()) return;
 
@@ -417,29 +437,18 @@ export const CMSCorporateTrainingTab: React.FC = () => {
     }
 
     const updated = { ...config, clients: currentClients };
-    cmsService.saveCorporateTraining(updated);
-    setConfig(updated);
-    setClientModalOpen(false);
-    showToast({
-      type: 'success',
-      title: 'Corporate Client Saved',
-      message: `${editingClient.name} added to enterprise clients roster.`,
-    });
+    if (await savePageSettings(updated, 'Corporate Client Saved', `${editingClient.name} added to enterprise clients roster.`)) {
+      setClientModalOpen(false);
+    }
   };
 
-  const handleDeleteClient = (name: string) => {
+  const handleDeleteClient = async (name: string) => {
     const currentClients = Array.isArray(config.clients) ? [...config.clients] : [];
     const updated = {
       ...config,
       clients: currentClients.filter((c) => (c.name || c.companyName) !== name),
     };
-    cmsService.saveCorporateTraining(updated);
-    setConfig(updated);
-    showToast({
-      type: 'info',
-      title: 'Client Removed',
-      message: `${name} removed from enterprise clients roster.`,
-    });
+    await savePageSettings(updated, 'Client Removed', `${name} removed from enterprise clients roster.`);
   };
 
   // Helper to render icon for a service

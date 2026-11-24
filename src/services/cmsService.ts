@@ -91,7 +91,12 @@ export interface TrainerProfile {
   avatarUrl: string;
   formerCompanies: string[];
   linkedinUrl: string;
+  /** Titles of the linked courses, derived by the server from `courseIds` (PUB-006). */
   coursesTaught: string[];
+  /** PUB-006: linked course records (NXA_Courses ids). */
+  courseIds?: string[];
+  /** Response only: linked courses with slugs (public responses: published courses only). */
+  linkedCourses?: Array<{ id: string; title: string; slug: string }>;
   type?: 'trainer' | 'mentor';
   isActive?: boolean;
   displayOrder?: number;
@@ -108,6 +113,16 @@ export interface CareerOpening {
   responsibilities: string[];
   requirements: string[];
   isActive: boolean;
+}
+
+/** NXA_CallbackRequests row (status values are set by the database and shown as stored). */
+export interface CallbackRequest {
+  id: string;
+  name: string;
+  phone: string;
+  preferredTimeSlot?: string;
+  status?: string;
+  requestedAt: string;
 }
 
 export interface LeadEnquiry {
@@ -1064,12 +1079,10 @@ export function normalizeCollegePartnership(item: any, fallbackId?: string): Col
     partnershipTypes = rawTypes;
   } else if (typeof rawTypes === 'string' && rawTypes.trim()) {
     partnershipTypes = [rawTypes.trim()];
-  } else {
-    partnershipTypes = ['Training'];
   }
 
   // Description
-  const description = item.description || (item.activeStudentsCount ? `Institutional training MoU with ${item.activeStudentsCount} enrolled students.` : 'Institutional partnership agreement for student technical training and placements.');
+  const description = item.description || '';
 
   return {
     id,
@@ -1453,391 +1466,333 @@ const INITIAL_MEDIA_LIBRARY: MediaAsset[] = [
   { id: 'med-11', name: 'Aditya Verma Avatar', category: 'avatar', url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=400&q=80', uploadedAt: '2026-11-01' },
 ];
 
+/**
+ * Website CMS client (backend-first).
+ *
+ * - Every Admin change is sent to the server and awaited. The caller gets the
+ *   server's answer (success with the stored record, or the server's error);
+ *   nothing is written locally first and nothing is reported as saved unless
+ *   the server saved it. The server records the audit entry.
+ * - Admin screens load from the Admin endpoints (including hidden / draft
+ *   items) when they open, and after each change.
+ * - The browser cache (localStorage) only mirrors PUBLISHED content from the
+ *   public endpoints, so the public pages can render synchronously. It is
+ *   refreshed after every successful Admin change; it is never a store of record.
+ */
+type Res<T> = ApiResponse<T>;
+
+const errorText = (err: any, fallback: string): string => {
+  const body = err?.response?.data;
+  const details: { field?: string; message?: string }[] = Array.isArray(body?.details) ? body.details : [];
+  const detailText = details.map((d) => (d.field ? `${d.field}: ${d.message}` : d.message)).filter(Boolean).join('; ');
+  const base = body?.message || err?.message || fallback;
+  return detailText ? `${base} (${detailText})` : base;
+};
+
+async function call<T>(request: () => Promise<{ data?: { data?: T; message?: string } }>, empty: T, fallback: string): Promise<Res<T>> {
+  try {
+    const res = await request();
+    return { success: true, data: (res.data?.data ?? empty) as T, ...(res.data?.message ? { message: res.data.message } : {}) };
+  } catch (err: any) {
+    return { success: false, data: empty, error: errorText(err, fallback) };
+  }
+}
+
+const enc = encodeURIComponent;
+
+/** Singleton page/config documents (PUT /admin/cms/content/:slug allowlist on the server). */
+const PAGE = {
+  homepage: { slug: 'homepage', title: 'Homepage Configuration', key: STORAGE_KEYS.HOMEPAGE_CONFIG },
+  about: { slug: 'about_us', title: 'About Us Configuration', key: STORAGE_KEYS.ABOUT_CONFIG },
+  contact: { slug: 'contact_info', title: 'Contact Information', key: STORAGE_KEYS.CONTACT_CONFIG },
+  headerFooter: { slug: 'header_footer', title: 'Header and Footer Configuration', key: STORAGE_KEYS.HEADER_FOOTER_CONFIG },
+  seo: { slug: 'seo', title: 'Global SEO Configuration', key: STORAGE_KEYS.SEO_CONFIG },
+  social: { slug: 'social_links', title: 'Social Media Links', key: STORAGE_KEYS.SOCIAL_LINKS },
+  marquee: { slug: 'hiring_partners_marquee', title: 'Hiring Partners Marquee', key: STORAGE_KEYS.MARQUEE_CONFIG },
+  college: { slug: 'college_partnerships_page', title: 'College Partnerships Page', key: STORAGE_KEYS.COLLEGE_PARTNERSHIPS },
+  corporate: { slug: 'corporate_training_page', title: 'Corporate Training Page', key: STORAGE_KEYS.CORPORATE_TRAINING },
+} as const;
+export type CmsPageKey = keyof typeof PAGE;
+type PageKey = CmsPageKey;
+
+// ---- Server <-> screen shapes -------------------------------------------------
+
+/** NXA_Companies holds name, industry, website and the active flag only. */
+const partnerFromServer = (p: any): HiringPartnerCompany => ({
+  id: String(p.id),
+  name: p.name,
+  ...(p.websiteUrl ? { websiteUrl: p.websiteUrl, website: p.websiteUrl } : {}),
+  ...(p.industry ? { industry: p.industry } : {}),
+  location: '',
+  isActive: p.isActive !== false,
+  isVisible: p.isActive !== false,
+  ...(typeof p.placementsCount === 'number' ? { activeOpenings: undefined } : {}),
+});
+const partnerToServer = (p: HiringPartnerCompany) => ({
+  name: p.name,
+  ...(p.industry ? { industry: p.industry } : {}),
+  ...(p.websiteUrl || p.website ? { websiteUrl: p.websiteUrl || p.website } : {}),
+  isActive: p.isActive !== false && p.isVisible !== false,
+});
+
+/** NXA_CollegePartners: name, partnership type, location, contacts, website, status, notes. */
+const collegeFromServer = (c: any): CollegePartnership => {
+  const [city = '', state = ''] = String(c.location || '').split(',').map((s: string) => s.trim());
+  return {
+    id: String(c.id),
+    collegeName: c.collegeName,
+    name: c.collegeName,
+    city,
+    state,
+    location: c.location || '',
+    partnershipTypes: c.partnershipType ? [c.partnershipType] : [],
+    description: '',
+    status: c.status === 'active' ? 'active' : 'inactive',
+    isVisible: c.status === 'active',
+    ...(c.createdAt ? { createdAt: c.createdAt } : {}),
+  };
+};
+const collegeToServer = (c: CollegePartnership) => ({
+  collegeName: (c.collegeName || c.name || '').trim(),
+  partnershipType: c.partnershipTypes?.[0] || 'Academic MOU',
+  ...([c.city, c.state].filter(Boolean).length ? { location: [c.city, c.state].filter(Boolean).join(', ') } : c.location ? { location: c.location } : {}),
+  status: c.status === 'active' ? 'active' : 'inactive',
+});
+
+const serviceFromServer = (s: any): CorporateTrainingService => ({
+  id: String(s.id),
+  title: s.title,
+  shortDescription: s.shortDescription,
+  fullDescription: s.fullDescription,
+  topics: s.topics || [],
+  icon: s.icon || 'Laptop',
+  displayOrder: s.order ?? 0,
+  status: s.isActive ? 'active' : 'inactive',
+  targetAudience: s.targetAudience,
+  deliveryMode: s.deliveryMode,
+  duration: s.duration,
+  technologies: s.technologies || [],
+  createdAt: '',
+  updatedAt: '',
+});
+const serviceToServer = (s: CorporateTrainingService) => ({
+  title: s.title.trim(),
+  shortDescription: s.shortDescription.trim(),
+  fullDescription: (s.fullDescription || s.shortDescription).trim(),
+  topics: s.topics.map((t) => t.trim()).filter(Boolean),
+  ...(s.targetAudience ? { targetAudience: s.targetAudience } : {}),
+  ...(s.deliveryMode ? { deliveryMode: s.deliveryMode } : {}),
+  ...(s.duration ? { duration: s.duration } : {}),
+  technologies: s.technologies || [],
+  ...(s.icon ? { icon: s.icon } : {}),
+  isActive: s.status !== 'inactive',
+  order: s.displayOrder > 0 ? s.displayOrder : 1,
+});
+
+/** Media uploads need file storage, which the backend does not have yet. */
+export const MEDIA_UPLOAD_BLOCKED = 'Media uploads are not available yet: file storage has not been configured on the server.';
+
 class CMSService {
+  // ---- Published-content cache (read by the public pages) ----
   private getStorageItem<T>(key: string, defaultValue: T): T {
     try {
       const data = localStorage.getItem(key);
       if (!data) {
-        if (USE_DEV_MOCKS) {
-          localStorage.setItem(key, JSON.stringify(defaultValue));
-          return defaultValue;
-        }
+        if (USE_DEV_MOCKS) return defaultValue;
         return (Array.isArray(defaultValue) ? [] : defaultValue) as T;
       }
       return JSON.parse(data);
     } catch {
-      return (USE_DEV_MOCKS ? defaultValue : (Array.isArray(defaultValue) ? [] : defaultValue)) as T;
+      return (USE_DEV_MOCKS ? defaultValue : Array.isArray(defaultValue) ? [] : defaultValue) as T;
     }
   }
 
-  private setStorageItem<T>(key: string, value: T): { success: boolean; error?: string } {
+  /** Mirrors server data for the public pages; failures only affect the local mirror. */
+  private cache<T>(key: string, value: T): void {
     try {
       localStorage.setItem(key, JSON.stringify(value));
-    } catch (e: any) {
-      console.error(`Failed to save to localStorage key "${key}":`, e);
-      let errorMsg = 'Failed to write to local storage.';
-      if (e?.name === 'QuotaExceededError' || e?.code === 22 || e?.code === 1014) {
-        errorMsg = 'LocalStorage storage quota exceeded. Please use an image URL or upload a smaller logo image (< 100KB).';
-      } else if (e?.message) {
-        errorMsg = `Storage error: ${e.message}`;
-      }
-      return { success: false, error: errorMsg };
+    } catch (e) {
+      console.warn(`CMS cache write failed for "${key}"`, e);
     }
-
-    // Storage write succeeded!
-    // Safely dispatch application events in isolated try/catch blocks
     if (typeof window !== 'undefined') {
       try {
         window.dispatchEvent(new CustomEvent('cms-update', { detail: { key } }));
+        window.dispatchEvent(new CustomEvent('app-storage-update', { detail: { key, value } }));
       } catch (err) {
         console.warn('Error in cms-update listener:', err);
       }
-      try {
-        window.dispatchEvent(new CustomEvent('app-storage-update', { detail: { key, value } }));
-      } catch (err) {
-        console.warn('Error in app-storage-update listener:', err);
-      }
     }
-    return { success: true };
   }
 
-  // --- Banners (PUB-022) ---
+  // ---- Public (synchronous) reads from the published cache ----
   getBanners(): WebsiteBanner[] {
     return this.getStorageItem<WebsiteBanner[]>(STORAGE_KEYS.BANNERS, INITIAL_BANNERS);
   }
-
   getActiveBanner(): WebsiteBanner | null {
-    const banners = this.getBanners();
-    return banners.find((b) => b.isActive) || banners[0] || null;
+    return this.getBanners().find((b) => b.isActive) || null;
   }
-
-  updateBanners(banners: WebsiteBanner[]): void {
-    this.setStorageItem(STORAGE_KEYS.BANNERS, banners);
-    if (!USE_DEV_MOCKS) {
-      apiClient.put('/admin/cms/banners', { banners }).catch((err) => {
-        console.warn('Backend banners sync failed:', err?.message);
-      });
-    }
-  }
-
-  deleteBanner(id: string): void {
-    const banners = this.getBanners().filter((b) => b.id !== id);
-    this.setStorageItem(STORAGE_KEYS.BANNERS, banners);
-    if (!USE_DEV_MOCKS) {
-      apiClient.delete(`/admin/cms/banners/${encodeURIComponent(id)}`).catch((err) => {
-        console.warn('Backend banner delete failed:', err?.message);
-      });
-    }
-  }
-
-  // --- Blogs & Articles (PUB-013) ---
   getArticles(): BlogArticle[] {
     return this.getStorageItem<BlogArticle[]>(STORAGE_KEYS.BLOGS, INITIAL_BLOGS);
   }
-
   getArticleBySlug(slug: string): BlogArticle | null {
-    const articles = this.getArticles();
-    return articles.find((a) => a.slug === slug || a.id === slug) || null;
+    return this.getArticles().find((a) => a.slug === slug || a.id === slug) || null;
   }
-
-  saveArticle(article: BlogArticle): void {
-    const articles = this.getArticles();
-    const index = articles.findIndex((a) => a.id === article.id);
-    const isExisting = index >= 0;
-    if (isExisting) {
-      articles[index] = article;
-    } else {
-      articles.unshift(article);
-    }
-    this.setStorageItem(STORAGE_KEYS.BLOGS, articles);
-    if (!USE_DEV_MOCKS) {
-      const req = isExisting && article.id
-        ? apiClient.put(`/admin/cms/blogs/${encodeURIComponent(article.id)}`, article)
-        : apiClient.post('/admin/cms/blogs', article);
-      req.catch((err) => console.warn('Backend blog sync failed:', err?.message));
-    }
-  }
-
-  deleteArticle(id: string): void {
-    const articles = this.getArticles().filter((a) => a.id !== id);
-    this.setStorageItem(STORAGE_KEYS.BLOGS, articles);
-    if (!USE_DEV_MOCKS) {
-      apiClient.delete(`/admin/cms/blogs/${encodeURIComponent(id)}`).catch((err) => {
-        console.warn('Backend blog delete failed:', err?.message);
-      });
-    }
-  }
-
-  // --- FAQs (PUB-012) ---
   getFAQs(): FAQItem[] {
     return this.getStorageItem<FAQItem[]>(STORAGE_KEYS.FAQS, INITIAL_FAQS);
   }
-
-  saveFAQ(faq: FAQItem): void {
-    const faqs = this.getFAQs();
-    const index = faqs.findIndex((f) => f.id === faq.id);
-    const isExisting = index >= 0;
-    if (isExisting) {
-      faqs[index] = faq;
-    } else {
-      faqs.push(faq);
-    }
-    this.setStorageItem(STORAGE_KEYS.FAQS, faqs);
-    if (!USE_DEV_MOCKS) {
-      const req = isExisting && faq.id
-        ? apiClient.put(`/admin/cms/faqs/${encodeURIComponent(faq.id)}`, faq)
-        : apiClient.post('/admin/cms/faqs', faq);
-      req.catch((err) => console.warn('Backend FAQ sync failed:', err?.message));
-    }
-  }
-
-  deleteFAQ(id: string): void {
-    const faqs = this.getFAQs().filter((f) => f.id !== id);
-    this.setStorageItem(STORAGE_KEYS.FAQS, faqs);
-    if (!USE_DEV_MOCKS) {
-      apiClient.delete(`/admin/cms/faqs/${encodeURIComponent(id)}`).catch((err) => {
-        console.warn('Backend FAQ delete failed:', err?.message);
-      });
-    }
-  }
-
-  // --- Testimonials & Achievements (PUB-009, PUB-010) ---
   getTestimonials(): TestimonialItem[] {
     return this.getStorageItem<TestimonialItem[]>(STORAGE_KEYS.TESTIMONIALS, INITIAL_TESTIMONIALS);
   }
-
-  saveTestimonial(item: TestimonialItem): void {
-    const items = this.getTestimonials();
-    const idx = items.findIndex((t) => t.id === item.id);
-    const isExisting = idx >= 0;
-    if (isExisting) items[idx] = item;
-    else items.unshift(item);
-    this.setStorageItem(STORAGE_KEYS.TESTIMONIALS, items);
-    if (!USE_DEV_MOCKS) {
-      const req = isExisting && item.id
-        ? apiClient.put(`/admin/cms/testimonials/${encodeURIComponent(item.id)}`, item)
-        : apiClient.post('/admin/cms/testimonials', item);
-      req.catch((err) => console.warn('Backend testimonial sync failed:', err?.message));
-    }
-  }
-
-  deleteTestimonial(id: string): void {
-    const items = this.getTestimonials().filter((t) => t.id !== id);
-    this.setStorageItem(STORAGE_KEYS.TESTIMONIALS, items);
-    if (!USE_DEV_MOCKS) {
-      apiClient.delete(`/admin/cms/testimonials/${encodeURIComponent(id)}`).catch((err) => {
-        console.warn('Backend testimonial delete failed:', err?.message);
-      });
-    }
-  }
-
   getAchievements(): AchievementItem[] {
     return this.getStorageItem<AchievementItem[]>(STORAGE_KEYS.ACHIEVEMENTS, INITIAL_ACHIEVEMENTS);
   }
-
-  saveAchievement(item: AchievementItem): void {
-    const items = this.getAchievements();
-    const idx = items.findIndex((a) => a.id === item.id);
-    const isExisting = idx >= 0;
-    if (isExisting) items[idx] = item;
-    else items.unshift(item);
-    this.setStorageItem(STORAGE_KEYS.ACHIEVEMENTS, items);
-    if (!USE_DEV_MOCKS) {
-      const req = isExisting && item.id
-        ? apiClient.put(`/admin/cms/achievements/${encodeURIComponent(item.id)}`, item)
-        : apiClient.post('/admin/cms/achievements', item);
-      req.catch((err) => console.warn('Backend achievement sync failed:', err?.message));
-    }
-  }
-
-  deleteAchievement(id: string): void {
-    const items = this.getAchievements().filter((a) => a.id !== id);
-    this.setStorageItem(STORAGE_KEYS.ACHIEVEMENTS, items);
-    if (!USE_DEV_MOCKS) {
-      apiClient.delete(`/admin/cms/achievements/${encodeURIComponent(id)}`).catch((err) => {
-        console.warn('Backend achievement delete failed:', err?.message);
-      });
-    }
-  }
-
-  // --- Trainers (PUB-006) ---
   getTrainers(): TrainerProfile[] {
     return this.getStorageItem<TrainerProfile[]>(STORAGE_KEYS.TRAINERS, INITIAL_TRAINERS);
   }
-
-  saveTrainer(trainer: TrainerProfile): void {
-    const trainers = this.getTrainers();
-    const idx = trainers.findIndex((t) => t.id === trainer.id);
-    const isExisting = idx >= 0;
-    if (isExisting) trainers[idx] = trainer;
-    else trainers.push(trainer);
-    this.setStorageItem(STORAGE_KEYS.TRAINERS, trainers);
-    if (!USE_DEV_MOCKS) {
-      const req = isExisting && trainer.id
-        ? apiClient.put(`/admin/cms/trainers/${encodeURIComponent(trainer.id)}`, trainer)
-        : apiClient.post('/admin/cms/trainers', trainer);
-      req.catch((err) => console.warn('Backend trainer sync failed:', err?.message));
-    }
-  }
-
-  deleteTrainer(id: string): void {
-    const trainers = this.getTrainers().filter((t) => t.id !== id);
-    this.setStorageItem(STORAGE_KEYS.TRAINERS, trainers);
-    if (!USE_DEV_MOCKS) {
-      apiClient.delete(`/admin/cms/trainers/${encodeURIComponent(id)}`).catch((err) => {
-        console.warn('Backend trainer delete failed:', err?.message);
-      });
-    }
-  }
-
-  // --- Careers (PUB-014) ---
   getCareers(): CareerOpening[] {
     return this.getStorageItem<CareerOpening[]>(STORAGE_KEYS.CAREERS, INITIAL_CAREERS);
   }
-
-  saveCareer(career: CareerOpening): void {
-    const careers = this.getCareers();
-    const idx = careers.findIndex((c) => c.id === career.id);
-    const isExisting = idx >= 0;
-    if (isExisting) careers[idx] = career;
-    else careers.push(career);
-    this.setStorageItem(STORAGE_KEYS.CAREERS, careers);
-    if (!USE_DEV_MOCKS) {
-      const req = isExisting && career.id
-        ? apiClient.put(`/admin/cms/careers/${encodeURIComponent(career.id)}`, career)
-        : apiClient.post('/admin/cms/careers', career);
-      req.catch((err) => console.warn('Backend career sync failed:', err?.message));
-    }
-  }
-
-  deleteCareer(id: string): void {
-    const careers = this.getCareers().filter((c) => c.id !== id);
-    this.setStorageItem(STORAGE_KEYS.CAREERS, careers);
-    if (!USE_DEV_MOCKS) {
-      apiClient.delete(`/admin/cms/careers/${encodeURIComponent(id)}`).catch((err) => {
-        console.warn('Backend career delete failed:', err?.message);
-      });
-    }
-  }
-
-  // --- Enquiries & Lead Capture (PUB-011, PUB-018, PUB-019) ---
-  getEnquiries(): LeadEnquiry[] {
-    return this.getStorageItem<LeadEnquiry[]>(STORAGE_KEYS.ENQUIRIES, []);
-  }
-
-  submitEnquiry(enquiry: Omit<LeadEnquiry, 'id' | 'submittedAt' | 'status'>): LeadEnquiry {
-    const enquiries = this.getEnquiries();
-    const newEnquiry: LeadEnquiry = {
-      ...enquiry,
-      id: `enq-${Date.now()}`,
-      submittedAt: new Date().toISOString(),
-      status: 'new',
-    };
-    enquiries.unshift(newEnquiry);
-    this.setStorageItem(STORAGE_KEYS.ENQUIRIES, enquiries);
-    if (!USE_DEV_MOCKS) {
-      apiClient.post('/public/enquiries', enquiry).catch((err) => {
-        console.warn('Backend enquiry submission failed:', err?.message);
-      });
-    }
-    return newEnquiry;
-  }
-
-  updateEnquiryStatus(id: string, status: LeadEnquiry['status']): void {
-    const enquiries = this.getEnquiries();
-    const target = enquiries.find((e) => e.id === id);
-    if (target) {
-      target.status = status;
-      this.setStorageItem(STORAGE_KEYS.ENQUIRIES, enquiries);
-    }
-    if (!USE_DEV_MOCKS) {
-      apiClient.patch(`/admin/cms/enquiries/${encodeURIComponent(id)}/status`, { status }).catch((err) => {
-        console.warn('Backend enquiry status update failed:', err?.message);
-      });
-    }
-  }
-
-  // --- 1. Home Page Configuration ---
   getHomePageConfig(): HomePageConfig {
     return this.getStorageItem<HomePageConfig>(STORAGE_KEYS.HOMEPAGE_CONFIG, INITIAL_HOMEPAGE_CONFIG);
   }
-
-  saveHomePageConfig(config: HomePageConfig): void {
-    this.setStorageItem(STORAGE_KEYS.HOMEPAGE_CONFIG, config);
-    if (!USE_DEV_MOCKS) {
-      apiClient.put('/admin/cms/content/homepage', {
-        title: 'Homepage Configuration',
-        content: config,
-        isPublished: true,
-      }).catch((err) => console.warn('Backend homepage sync failed:', err?.message));
-    }
-  }
-
-  // --- 2. About Us Configuration ---
   getAboutUsConfig(): AboutUsConfig {
     return this.getStorageItem<AboutUsConfig>(STORAGE_KEYS.ABOUT_CONFIG, INITIAL_ABOUT_CONFIG);
   }
-
-  saveAboutUsConfig(config: AboutUsConfig): void {
-    this.setStorageItem(STORAGE_KEYS.ABOUT_CONFIG, config);
-    if (!USE_DEV_MOCKS) {
-      apiClient.put('/admin/cms/content/about_us', {
-        title: 'About Us Configuration',
-        content: config,
-        isPublished: true,
-      }).catch((err) => console.warn('Backend about us sync failed:', err?.message));
-    }
-  }
-
-  // --- 6. Hiring Partners & Marquee Controls ---
   getHiringPartners(): HiringPartnerCompany[] {
-    const partners = this.getStorageItem<HiringPartnerCompany[]>(STORAGE_KEYS.HIRING_PARTNERS, INITIAL_HIRING_PARTNERS);
-    // Partners persisted before logos were seeded have no logoUrl; backfill from the seed by id.
-    return partners.map((p) =>
-      p.logoUrl ? p : { ...p, logoUrl: INITIAL_HIRING_PARTNERS.find((seed) => seed.id === p.id)?.logoUrl }
-    );
+    return this.getStorageItem<HiringPartnerCompany[]>(STORAGE_KEYS.HIRING_PARTNERS, INITIAL_HIRING_PARTNERS);
   }
-
-  saveHiringPartner(partner: HiringPartnerCompany): void {
-    const partners = this.getHiringPartners();
-    const idx = partners.findIndex((p) => p.id === partner.id);
-    const isExisting = idx >= 0;
-    if (isExisting) {
-      partners[idx] = partner;
-    } else {
-      partners.push(partner);
-    }
-    this.setStorageItem(STORAGE_KEYS.HIRING_PARTNERS, partners);
-    if (!USE_DEV_MOCKS) {
-      const req = isExisting && partner.id
-        ? apiClient.put(`/admin/cms/partners/${encodeURIComponent(partner.id)}`, partner)
-        : apiClient.post('/admin/cms/partners', partner);
-      req.catch((err) => console.warn('Backend partner sync failed:', err?.message));
-    }
-  }
-
-  deleteHiringPartner(id: string): void {
-    const partners = this.getHiringPartners().filter((p) => p.id !== id);
-    this.setStorageItem(STORAGE_KEYS.HIRING_PARTNERS, partners);
-    if (!USE_DEV_MOCKS) {
-      apiClient.delete(`/admin/cms/partners/${encodeURIComponent(id)}`).catch((err) => {
-        console.warn('Backend partner delete failed:', err?.message);
-      });
-    }
-  }
-
   getMarqueeConfig(): MarqueeAnimationConfig {
     return this.getStorageItem<MarqueeAnimationConfig>(STORAGE_KEYS.MARQUEE_CONFIG, INITIAL_MARQUEE_CONFIG);
   }
+  getCollegePartnerships(): CollegePartnershipConfig {
+    const raw = this.getStorageItem<any>(STORAGE_KEYS.COLLEGE_PARTNERSHIPS, INITIAL_COLLEGE_PARTNERSHIPS);
+    const list: any[] = Array.isArray(raw.partners) ? raw.partners : Array.isArray(raw.partnerColleges) ? raw.partnerColleges : [];
+    const partners = list.map((item, idx) => normalizeCollegePartnership(item, item.id || `col-${idx + 1}`));
+    return {
+      header: raw.header || INITIAL_COLLEGE_PARTNERSHIPS.header,
+      benefits: raw.benefits || INITIAL_COLLEGE_PARTNERSHIPS.benefits,
+      partners,
+      partnerColleges: partners,
+      sectionVisibility: raw.sectionVisibility || INITIAL_COLLEGE_PARTNERSHIPS.sectionVisibility,
+    };
+  }
+  getCollegePartners(): CollegePartnership[] {
+    return this.getCollegePartnerships().partners || [];
+  }
+  getCollegePartnerById(id: string): CollegePartnership | null {
+    const target = id.trim().toLowerCase();
+    return (
+      this.getCollegePartners().find(
+        (p) => p.id === id || (p.collegeName && p.collegeName.toLowerCase() === target) || (p.name && p.name.toLowerCase() === target)
+      ) || null
+    );
+  }
+  getCorporateTraining(): CorporateTrainingConfig {
+    const config = this.getStorageItem<CorporateTrainingConfig>(STORAGE_KEYS.CORPORATE_TRAINING, INITIAL_CORPORATE_TRAINING);
+    return {
+      header: config.header || INITIAL_CORPORATE_TRAINING.header,
+      services: Array.isArray(config.services) ? config.services : [],
+      offerings: config.offerings || INITIAL_CORPORATE_TRAINING.offerings,
+      clients: config.clients || INITIAL_CORPORATE_TRAINING.clients,
+      sectionVisibility: { ...INITIAL_CORPORATE_TRAINING.sectionVisibility, ...(config.sectionVisibility || {}) },
+    };
+  }
+  getCorporateTrainingServices(): CorporateTrainingService[] {
+    return [...this.getCorporateTraining().services].sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+  }
+  getCorporateTrainingServiceById(id: string): CorporateTrainingService | undefined {
+    return this.getCorporateTrainingServices().find((s) => s.id === id);
+  }
+  getContactInfo(): ContactInfoConfig {
+    return this.getStorageItem<ContactInfoConfig>(STORAGE_KEYS.CONTACT_CONFIG, INITIAL_CONTACT_CONFIG);
+  }
+  getSocialMediaLinks(): SocialMediaLink[] {
+    const stored = this.getStorageItem<SocialMediaLink[]>(STORAGE_KEYS.SOCIAL_LINKS, INITIAL_SOCIAL_LINKS);
+    return Array.isArray(stored) && stored.length > 0 ? stored : INITIAL_SOCIAL_LINKS;
+  }
+  getHeaderFooterConfig(): HeaderFooterConfig {
+    return this.getStorageItem<HeaderFooterConfig>(STORAGE_KEYS.HEADER_FOOTER_CONFIG, INITIAL_HEADER_FOOTER_CONFIG);
+  }
+  getSEOConfig(): SEOConfig {
+    return this.getStorageItem<SEOConfig>(STORAGE_KEYS.SEO_CONFIG, INITIAL_SEO_CONFIG);
+  }
+  getPageSEO(path: string): PageSEO | null {
+    return this.getSEOConfig().pages[path] || null;
+  }
+  /** Media library needs file storage (not configured): nothing is stored locally. */
+  getMediaAssets(): MediaAsset[] {
+    return USE_DEV_MOCKS ? INITIAL_MEDIA_LIBRARY : [];
+  }
 
-  saveMarqueeConfig(config: MarqueeAnimationConfig): void {
+  // ---- Admin loads (all items, including hidden / draft) ----
+  getAdminBanners = () => call<WebsiteBanner[]>(() => apiClient.get('/admin/cms/banners'), [], 'Banners could not be loaded.');
+  getAdminArticles = () => call<BlogArticle[]>(() => apiClient.get('/admin/cms/blogs'), [], 'Blog posts could not be loaded.');
+  getAdminFAQs = () => call<FAQItem[]>(() => apiClient.get('/admin/cms/faqs'), [], 'FAQs could not be loaded.');
+  getAdminTestimonials = () => call<TestimonialItem[]>(() => apiClient.get('/admin/cms/testimonials'), [], 'Testimonials could not be loaded.');
+  getAdminAchievements = () => call<AchievementItem[]>(() => apiClient.get('/admin/cms/achievements'), [], 'Achievements could not be loaded.');
+  getAdminTrainers = () => call<TrainerProfile[]>(() => apiClient.get('/admin/cms/trainers'), [], 'Trainer profiles could not be loaded.');
+  getAdminCareers = () => call<CareerOpening[]>(() => apiClient.get('/admin/cms/careers'), [], 'Career openings could not be loaded.');
+  getEnquiriesAsync = () => call<LeadEnquiry[]>(() => apiClient.get('/admin/cms/enquiries'), [], 'Enquiries could not be loaded.');
+  getCallbackRequestsAsync = () =>
+    call<CallbackRequest[]>(() => apiClient.get('/admin/cms/callbacks'), [], 'Callback requests could not be loaded.');
+
+  async getAdminHiringPartners(): Promise<Res<HiringPartnerCompany[]>> {
+    const res = await call<any[]>(() => apiClient.get('/admin/cms/partners'), [], 'Hiring partners could not be loaded.');
+    return { ...res, data: res.data.map(partnerFromServer) };
+  }
+  async getAdminCollegePartners(): Promise<Res<CollegePartnership[]>> {
+    const res = await call<any[]>(() => apiClient.get('/admin/cms/college-partners'), [], 'College partners could not be loaded.');
+    return { ...res, data: res.data.map(collegeFromServer) };
+  }
+  async getAdminCorporateServices(): Promise<Res<CorporateTrainingService[]>> {
+    const res = await call<any[]>(() => apiClient.get('/admin/cms/corporate-training'), [], 'Corporate training services could not be loaded.');
+    return { ...res, data: res.data.map(serviceFromServer) };
+  }
+
+  /**
+   * Loads a page/config document for an Admin screen. A document that was
+   * never saved is a 404 on the server: the screen then starts from the
+   * built-in default (`fallback`) and nothing is stored until the Admin saves.
+   */
+  async getAdminPage<T>(page: PageKey, fallback: T): Promise<Res<T> & { saved: boolean }> {
+    try {
+      const res = await apiClient.get(`/admin/cms/content/${PAGE[page].slug}`);
+      const content = res.data?.data?.content;
+      return { success: true, data: (content ?? fallback) as T, saved: content != null };
+    } catch (err: any) {
+      if (err?.response?.status === 404) return { success: true, data: fallback, saved: false };
+      return { success: false, data: fallback, saved: false, error: errorText(err, 'This page could not be loaded.') };
+    }
+  }
+
+  // ---- Admin writes: awaited; the published cache is refreshed only after the server saved ----
+  private async savePage<T>(page: PageKey, content: T): Promise<Res<T>> {
+    const res = await call<any>(
+      () => apiClient.put(`/admin/cms/content/${PAGE[page].slug}`, { title: PAGE[page].title, content, isPublished: true }),
+      null,
+      'The page could not be saved.'
+    );
+    if (!res.success) return { success: false, data: content, error: res.error };
+    const stored = (res.data?.content ?? content) as T;
+    await this.refreshPublic();
+    return { success: true, data: stored, message: 'Saved.' };
+  }
+
+  saveHomePageConfig = (config: HomePageConfig) => this.savePage('homepage', config);
+  saveAboutUsConfig = (config: AboutUsConfig) => this.savePage('about', config);
+  saveContactInfo = (config: ContactInfoConfig) => this.savePage('contact', config);
+  saveHeaderFooterConfig = (config: HeaderFooterConfig) => this.savePage('headerFooter', config);
+  saveSEOConfig = (config: SEOConfig) => this.savePage('seo', config);
+  async saveSocialMediaLinks(links: SocialMediaLink[]): Promise<Res<SocialMediaLink[]>> {
+    const res = await this.savePage('social', { links });
+    if (res.success && typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('cms-social-update', { detail: links }));
+    return { ...res, data: res.success ? (res.data as { links: SocialMediaLink[] }).links ?? links : links };
+  }
+  saveMarqueeConfig(config: MarqueeAnimationConfig): Promise<Res<MarqueeAnimationConfig>> {
     const speed = config.speed || config.row1Speed || 'normal';
     const row1Direction = config.row1Direction || config.directionRow1 || 'left';
     const row2Direction = config.row2Direction || config.directionRow2 || 'right';
-    const durationSeconds =
-      config.durationSeconds ?? (speed === 'fast' ? 18 : speed === 'slow' ? 45 : 30);
-
-    const normalized: MarqueeAnimationConfig = {
+    return this.savePage('marquee', {
       ...config,
       speed,
       row1Speed: config.row1Speed || speed,
@@ -1846,891 +1801,201 @@ class CMSService {
       directionRow1: row1Direction,
       row2Direction,
       directionRow2: row2Direction,
-      durationSeconds,
-    };
-    this.setStorageItem(STORAGE_KEYS.MARQUEE_CONFIG, normalized);
+      durationSeconds: config.durationSeconds ?? (speed === 'fast' ? 18 : speed === 'slow' ? 45 : 30),
+    });
+  }
+  /** Header, benefits and section visibility of the college partnerships page (partners are separate records). */
+  async saveCollegePageSettings(config: CollegePartnershipConfig): Promise<Res<CollegePartnershipConfig>> {
+    const res = await this.savePage('college', { header: config.header, benefits: config.benefits, sectionVisibility: config.sectionVisibility });
+    return { ...res, data: { ...config, ...res.data } };
+  }
+  /** Header, offerings, clients and section visibility of the corporate training page (services are separate records). */
+  async saveCorporateTraining(config: CorporateTrainingConfig): Promise<Res<CorporateTrainingConfig>> {
+    const res = await this.savePage('corporate', { header: config.header, offerings: config.offerings, clients: config.clients, sectionVisibility: config.sectionVisibility });
+    return { ...res, data: { ...config, ...res.data } };
   }
 
-  // --- 10. College Partnerships ---
-  getCollegePartnerships(): CollegePartnershipConfig {
-    const raw = this.getStorageItem<any>(STORAGE_KEYS.COLLEGE_PARTNERSHIPS, INITIAL_COLLEGE_PARTNERSHIPS);
+  // Reset = save the built-in default page text through the server (audited like any save).
+  resetHomePageConfig = () => this.saveHomePageConfig(INITIAL_HOMEPAGE_CONFIG);
+  resetAboutUsConfig = () => this.saveAboutUsConfig(INITIAL_ABOUT_CONFIG);
+  resetContactInfo = () => this.saveContactInfo(INITIAL_CONTACT_CONFIG);
+  resetHeaderFooterConfig = () => this.saveHeaderFooterConfig(INITIAL_HEADER_FOOTER_CONFIG);
+  resetSEOConfig = () => this.saveSEOConfig(INITIAL_SEO_CONFIG);
+  resetMarqueeConfig = () => this.saveMarqueeConfig(INITIAL_MARQUEE_CONFIG);
 
-    // Inspect both raw.partners and raw.partnerColleges to preserve all existing records
-    const rawList: any[] = [];
-    if (Array.isArray(raw.partners)) {
-      rawList.push(...raw.partners);
-    }
-    if (Array.isArray(raw.partnerColleges)) {
-      raw.partnerColleges.forEach((pc: any) => {
-        const exists = rawList.some(
-          (p: any) =>
-            (p.id && pc.id && p.id === pc.id) ||
-            (p.collegeName && (p.collegeName === pc.name || p.collegeName === pc.collegeName))
-        );
-        if (!exists) {
-          rawList.push(pc);
-        }
+  private async write<T>(request: () => Promise<any>, empty: T, fallback: string): Promise<Res<T>> {
+    const res = await call<T>(request, empty, fallback);
+    if (res.success) await this.refreshPublic();
+    return res;
+  }
+
+  /** Whole banner set (create / edit / reorder / show-hide); the server audits the change. */
+  updateBanners = (banners: WebsiteBanner[]) =>
+    this.write<WebsiteBanner[]>(() => apiClient.put('/admin/cms/banners', { banners }), banners, 'Banners could not be saved.');
+  deleteBanner = (id: string) => this.write<boolean>(() => apiClient.delete(`/admin/cms/banners/${enc(id)}`), false, 'The banner could not be deleted.');
+
+  private saveItem<T extends { id?: string }>(path: string, item: T, label: string): Promise<Res<T>> {
+    const { id, ...body } = item as any;
+    return this.write<T>(
+      () => (id ? apiClient.put(`/admin/cms/${path}/${enc(id)}`, body) : apiClient.post(`/admin/cms/${path}`, body)),
+      item,
+      `The ${label} could not be saved.`
+    );
+  }
+  private deleteItem(path: string, id: string, label: string): Promise<Res<boolean>> {
+    return this.write<boolean>(() => apiClient.delete(`/admin/cms/${path}/${enc(id)}`), false, `The ${label} could not be deleted.`);
+  }
+
+  saveArticle = (a: BlogArticle) => this.saveItem('blogs', a, 'blog post');
+  deleteArticle = (id: string) => this.deleteItem('blogs', id, 'blog post');
+  saveFAQ = (f: FAQItem) => this.saveItem('faqs', f, 'FAQ');
+  deleteFAQ = (id: string) => this.deleteItem('faqs', id, 'FAQ');
+  saveTestimonial = (t: TestimonialItem) => this.saveItem('testimonials', t, 'testimonial');
+  deleteTestimonial = (id: string) => this.deleteItem('testimonials', id, 'testimonial');
+  saveAchievement = (a: AchievementItem) => this.saveItem('achievements', a, 'achievement');
+  deleteAchievement = (id: string) => this.deleteItem('achievements', id, 'achievement');
+  saveTrainer = (t: TrainerProfile) => this.saveItem('trainers', t, 'trainer profile');
+  deleteTrainer = (id: string) => this.deleteItem('trainers', id, 'trainer profile');
+  saveCareer = (c: CareerOpening) => this.saveItem('careers', c, 'career opening');
+  deleteCareer = (id: string) => this.deleteItem('careers', id, 'career opening');
+
+  updateEnquiryStatus = (id: string, status: LeadEnquiry['status']) =>
+    call<LeadEnquiry | null>(() => apiClient.patch(`/admin/cms/enquiries/${enc(id)}/status`, { status }), null, 'The enquiry status could not be updated.');
+
+  /** Hiring partners are NXA_Companies rows: logo, location and order are not stored. */
+  async saveHiringPartner(p: HiringPartnerCompany): Promise<Res<HiringPartnerCompany>> {
+    const isNumeric = /^\d{1,19}$/.test(p.id || '');
+    const res = await this.write<any>(
+      () => (isNumeric ? apiClient.put(`/admin/cms/partners/${p.id}`, partnerToServer(p)) : apiClient.post('/admin/cms/partners', partnerToServer(p))),
+      null,
+      'The hiring partner could not be saved.'
+    );
+    return res.success ? { ...res, data: partnerFromServer(res.data) } : { success: false, data: p, error: res.error };
+  }
+  deleteHiringPartner = (id: string) => this.deleteItem('partners', id, 'hiring partner');
+
+  /** College partners are NXA_CollegePartners rows: description, logo and the extra types are not stored. */
+  async saveCollegePartner(c: CollegePartnership): Promise<Res<CollegePartnership>> {
+    if (!c.collegeName?.trim()) return { success: false, data: c, error: 'College Name is required.' };
+    const isNumeric = /^\d{1,19}$/.test(c.id || '');
+    const res = await this.write<any>(
+      () => (isNumeric ? apiClient.put(`/admin/cms/college-partners/${c.id}`, collegeToServer(c)) : apiClient.post('/admin/cms/college-partners', collegeToServer(c))),
+      null,
+      'The college partner could not be saved.'
+    );
+    return res.success ? { ...res, data: collegeFromServer(res.data) } : { success: false, data: c, error: res.error };
+  }
+  deleteCollegePartner = (id: string) => this.deleteItem('college-partners', id, 'college partner');
+  async setCollegePartnerStatus(id: string, status: 'active' | 'inactive'): Promise<Res<CollegePartnership | null>> {
+    const res = await this.write<any>(() => apiClient.patch(`/admin/cms/college-partners/${enc(id)}/status`, { status }), null, 'The status could not be changed.');
+    return res.success ? { ...res, data: collegeFromServer(res.data) } : { success: false, data: null, error: res.error };
+  }
+
+  async saveCorporateTrainingService(s: CorporateTrainingService): Promise<Res<CorporateTrainingService>> {
+    if (!s.title?.trim()) return { success: false, data: s, error: 'Service Title is required.' };
+    if (!s.shortDescription?.trim()) return { success: false, data: s, error: 'Short Description is required.' };
+    if (!Array.isArray(s.topics) || s.topics.filter((t) => t.trim()).length === 0) return { success: false, data: s, error: 'At least one Topic or Technology is required.' };
+    const res = await this.write<any>(
+      () => (s.id ? apiClient.put(`/admin/cms/corporate-training/services/${enc(s.id)}`, serviceToServer(s)) : apiClient.post('/admin/cms/corporate-training/services', serviceToServer(s))),
+      null,
+      'The corporate training service could not be saved.'
+    );
+    return res.success ? { ...res, data: serviceFromServer(res.data) } : { success: false, data: s, error: res.error };
+  }
+  deleteCorporateTrainingService = (id: string) => this.deleteItem('corporate-training/services', id, 'corporate training service');
+  async setCorporateTrainingServiceStatus(id: string, isActive: boolean): Promise<Res<CorporateTrainingService | null>> {
+    const res = await this.write<any>(() => apiClient.patch(`/admin/cms/corporate-training/services/${enc(id)}/status`, { isActive }), null, 'The status could not be changed.');
+    return res.success ? { ...res, data: serviceFromServer(res.data) } : { success: false, data: null, error: res.error };
+  }
+  async reorderCorporateTrainingServices(ids: string[]): Promise<Res<CorporateTrainingService[]>> {
+    const res = await this.write<any[]>(() => apiClient.put('/admin/cms/corporate-training/order', { ids }), [], 'The new order could not be saved.');
+    return { ...res, data: res.data.map(serviceFromServer) };
+  }
+
+  /** Media library: blocked until file storage exists. Nothing is stored. */
+  async saveMediaAsset(_asset: MediaAsset): Promise<Res<null>> {
+    return { success: false, data: null, error: MEDIA_UPLOAD_BLOCKED };
+  }
+  async deleteMediaAsset(_id: string): Promise<Res<null>> {
+    return { success: false, data: null, error: MEDIA_UPLOAD_BLOCKED };
+  }
+
+  // ---- Public submissions (persisted by the server; nothing stored locally) ----
+  submitEnquiry = (enquiry: Omit<LeadEnquiry, 'id' | 'submittedAt' | 'status'>) =>
+    call<LeadEnquiry | null>(() => apiClient.post('/public/enquiries', enquiry), null, 'Your request could not be sent. Please try again.');
+  submitEnquiryAsync = this.submitEnquiry;
+
+  // ---- Published cache refresh (public endpoints only: hidden and draft items never enter it) ----
+  private refreshing: Promise<void> | null = null;
+  refreshPublic(): Promise<void> {
+    if (!this.refreshing) {
+      this.refreshing = this.syncFromBackend().finally(() => {
+        this.refreshing = null;
       });
     }
-
-    if (rawList.length === 0 && Array.isArray(INITIAL_COLLEGE_PARTNERSHIPS.partners)) {
-      rawList.push(...INITIAL_COLLEGE_PARTNERSHIPS.partners);
-    }
-
-    const normalizedPartners = rawList.map((item, idx) =>
-      normalizeCollegePartnership(item, item.id || `col-${idx + 1}`)
-    );
-
-    return {
-      header: raw.header || INITIAL_COLLEGE_PARTNERSHIPS.header,
-      benefits: raw.benefits || INITIAL_COLLEGE_PARTNERSHIPS.benefits,
-      partners: normalizedPartners,
-      partnerColleges: normalizedPartners,
-      sectionVisibility: raw.sectionVisibility || INITIAL_COLLEGE_PARTNERSHIPS.sectionVisibility,
-    };
+    return this.refreshing;
   }
 
-  saveCollegePartnerships(config: CollegePartnershipConfig): ApiResponse<CollegePartnershipConfig> {
-    const rawList = config.partners || config.partnerColleges || [];
-    const normalizedPartners = rawList.map((p, idx) =>
-      normalizeCollegePartnership(p, p.id || `col-${Date.now()}-${idx}`)
-    );
-    const toSave: CollegePartnershipConfig = {
-      ...config,
-      partners: normalizedPartners,
-      partnerColleges: normalizedPartners,
-    };
-    const res = this.setStorageItem(STORAGE_KEYS.COLLEGE_PARTNERSHIPS, toSave);
-    if (!res.success) {
-      return { success: false, data: toSave, error: res.error || 'Failed to write partnership configuration to storage.' };
-    }
-    return { success: true, data: toSave, message: 'College partnerships saved successfully.' };
-  }
-
-  saveCollegePageSettings(settings: {
-    header?: CollegePartnershipConfig['header'];
-    benefits?: CollegePartnershipConfig['benefits'];
-    sectionVisibility?: CollegePartnershipConfig['sectionVisibility'];
-  }): ApiResponse<CollegePartnershipConfig> {
-    const latest = this.getCollegePartnerships();
-    const updated: CollegePartnershipConfig = {
-      header: settings.header || latest.header,
-      benefits: settings.benefits || latest.benefits,
-      sectionVisibility: settings.sectionVisibility || latest.sectionVisibility,
-      partners: latest.partners,
-      partnerColleges: latest.partnerColleges,
-    };
-    const res = this.setStorageItem(STORAGE_KEYS.COLLEGE_PARTNERSHIPS, updated);
-    if (!res.success) {
-      return { success: false, data: updated, error: res.error || 'Failed to save page settings to storage.' };
-    }
-    return { success: true, data: updated, message: 'College partnerships page configuration saved successfully.' };
-  }
-
-  getCollegePartners(): CollegePartnership[] {
-    return this.getCollegePartnerships().partners || [];
-  }
-
-  getCollegePartnerById(id: string): CollegePartnership | null {
-    const partners = this.getCollegePartners();
-    const target = id.trim().toLowerCase();
-    const match = partners.find(
-      (p) =>
-        p.id === id ||
-        (p.collegeName && p.collegeName.toLowerCase() === target) ||
-        (p.name && p.name.toLowerCase() === target)
-    );
-    return match || null;
-  }
-
-  saveCollegePartner(partner: CollegePartnership): ApiResponse<CollegePartnership> {
-    if (!partner || !partner.collegeName || !partner.collegeName.trim()) {
-      return { success: false, data: partner, error: 'College Name is required.' };
-    }
-    if (!partner.description || !partner.description.trim()) {
-      return { success: false, data: partner, error: 'Partnership Description is required.' };
-    }
-    if (!partner.partnershipTypes || partner.partnershipTypes.length === 0) {
-      return { success: false, data: partner, error: 'At least one Partnership Type must be selected.' };
-    }
-
-    const config = this.getCollegePartnerships();
-    const current = [...(config.partners || [])];
-    const targetName = (partner.collegeName || partner.name || '').trim().toLowerCase();
-    const idx = current.findIndex(
-      (p) => p.id === partner.id || (p.collegeName && p.collegeName.toLowerCase() === targetName)
-    );
-    const normalized = normalizeCollegePartnership(partner, partner.id || `col-${Date.now()}`);
-    let savedItem: CollegePartnership;
-    if (idx >= 0) {
-      savedItem = { ...current[idx], ...normalized, updatedAt: new Date().toISOString() };
-      current[idx] = savedItem;
-    } else {
-      savedItem = normalized;
-      current.push(savedItem);
-    }
-    const res = this.setStorageItem(STORAGE_KEYS.COLLEGE_PARTNERSHIPS, {
-      ...config,
-      partners: current,
-      partnerColleges: current,
-    });
-    if (!res.success) {
-      return { success: false, data: savedItem, error: res.error || 'Storage persistence failed while saving partnership.' };
-    }
-    if (!USE_DEV_MOCKS) {
-      const isExisting = idx >= 0;
-      const req = isExisting && savedItem.id
-        ? apiClient.put(`/admin/cms/college-partners/${encodeURIComponent(savedItem.id)}`, {
-            collegeName: savedItem.collegeName,
-            partnershipType: savedItem.partnershipTypes?.[0] || 'Academic MOU',
-            location: savedItem.city || savedItem.state || savedItem.location,
-            logoUrl: savedItem.logoUrl,
-            status: savedItem.status || 'active',
-          })
-        : apiClient.post('/admin/cms/college-partners', {
-            collegeName: savedItem.collegeName,
-            partnershipType: savedItem.partnershipTypes?.[0] || 'Academic MOU',
-            location: savedItem.city || savedItem.state || savedItem.location,
-            logoUrl: savedItem.logoUrl,
-            status: savedItem.status || 'active',
-          });
-      req.catch((err) => console.warn('Backend college partner sync failed:', err?.message));
-    }
-    return { success: true, data: savedItem, message: `${savedItem.collegeName} saved successfully.` };
-  }
-
-  deleteCollegePartner(id: string): ApiResponse<boolean> {
-    const config = this.getCollegePartnerships();
-    const targetId = id.trim().toLowerCase();
-    const existing = (config.partners || []).find(
-      (p) =>
-        p.id === id ||
-        (p.collegeName && p.collegeName.toLowerCase() === targetId) ||
-        (p.name && p.name.toLowerCase() === targetId)
-    );
-    if (!existing) {
-      return { success: false, data: false, error: `Partnership with ID "${id}" was not found.` };
-    }
-    const filtered = (config.partners || []).filter(
-      (p) =>
-        p.id !== id &&
-        p.name !== id &&
-        p.collegeName !== id &&
-        p.collegeName.toLowerCase() !== targetId
-    );
-    const res = this.setStorageItem(STORAGE_KEYS.COLLEGE_PARTNERSHIPS, {
-      ...config,
-      partners: filtered,
-      partnerColleges: filtered,
-    });
-    if (!res.success) {
-      return { success: false, data: false, error: res.error || 'Storage persistence failed while deleting partnership.' };
-    }
-    if (!USE_DEV_MOCKS) {
-      apiClient.delete(`/admin/cms/college-partners/${encodeURIComponent(id)}`).catch((err) => {
-        console.warn('Backend college partner delete failed:', err?.message);
-      });
-    }
-    return { success: true, data: true, message: 'Partnership removed successfully.' };
-  }
-
-  toggleCollegePartnerStatus(id: string): ApiResponse<CollegePartnership> {
-    const config = this.getCollegePartnerships();
-    const current = [...(config.partners || [])];
-    const targetId = id.trim().toLowerCase();
-    const idx = current.findIndex(
-      (p) =>
-        p.id === id ||
-        (p.collegeName && p.collegeName.toLowerCase() === targetId) ||
-        (p.name && p.name.toLowerCase() === targetId)
-    );
-    if (idx < 0) {
-      return {
-        success: false,
-        data: {} as CollegePartnership,
-        error: `Partnership with ID "${id}" was not found.`,
-      };
-    }
-
-    const nextStatus: 'active' | 'inactive' = current[idx].status === 'active' ? 'inactive' : 'active';
-    const updated: CollegePartnership = {
-      ...current[idx],
-      status: nextStatus,
-      isVisible: nextStatus === 'active',
-      needsReview: false,
-      updatedAt: new Date().toISOString(),
-    };
-    current[idx] = updated;
-
-    const res = this.setStorageItem(STORAGE_KEYS.COLLEGE_PARTNERSHIPS, {
-      ...config,
-      partners: current,
-      partnerColleges: current,
-    });
-    if (!res.success) {
-      return { success: false, data: updated, error: res.error || 'Storage persistence failed while toggling status.' };
-    }
-    return {
-      success: true,
-      data: updated,
-      message: `"${updated.collegeName}" is now marked as ${nextStatus === 'active' ? 'Active' : 'Inactive'}.`,
-    };
-  }
-
-  // --- Async Service Methods (Ready for Backend HTTP / REST Integration) ---
-  async getCollegePartnershipsAsync(): Promise<ApiResponse<CollegePartnershipConfig>> {
-    return { success: true, data: this.getCollegePartnerships() };
-  }
-
-  async getCollegePartnersAsync(): Promise<ApiResponse<CollegePartnership[]>> {
-    return { success: true, data: this.getCollegePartners() };
-  }
-
-  async getCollegePartnerByIdAsync(id: string): Promise<ApiResponse<CollegePartnership | null>> {
-    return { success: true, data: this.getCollegePartnerById(id) };
-  }
-
-  async saveCollegePartnerAsync(partner: CollegePartnership): Promise<ApiResponse<CollegePartnership>> {
-    return this.saveCollegePartner(partner);
-  }
-
-  async deleteCollegePartnerAsync(id: string): Promise<ApiResponse<boolean>> {
-    return this.deleteCollegePartner(id);
-  }
-
-  async toggleCollegePartnerStatusAsync(id: string): Promise<ApiResponse<CollegePartnership>> {
-    return this.toggleCollegePartnerStatus(id);
-  }
-
-  // --- 11. Corporate Training Services Management ---
-  getCorporateTraining(): CorporateTrainingConfig {
-    const config = this.getStorageItem<CorporateTrainingConfig>(STORAGE_KEYS.CORPORATE_TRAINING, INITIAL_CORPORATE_TRAINING);
-    let mutated = false;
-
-    // Backward-compatibility: Ensure services array exists and is populated
-    if (!config.services || !Array.isArray(config.services) || config.services.length === 0) {
-      config.services = [...INITIAL_CORPORATE_SERVICES];
-      mutated = true;
-    }
-
-    // Ensure sectionVisibility has services property
-    if (!config.sectionVisibility) {
-      config.sectionVisibility = { ...INITIAL_CORPORATE_TRAINING.sectionVisibility };
-      mutated = true;
-    } else if (config.sectionVisibility.services === undefined) {
-      config.sectionVisibility.services = true;
-      mutated = true;
-    }
-
-    // Ensure header and clients fallback
-    if (!config.header) {
-      config.header = { ...INITIAL_CORPORATE_TRAINING.header };
-      mutated = true;
-    }
-    if (!config.clients) {
-      config.clients = [...INITIAL_CORPORATE_TRAINING.clients];
-      mutated = true;
-    }
-    if (!config.offerings) {
-      config.offerings = [...INITIAL_CORPORATE_TRAINING.offerings];
-      mutated = true;
-    }
-
-    if (mutated) {
-      this.saveCorporateTraining(config);
-    }
-
-    return config;
-  }
-
-  saveCorporateTraining(config: CorporateTrainingConfig): { success: boolean; error?: string } {
-    return this.setStorageItem(STORAGE_KEYS.CORPORATE_TRAINING, config);
-  }
-
-  getCorporateTrainingServices(): CorporateTrainingService[] {
-    const config = this.getCorporateTraining();
-    const services = Array.isArray(config.services) ? config.services : [];
-    return [...services].sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
-  }
-
-  getCorporateTrainingServiceById(id: string): CorporateTrainingService | undefined {
-    const services = this.getCorporateTrainingServices();
-    return services.find((s) => s.id === id);
-  }
-
-  saveCorporateTrainingService(service: CorporateTrainingService): ApiResponse<CorporateTrainingService> {
-    if (!service.title || !service.title.trim()) {
-      return { success: false, data: service, error: 'Service Title is required.' };
-    }
-    if (!service.shortDescription || !service.shortDescription.trim()) {
-      return { success: false, data: service, error: 'Short Description is required.' };
-    }
-    if (!Array.isArray(service.topics) || service.topics.length === 0) {
-      return { success: false, data: service, error: 'At least one Topic or Technology is required.' };
-    }
-
-    const config = this.getCorporateTraining();
-    const currentServices = Array.isArray(config.services) ? [...config.services] : [];
-    const now = new Date().toISOString();
-
-    const normalizedService: CorporateTrainingService = {
-      ...service,
-      id: service.id || `corp-service-${Date.now()}`,
-      title: service.title.trim(),
-      shortDescription: service.shortDescription.trim(),
-      fullDescription: (service.fullDescription || '').trim(),
-      topics: service.topics.map((t) => t.trim()).filter(Boolean),
-      icon: service.icon || 'Laptop',
-      displayOrder: typeof service.displayOrder === 'number' && !isNaN(service.displayOrder) && service.displayOrder > 0
-        ? service.displayOrder
-        : currentServices.length + 1,
-      status: service.status === 'inactive' ? 'inactive' : 'active',
-      createdAt: service.createdAt || now,
-      updatedAt: now,
-    };
-
-    const existingIdx = currentServices.findIndex((s) => s.id === normalizedService.id);
-    if (existingIdx >= 0) {
-      currentServices[existingIdx] = normalizedService;
-    } else {
-      currentServices.push(normalizedService);
-    }
-
-    currentServices.sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
-    config.services = currentServices;
-
-    const res = this.saveCorporateTraining(config);
-    if (!res.success) {
-      return { success: false, data: normalizedService, error: res.error || 'Storage persistence failed while saving corporate training service.' };
-    }
-
-    if (!USE_DEV_MOCKS) {
-      const isExisting = existingIdx >= 0;
-      const req = isExisting && normalizedService.id
-        ? apiClient.put(`/admin/cms/corporate-training/services/${encodeURIComponent(normalizedService.id)}`, {
-            title: normalizedService.title,
-            shortDescription: normalizedService.shortDescription || normalizedService.title,
-            fullDescription: normalizedService.fullDescription || normalizedService.shortDescription || normalizedService.title,
-            topics: normalizedService.topics || ['Training'],
-            targetAudience: normalizedService.targetAudience,
-            deliveryMode: normalizedService.deliveryMode,
-            duration: normalizedService.duration,
-            technologies: normalizedService.technologies || [],
-            isActive: normalizedService.status !== 'inactive',
-            order: normalizedService.displayOrder || 1,
-          })
-        : apiClient.post('/admin/cms/corporate-training/services', {
-            title: normalizedService.title,
-            shortDescription: normalizedService.shortDescription || normalizedService.title,
-            fullDescription: normalizedService.fullDescription || normalizedService.shortDescription || normalizedService.title,
-            topics: normalizedService.topics || ['Training'],
-            targetAudience: normalizedService.targetAudience,
-            deliveryMode: normalizedService.deliveryMode,
-            duration: normalizedService.duration,
-            technologies: normalizedService.technologies || [],
-            isActive: normalizedService.status !== 'inactive',
-            order: normalizedService.displayOrder || 1,
-          });
-      req.catch((err) => console.warn('Backend corporate service sync failed:', err?.message));
-    }
-
-    return {
-      success: true,
-      data: normalizedService,
-      message: `Corporate training service "${normalizedService.title}" saved successfully.`,
-    };
-  }
-
-  deleteCorporateTrainingService(id: string): ApiResponse<boolean> {
-    const config = this.getCorporateTraining();
-    const currentServices = Array.isArray(config.services) ? [...config.services] : [];
-    const target = currentServices.find((s) => s.id === id);
-
-    if (!target) {
-      return { success: false, data: false, error: `Corporate training service with ID "${id}" not found.` };
-    }
-
-    config.services = currentServices.filter((s) => s.id !== id);
-    const res = this.saveCorporateTraining(config);
-
-    if (!res.success) {
-      return { success: false, data: false, error: res.error || 'Failed to persist deletion to storage.' };
-    }
-
-    if (!USE_DEV_MOCKS) {
-      apiClient.delete(`/admin/cms/corporate-training/services/${encodeURIComponent(id)}`).catch((err) => {
-        console.warn('Backend corporate service delete failed:', err?.message);
-      });
-    }
-
-    return {
-      success: true,
-      data: true,
-      message: `Corporate training service "${target.title}" was deleted.`,
-    };
-  }
-
-  toggleCorporateTrainingServiceStatus(id: string): ApiResponse<CorporateTrainingService> {
-    const config = this.getCorporateTraining();
-    const currentServices = Array.isArray(config.services) ? [...config.services] : [];
-    const target = currentServices.find((s) => s.id === id);
-
-    if (!target) {
-      return { success: false, data: null as any, error: `Corporate training service with ID "${id}" not found.` };
-    }
-
-    const nextStatus: 'active' | 'inactive' = target.status === 'active' ? 'inactive' : 'active';
-    target.status = nextStatus;
-    target.updatedAt = new Date().toISOString();
-
-    const res = this.saveCorporateTraining(config);
-    if (!res.success) {
-      return { success: false, data: target, error: res.error || 'Failed to persist status change to storage.' };
-    }
-
-    return {
-      success: true,
-      data: target,
-      message: `Corporate training service "${target.title}" is now ${nextStatus}.`,
-    };
-  }
-
-  reorderCorporateTrainingServices(serviceIds: string[]): ApiResponse<CorporateTrainingService[]> {
-    const config = this.getCorporateTraining();
-    const currentServices = Array.isArray(config.services) ? [...config.services] : [];
-    const reordered: CorporateTrainingService[] = [];
-    const now = new Date().toISOString();
-
-    serviceIds.forEach((id, idx) => {
-      const match = currentServices.find((s) => s.id === id);
-      if (match) {
-        match.displayOrder = idx + 1;
-        match.updatedAt = now;
-        reordered.push(match);
-      }
-    });
-
-    // Append any services that weren't in serviceIds
-    currentServices.forEach((s) => {
-      if (!serviceIds.includes(s.id)) {
-        s.displayOrder = reordered.length + 1;
-        reordered.push(s);
-      }
-    });
-
-    config.services = reordered;
-    const res = this.saveCorporateTraining(config);
-
-    if (!res.success) {
-      return { success: false, data: currentServices, error: res.error || 'Failed to persist reordering to storage.' };
-    }
-
-    return {
-      success: true,
-      data: reordered,
-      message: 'Services display order updated successfully.',
-    };
-  }
-
-  // --- Asynchronous Service Methods for Future Backend Integration ---
-  async getCorporateTrainingServicesAsync(): Promise<ApiResponse<CorporateTrainingService[]>> {
-    return { success: true, data: this.getCorporateTrainingServices() };
-  }
-
-  async getCorporateTrainingServiceByIdAsync(id: string): Promise<ApiResponse<CorporateTrainingService | null>> {
-    const found = this.getCorporateTrainingServiceById(id);
-    return { success: true, data: found || null };
-  }
-
-  async saveCorporateTrainingServiceAsync(service: CorporateTrainingService): Promise<ApiResponse<CorporateTrainingService>> {
-    return this.saveCorporateTrainingService(service);
-  }
-
-  async deleteCorporateTrainingServiceAsync(id: string): Promise<ApiResponse<boolean>> {
-    return this.deleteCorporateTrainingService(id);
-  }
-
-  async toggleCorporateTrainingServiceStatusAsync(id: string): Promise<ApiResponse<CorporateTrainingService>> {
-    return this.toggleCorporateTrainingServiceStatus(id);
-  }
-
-  async reorderCorporateTrainingServicesAsync(serviceIds: string[]): Promise<ApiResponse<CorporateTrainingService[]>> {
-    return this.reorderCorporateTrainingServices(serviceIds);
-  }
-
-  // --- 14. Contact Info Configuration ---
-  getContactInfo(): ContactInfoConfig {
-    return this.getStorageItem<ContactInfoConfig>(STORAGE_KEYS.CONTACT_CONFIG, INITIAL_CONTACT_CONFIG);
-  }
-
-  saveContactInfo(config: ContactInfoConfig): void {
-    this.setStorageItem(STORAGE_KEYS.CONTACT_CONFIG, config);
-    if (!USE_DEV_MOCKS) {
-      apiClient.put('/admin/cms/content/contact_info', {
-        title: 'Contact Information',
-        content: config,
-        isPublished: true,
-      }).catch((err) => console.warn('Backend contact info sync failed:', err?.message));
-    }
-  }
-
-  // --- 14b. Social Media Channels Configuration ---
-  getSocialMediaLinks(): SocialMediaLink[] {
-    const stored = this.getStorageItem<SocialMediaLink[]>(STORAGE_KEYS.SOCIAL_LINKS, INITIAL_SOCIAL_LINKS);
-    if (!Array.isArray(stored) || stored.length === 0) {
-      return INITIAL_SOCIAL_LINKS;
-    }
-    return stored;
-  }
-
-  saveSocialMediaLinks(links: SocialMediaLink[]): void {
-    this.setStorageItem(STORAGE_KEYS.SOCIAL_LINKS, links);
-    // Backward compatibility: keep contactConfig.socialLinks updated
-    try {
-      const contact = this.getContactInfo();
-      const updatedSocial: Record<string, string> = { ...contact.socialLinks };
-      links.forEach((item) => {
-        if (item.isEnabled && item.url) {
-          if (item.platform === 'linkedin') updatedSocial.linkedin = item.url;
-          if (item.platform === 'github') updatedSocial.github = item.url;
-          if (item.platform === 'twitter' || item.platform === 'x') updatedSocial.twitter = item.url;
-          if (item.platform === 'youtube') updatedSocial.youtube = item.url;
-          if (item.platform === 'instagram') updatedSocial.instagram = item.url;
-        }
-      });
-      contact.socialLinks = updatedSocial;
-      this.setStorageItem(STORAGE_KEYS.CONTACT_CONFIG, contact);
-    } catch {
-      // ignore
-    }
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('cms-social-update', { detail: links }));
-    }
-  }
-
-  // --- 15. Header and Footer Configuration ---
-  getHeaderFooterConfig(): HeaderFooterConfig {
-    return this.getStorageItem<HeaderFooterConfig>(STORAGE_KEYS.HEADER_FOOTER_CONFIG, INITIAL_HEADER_FOOTER_CONFIG);
-  }
-
-  saveHeaderFooterConfig(config: HeaderFooterConfig): void {
-    this.setStorageItem(STORAGE_KEYS.HEADER_FOOTER_CONFIG, config);
-    if (!USE_DEV_MOCKS) {
-      apiClient.put('/admin/cms/content/header_footer', {
-        title: 'Header and Footer Configuration',
-        content: config,
-        isPublished: true,
-      }).catch((err) => console.warn('Backend header footer sync failed:', err?.message));
-    }
-  }
-
-  // --- 16. SEO Configuration ---
-  getSEOConfig(): SEOConfig {
-    return this.getStorageItem<SEOConfig>(STORAGE_KEYS.SEO_CONFIG, INITIAL_SEO_CONFIG);
-  }
-
-  saveSEOConfig(config: SEOConfig): void {
-    this.setStorageItem(STORAGE_KEYS.SEO_CONFIG, config);
-    if (!USE_DEV_MOCKS) {
-      apiClient.put('/admin/cms/content/seo', {
-        title: 'Global SEO Configuration',
-        content: config,
-        isPublished: true,
-      }).catch((err) => console.warn('Backend SEO sync failed:', err?.message));
-    }
-  }
-
-  getPageSEO(path: string): PageSEO | null {
-    const seo = this.getSEOConfig();
-    return seo.pages[path] || null;
-  }
-
-  // --- 17. Media Library ---
-  getMediaAssets(): MediaAsset[] {
-    return this.getStorageItem<MediaAsset[]>(STORAGE_KEYS.MEDIA_LIBRARY, INITIAL_MEDIA_LIBRARY);
-  }
-
-  saveMediaAsset(asset: MediaAsset): void {
-    const assets = this.getMediaAssets();
-    const idx = assets.findIndex((a) => a.id === asset.id);
-    if (idx >= 0) {
-      assets[idx] = asset;
-    } else {
-      assets.unshift(asset);
-    }
-    this.setStorageItem(STORAGE_KEYS.MEDIA_LIBRARY, assets);
-  }
-
-  deleteMediaAsset(id: string): void {
-    const assets = this.getMediaAssets().filter((a) => a.id !== id);
-    this.setStorageItem(STORAGE_KEYS.MEDIA_LIBRARY, assets);
-  }
-
-  // --- Reset Methods for CMS Defaults ---
-  resetHomePageConfig(): HomePageConfig {
-    this.saveHomePageConfig(INITIAL_HOMEPAGE_CONFIG);
-    return INITIAL_HOMEPAGE_CONFIG;
-  }
-
-  resetAboutUsConfig(): AboutUsConfig {
-    this.saveAboutUsConfig(INITIAL_ABOUT_CONFIG);
-    return INITIAL_ABOUT_CONFIG;
-  }
-
-  resetHiringPartners(): HiringPartnerCompany[] {
-    this.setStorageItem(STORAGE_KEYS.HIRING_PARTNERS, INITIAL_HIRING_PARTNERS);
-    return INITIAL_HIRING_PARTNERS;
-  }
-
-  resetMarqueeConfig(): MarqueeAnimationConfig {
-    this.saveMarqueeConfig(INITIAL_MARQUEE_CONFIG);
-    return INITIAL_MARQUEE_CONFIG;
-  }
-
-  resetCollegePartnerships(): CollegePartnershipConfig {
-    this.saveCollegePartnerships(INITIAL_COLLEGE_PARTNERSHIPS);
-    return INITIAL_COLLEGE_PARTNERSHIPS;
-  }
-
-  resetCorporateTraining(): CorporateTrainingConfig {
-    this.saveCorporateTraining(INITIAL_CORPORATE_TRAINING);
-    return INITIAL_CORPORATE_TRAINING;
-  }
-
-  resetSocialMediaLinks(): SocialMediaLink[] {
-    this.saveSocialMediaLinks(INITIAL_SOCIAL_LINKS);
-    return INITIAL_SOCIAL_LINKS;
-  }
-
-  resetContactInfo(): ContactInfoConfig {
-    this.saveContactInfo(INITIAL_CONTACT_CONFIG);
-    this.saveSocialMediaLinks(INITIAL_SOCIAL_LINKS);
-    return INITIAL_CONTACT_CONFIG;
-  }
-
-  resetHeaderFooterConfig(): HeaderFooterConfig {
-    this.saveHeaderFooterConfig(INITIAL_HEADER_FOOTER_CONFIG);
-    return INITIAL_HEADER_FOOTER_CONFIG;
-  }
-
-  resetSEOConfig(): SEOConfig {
-    this.saveSEOConfig(INITIAL_SEO_CONFIG);
-    return INITIAL_SEO_CONFIG;
-  }
-
-  /**
-   * Synchronizes CMS contents with the backend API.
-   * Updates local storage caches and dispatches change events.
-   */
   async syncFromBackend(): Promise<void> {
     if (USE_DEV_MOCKS) return;
-    try {
-      const [
-        bannersRes,
-        blogsRes,
-        faqsRes,
-        testimonialsRes,
-        trainersRes,
-        achievementsRes,
-        careersRes,
-        partnersRes,
-        collegesRes,
-        corporateRes,
-        homepageRes,
-        aboutRes,
-        contactRes,
-        headerFooterRes,
-      ] = await Promise.allSettled([
-        apiClient.get('/public/banners'),
-        apiClient.get('/public/blogs'),
-        apiClient.get('/public/faqs'),
-        apiClient.get('/public/testimonials'),
-        apiClient.get('/public/trainers'),
-        apiClient.get('/public/achievements'),
-        apiClient.get('/public/careers'),
-        apiClient.get('/public/partners'),
-        apiClient.get('/public/college-partnerships'),
-        apiClient.get('/public/corporate-training'),
-        apiClient.get('/public/content/homepage'),
-        apiClient.get('/public/content/about_us'),
-        apiClient.get('/public/content/contact_info'),
-        apiClient.get('/public/content/header_footer'),
-      ]);
-
-      if (bannersRes.status === 'fulfilled' && bannersRes.value.data?.data) {
-        this.setStorageItem(STORAGE_KEYS.BANNERS, bannersRes.value.data.data);
-      }
-      if (blogsRes.status === 'fulfilled' && blogsRes.value.data?.data) {
-        this.setStorageItem(STORAGE_KEYS.BLOGS, blogsRes.value.data.data);
-      }
-      if (faqsRes.status === 'fulfilled' && faqsRes.value.data?.data) {
-        this.setStorageItem(STORAGE_KEYS.FAQS, faqsRes.value.data.data);
-      }
-      if (testimonialsRes.status === 'fulfilled' && testimonialsRes.value.data?.data) {
-        this.setStorageItem(STORAGE_KEYS.TESTIMONIALS, testimonialsRes.value.data.data);
-      }
-      if (trainersRes.status === 'fulfilled' && trainersRes.value.data?.data) {
-        this.setStorageItem(STORAGE_KEYS.TRAINERS, trainersRes.value.data.data);
-      }
-      if (achievementsRes.status === 'fulfilled' && achievementsRes.value.data?.data) {
-        this.setStorageItem(STORAGE_KEYS.ACHIEVEMENTS, achievementsRes.value.data.data);
-      }
-      if (careersRes.status === 'fulfilled' && careersRes.value.data?.data) {
-        this.setStorageItem(STORAGE_KEYS.CAREERS, careersRes.value.data.data);
-      }
-      if (partnersRes.status === 'fulfilled' && partnersRes.value.data?.data) {
-        this.setStorageItem(STORAGE_KEYS.HIRING_PARTNERS, partnersRes.value.data.data);
-      }
-      if (collegesRes.status === 'fulfilled' && collegesRes.value.data?.data) {
-        const existing = this.getCollegePartnerships();
-        this.saveCollegePartnerships({
-          ...existing,
-          partners: collegesRes.value.data.data,
-          partnerColleges: collegesRes.value.data.data,
-        });
-      }
-      if (corporateRes.status === 'fulfilled' && corporateRes.value.data?.data) {
-        const existing = this.getCorporateTraining();
-        this.saveCorporateTraining({
-          ...existing,
-          services: corporateRes.value.data.data,
-        });
-      }
-      if (homepageRes.status === 'fulfilled' && homepageRes.value.data?.data) {
-        this.setStorageItem(STORAGE_KEYS.HOMEPAGE_CONFIG, homepageRes.value.data.data);
-      }
-      if (aboutRes.status === 'fulfilled' && aboutRes.value.data?.data) {
-        this.setStorageItem(STORAGE_KEYS.ABOUT_CONFIG, aboutRes.value.data.data);
-      }
-      if (contactRes.status === 'fulfilled' && contactRes.value.data?.data) {
-        this.setStorageItem(STORAGE_KEYS.CONTACT_CONFIG, contactRes.value.data.data);
-      }
-      if (headerFooterRes.status === 'fulfilled' && headerFooterRes.value.data?.data) {
-        this.setStorageItem(STORAGE_KEYS.HEADER_FOOTER_CONFIG, headerFooterRes.value.data.data);
-      }
-    } catch (err) {
-      console.warn('CMS syncFromBackend caught error:', err);
+    const get = (path: string) => apiClient.get(path).then((r) => r.data?.data);
+    const lists: Array<[string, string, (v: any[]) => unknown]> = [
+      ['/public/banners', STORAGE_KEYS.BANNERS, (v) => v],
+      ['/public/blogs', STORAGE_KEYS.BLOGS, (v) => v],
+      ['/public/faqs', STORAGE_KEYS.FAQS, (v) => v],
+      ['/public/testimonials', STORAGE_KEYS.TESTIMONIALS, (v) => v],
+      ['/public/trainers', STORAGE_KEYS.TRAINERS, (v) => v],
+      ['/public/achievements', STORAGE_KEYS.ACHIEVEMENTS, (v) => v],
+      ['/public/careers', STORAGE_KEYS.CAREERS, (v) => v],
+      ['/public/partners', STORAGE_KEYS.HIRING_PARTNERS, (v) => v.map(partnerFromServer)],
+    ];
+    const pages: PageKey[] = ['homepage', 'about', 'contact', 'headerFooter', 'seo', 'social', 'marquee'];
+    const [listResults, pageResults, colleges, collegePage, services, corporatePage] = await Promise.all([
+      Promise.allSettled(lists.map(([path]) => get(path))),
+      Promise.allSettled(pages.map((p) => get(`/public/content/${PAGE[p].slug}`))),
+      get('/public/college-partnerships').catch(() => undefined),
+      get(`/public/content/${PAGE.college.slug}`).catch(() => undefined),
+      get('/public/corporate-training').catch(() => undefined),
+      get(`/public/content/${PAGE.corporate.slug}`).catch(() => undefined),
+    ]);
+    listResults.forEach((r, i) => {
+      if (r.status === 'fulfilled' && Array.isArray(r.value)) this.cache(lists[i][1], lists[i][2](r.value));
+    });
+    pageResults.forEach((r, i) => {
+      if (r.status !== 'fulfilled' || r.value == null) return;
+      const page = PAGE[pages[i]];
+      this.cache(page.key, pages[i] === 'social' ? (r.value as { links?: SocialMediaLink[] }).links ?? [] : r.value);
+    });
+    if (Array.isArray(colleges)) {
+      const partners = colleges.map(collegeFromServer);
+      this.cache(STORAGE_KEYS.COLLEGE_PARTNERSHIPS, { ...INITIAL_COLLEGE_PARTNERSHIPS, ...(collegePage || {}), partners, partnerColleges: partners });
+    }
+    if (Array.isArray(services)) {
+      this.cache(STORAGE_KEYS.CORPORATE_TRAINING, { ...INITIAL_CORPORATE_TRAINING, ...(corporatePage || {}), services: services.map(serviceFromServer) });
     }
   }
 
-  // Explicit Async API Methods
-  async getBannersAsync(): Promise<ApiResponse<WebsiteBanner[]>> {
-    if (USE_DEV_MOCKS) return { success: true, data: this.getBanners() };
-    try {
-      const res = await apiClient.get('/public/banners');
-      const items = res.data?.data ?? [];
-      return { success: true, data: Array.isArray(items) ? items : [] };
-    } catch (err: any) {
-      return { success: false, data: [], message: err?.message || 'Failed to fetch banners.' };
-    }
+  // ---- Public async reads ----
+  private publicList<T>(path: string, label: string) {
+    return call<T[]>(() => apiClient.get(path), [], `${label} could not be loaded.`);
   }
-
-  async getArticlesAsync(): Promise<ApiResponse<BlogArticle[]>> {
-    if (USE_DEV_MOCKS) return { success: true, data: this.getArticles() };
-    try {
-      const res = await apiClient.get('/public/blogs');
-      const items = res.data?.data ?? [];
-      return { success: true, data: Array.isArray(items) ? items : [] };
-    } catch (err: any) {
-      return { success: false, data: [], message: err?.message || 'Failed to fetch articles.' };
-    }
-  }
-
-  async getArticleBySlugAsync(slug: string): Promise<ApiResponse<BlogArticle | null>> {
-    if (USE_DEV_MOCKS) return { success: true, data: this.getArticleBySlug(slug) };
-    try {
-      const res = await apiClient.get(`/public/blogs/${encodeURIComponent(slug)}`);
-      return { success: true, data: res.data?.data ?? null };
-    } catch (err: any) {
-      return { success: false, data: null, message: err?.message || 'Failed to fetch article.' };
-    }
-  }
-
-  async getFAQsAsync(): Promise<ApiResponse<FAQItem[]>> {
-    if (USE_DEV_MOCKS) return { success: true, data: this.getFAQs() };
-    try {
-      const res = await apiClient.get('/public/faqs');
-      const items = res.data?.data ?? [];
-      return { success: true, data: Array.isArray(items) ? items : [] };
-    } catch (err: any) {
-      return { success: false, data: [], message: err?.message || 'Failed to fetch FAQs.' };
-    }
-  }
-
-  async getTestimonialsAsync(): Promise<ApiResponse<TestimonialItem[]>> {
-    if (USE_DEV_MOCKS) return { success: true, data: this.getTestimonials() };
-    try {
-      const res = await apiClient.get('/public/testimonials');
-      const items = res.data?.data ?? [];
-      return { success: true, data: Array.isArray(items) ? items : [] };
-    } catch (err: any) {
-      return { success: false, data: [], message: err?.message || 'Failed to fetch testimonials.' };
-    }
-  }
-
-  async getTrainersAsync(): Promise<ApiResponse<TrainerProfile[]>> {
-    if (USE_DEV_MOCKS) return { success: true, data: this.getTrainers() };
-    try {
-      const res = await apiClient.get('/public/trainers');
-      const items = res.data?.data ?? [];
-      return { success: true, data: Array.isArray(items) ? items : [] };
-    } catch (err: any) {
-      return { success: false, data: [], message: err?.message || 'Failed to fetch trainers.' };
-    }
-  }
-
-  async getAchievementsAsync(): Promise<ApiResponse<AchievementItem[]>> {
-    if (USE_DEV_MOCKS) return { success: true, data: this.getAchievements() };
-    try {
-      const res = await apiClient.get('/public/achievements');
-      const items = res.data?.data ?? [];
-      return { success: true, data: Array.isArray(items) ? items : [] };
-    } catch (err: any) {
-      return { success: false, data: [], message: err?.message || 'Failed to fetch achievements.' };
-    }
-  }
-
-  async getCareersAsync(): Promise<ApiResponse<CareerOpening[]>> {
-    if (USE_DEV_MOCKS) return { success: true, data: this.getCareers() };
-    try {
-      const res = await apiClient.get('/public/careers');
-      const items = res.data?.data ?? [];
-      return { success: true, data: Array.isArray(items) ? items : [] };
-    } catch (err: any) {
-      return { success: false, data: [], message: err?.message || 'Failed to fetch careers.' };
-    }
-  }
-
-  async getEnquiriesAsync(): Promise<ApiResponse<LeadEnquiry[]>> {
-    if (USE_DEV_MOCKS) return { success: true, data: this.getEnquiries() };
-    try {
-      const res = await apiClient.get('/admin/cms/enquiries');
-      const items = res.data?.data ?? [];
-      return { success: true, data: Array.isArray(items) ? items : [] };
-    } catch (err: any) {
-      return { success: false, data: [], message: err?.message || 'Failed to fetch enquiries.' };
-    }
-  }
-
-  async submitEnquiryAsync(enquiry: Omit<LeadEnquiry, 'id' | 'submittedAt' | 'status'>): Promise<ApiResponse<LeadEnquiry>> {
-    if (USE_DEV_MOCKS) return { success: true, data: this.submitEnquiry(enquiry) };
-    try {
-      const res = await apiClient.post('/public/enquiries', enquiry);
-      return { success: true, data: res.data?.data };
-    } catch (err: any) {
-      return { success: false, data: null as any, message: err?.message || 'Failed to submit enquiry.' };
-    }
-  }
+  getBannersAsync = () => this.publicList<WebsiteBanner>('/public/banners', 'Banners');
+  getArticlesAsync = () => this.publicList<BlogArticle>('/public/blogs', 'Articles');
+  getArticleBySlugAsync = (slug: string) => call<BlogArticle | null>(() => apiClient.get(`/public/blogs/${enc(slug)}`), null, 'The article could not be loaded.');
+  getFAQsAsync = () => this.publicList<FAQItem>('/public/faqs', 'FAQs');
+  getTestimonialsAsync = () => this.publicList<TestimonialItem>('/public/testimonials', 'Testimonials');
+  getTrainersAsync = () => this.publicList<TrainerProfile>('/public/trainers', 'Trainers');
+  getAchievementsAsync = () => this.publicList<AchievementItem>('/public/achievements', 'Achievements');
+  getCareersAsync = () => this.publicList<CareerOpening>('/public/careers', 'Careers');
 }
 
 export const cmsService = new CMSService();
 
-// Background synchronization on application mount in production mode
+// Mirror the published content for the public pages when the application starts.
 if (typeof window !== 'undefined' && !USE_DEV_MOCKS) {
   setTimeout(() => {
     cmsService.syncFromBackend().catch((err) => {
-      console.warn('Initial CMS background synchronization failed:', err?.message);
+      console.warn('Initial CMS synchronization failed:', err?.message);
     });
   }, 100);
 }
-

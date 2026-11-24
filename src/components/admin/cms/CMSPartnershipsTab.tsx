@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useCmsPage } from '../../../hooks/useCmsPage';
 import {
   School,
   Building2,
@@ -40,8 +41,18 @@ const AVAILABLE_PARTNERSHIP_TYPES: PartnershipType[] = [
 ];
 
 export const CMSPartnershipsTab: React.FC = () => {
-  const [collegeConfig, setCollegeConfig] = useState<CollegePartnershipConfig>(() => cmsService.getCollegePartnerships());
-  const [corpConfig, setCorpConfig] = useState<CorporateTrainingConfig>(() => cmsService.getCorporateTraining());
+  // College page settings and college partner records are separate server records.
+  const collegePage = useCmsPage<CollegePartnershipConfig>('college', cmsService.getCollegePartnerships());
+  const corpPage = useCmsPage<CorporateTrainingConfig>('corporate', cmsService.getCorporateTraining());
+  const corpConfig = corpPage.config;
+  const [colleges, setColleges] = useState<CollegePartnership[]>([]);
+  const [collegesLoading, setCollegesLoading] = useState(true);
+  const [collegesError, setCollegesError] = useState<string | null>(null);
+  const collegeConfig = useMemo<CollegePartnershipConfig>(
+    () => ({ ...collegePage.config, partners: colleges, partnerColleges: colleges }),
+    [collegePage.config, colleges]
+  );
+  const setCollegeConfig = collegePage.setConfig;
   const [activeSubTab, setActiveSubTab] = useState<'college' | 'corporate'>('college');
   const [isSaving, setIsSaving] = useState(false);
 
@@ -60,63 +71,48 @@ export const CMSPartnershipsTab: React.FC = () => {
 
   const { showToast } = useNotification();
 
-  // Storage synchronization listener
-  useEffect(() => {
-    const handleSync = () => {
-      setCollegeConfig(cmsService.getCollegePartnerships());
-    };
-    window.addEventListener('cms-update', handleSync);
-    window.addEventListener('app-storage-update', handleSync);
-    window.addEventListener('storage', handleSync);
-    return () => {
-      window.removeEventListener('cms-update', handleSync);
-      window.removeEventListener('app-storage-update', handleSync);
-      window.removeEventListener('storage', handleSync);
-    };
+  const loadColleges = useCallback(async () => {
+    setCollegesLoading(true);
+    const res = await cmsService.getAdminCollegePartners();
+    setCollegesLoading(false);
+    if (res.success) {
+      setColleges(res.data);
+      setCollegesError(null);
+    } else setCollegesError(res.error || 'College partners could not be loaded.');
   }, []);
 
-  // Save College Config (Header, benefits, visibility - never clobbering partners)
-  const handleSaveCollege = () => {
+  useEffect(() => {
+    loadColleges();
+  }, [loadColleges]);
+
+  // Save College page settings (header, benefits, visibility); partner records are saved separately.
+  const handleSaveCollege = async () => {
     setIsSaving(true);
-    const res = cmsService.saveCollegePageSettings({
-      header: collegeConfig.header,
-      benefits: collegeConfig.benefits,
-      sectionVisibility: collegeConfig.sectionVisibility,
-    });
+    const res = await collegePage.run(() => cmsService.saveCollegePageSettings(collegeConfig));
     setIsSaving(false);
-
-    if (!res.success) {
-      showToast({
-        type: 'error',
-        title: 'Save Failed',
-        message: res.error || 'Failed to save page configuration.',
-      });
-      return;
-    }
-
-    setCollegeConfig(res.data);
-    showToast({
-      type: 'success',
-      title: 'College MoU Config Saved',
-      message: 'College partnerships page configuration saved.',
-    });
+    showToast(
+      res.success
+        ? { type: 'success', title: 'College MoU Config Saved', message: 'College partnerships page configuration saved.' }
+        : { type: 'error', title: 'Save Failed', message: res.error || 'The server did not save the page configuration.' }
+    );
   };
 
-  // Save Corporate Config
-  const handleSaveCorp = () => {
-    cmsService.saveCorporateTraining(corpConfig);
-    showToast({
-      type: 'success',
-      title: 'Corporate Training Config Saved',
-      message: 'Corporate training page updated.',
-    });
+  // Save Corporate page settings
+  const handleSaveCorp = async () => {
+    const res = await corpPage.run(() => cmsService.saveCorporateTraining(corpConfig));
+    showToast(
+      res.success
+        ? { type: 'success', title: 'Corporate Training Config Saved', message: 'Corporate training page updated.' }
+        : { type: 'error', title: 'Save Failed', message: res.error || 'The server did not save the page configuration.' }
+    );
   };
 
   // Open Add College Modal
   const handleOpenAddCollege = () => {
     setIsEditing(false);
+    // Empty id: the server creates the record and assigns its id.
     setEditingCollege({
-      id: `col-${Date.now()}`,
+      id: '',
       collegeName: '',
       name: '',
       collegeLogo: '',
@@ -241,18 +237,13 @@ export const CMSPartnershipsTab: React.FC = () => {
   };
 
   // Save College Item (Create or Update with validation)
-  const handleSaveCollegeItem = (e: React.FormEvent) => {
+  const handleSaveCollegeItem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingCollege) return;
 
     const trimmedName = editingCollege.collegeName.trim();
     if (!trimmedName) {
       showToast({ type: 'warning', title: 'Validation Error', message: 'College name is required.' });
-      return;
-    }
-
-    if (!editingCollege.description.trim()) {
-      showToast({ type: 'warning', title: 'Validation Error', message: 'Partnership description is required.' });
       return;
     }
 
@@ -274,7 +265,7 @@ export const CMSPartnershipsTab: React.FC = () => {
     };
 
     setIsSaving(true);
-    const res = cmsService.saveCollegePartner(payload);
+    const res = await cmsService.saveCollegePartner(payload);
     setIsSaving(false);
 
     if (!res.success) {
@@ -286,8 +277,7 @@ export const CMSPartnershipsTab: React.FC = () => {
       return;
     }
 
-    const refreshed = cmsService.getCollegePartnerships();
-    setCollegeConfig(refreshed);
+    await loadColleges();
     setCollegeModalOpen(false);
 
     showToast({
@@ -298,8 +288,8 @@ export const CMSPartnershipsTab: React.FC = () => {
   };
 
   // Quick Toggle Active / Inactive Status
-  const handleToggleStatus = (id: string, name: string, currentStatus: 'active' | 'inactive') => {
-    const res = cmsService.toggleCollegePartnerStatus(id);
+  const handleToggleStatus = async (id: string, name: string, currentStatus: 'active' | 'inactive') => {
+    const res = await cmsService.setCollegePartnerStatus(id, currentStatus === 'active' ? 'inactive' : 'active');
     if (!res.success) {
       showToast({
         type: 'error',
@@ -308,8 +298,7 @@ export const CMSPartnershipsTab: React.FC = () => {
       });
       return;
     }
-    const refreshed = cmsService.getCollegePartnerships();
-    setCollegeConfig(refreshed);
+    await loadColleges();
     const nextStatus = currentStatus === 'active' ? 'Inactive' : 'Active';
     showToast({
       type: 'info',
@@ -319,9 +308,9 @@ export const CMSPartnershipsTab: React.FC = () => {
   };
 
   // Delete College
-  const handleDeleteCollegeItem = (id: string, name: string) => {
-    if (window.confirm(`Are you sure you want to remove "${name}" from partnered colleges?`)) {
-      const res = cmsService.deleteCollegePartner(id);
+  const handleDeleteCollegeItem = async (id: string, name: string) => {
+    if (window.confirm(`Permanently remove "${name}" from partnered colleges? Marking it inactive keeps the record instead.`)) {
+      const res = await cmsService.deleteCollegePartner(id);
       if (!res.success) {
         showToast({
           type: 'error',
@@ -330,8 +319,7 @@ export const CMSPartnershipsTab: React.FC = () => {
         });
         return;
       }
-      const refreshed = cmsService.getCollegePartnerships();
-      setCollegeConfig(refreshed);
+      await loadColleges();
       showToast({ type: 'info', title: 'College Removed', message: `${name} removed from list.` });
     }
   };
@@ -346,7 +334,7 @@ export const CMSPartnershipsTab: React.FC = () => {
     setCorpModalOpen(true);
   };
 
-  const handleSaveClientItem = (e: React.FormEvent) => {
+  const handleSaveClientItem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingClient) return;
     if (!editingClient.name.trim()) {
@@ -363,19 +351,25 @@ export const CMSPartnershipsTab: React.FC = () => {
     }
 
     const updated = { ...corpConfig, clients: currentList };
-    setCorpConfig(updated);
-    cmsService.saveCorporateTraining(updated);
+    const res = await corpPage.run(() => cmsService.saveCorporateTraining(updated));
+    if (!res.success) {
+      showToast({ type: 'error', title: 'Not saved', message: res.error || 'The server did not save the client.' });
+      return;
+    }
     setCorpModalOpen(false);
     showToast({ type: 'success', title: 'Corporate Client Saved', message: `${editingClient.name} added.` });
   };
 
-  const handleDeleteClientItem = (name: string) => {
+  const handleDeleteClientItem = async (name: string) => {
     const updated = {
       ...corpConfig,
       clients: corpConfig.clients.filter((c) => c.name !== name),
     };
-    setCorpConfig(updated);
-    cmsService.saveCorporateTraining(updated);
+    const res = await corpPage.run(() => cmsService.saveCorporateTraining(updated));
+    if (!res.success) {
+      showToast({ type: 'error', title: 'Not removed', message: res.error || 'The server did not save the change.' });
+      return;
+    }
     showToast({ type: 'info', title: 'Client Removed', message: `${name} removed from list.` });
   };
 
@@ -418,6 +412,16 @@ export const CMSPartnershipsTab: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      {activeSubTab === 'college' && (collegesLoading || collegesError || collegePage.loadError) && (
+        <div className={`p-3 rounded-lg border text-xs ${collegesError || collegePage.loadError ? 'bg-rose-50 border-rose-200 text-rose-800' : 'bg-slate-50 border-slate-200 text-slate-500'}`}>
+          {collegesError || collegePage.loadError || 'Loading college partners from the server...'}
+        </div>
+      )}
+      {activeSubTab === 'college' && (
+        <div className="p-3 rounded-lg border border-amber-200 bg-amber-50 text-xs text-amber-900">
+          College partners are stored with name, first partnership type, location and status. Description, logo, MoU year, student count and additional partnership types have no database column and are not stored.
+        </div>
+      )}
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 rounded-xl border border-slate-200/90 shadow-xs">
         <div>
@@ -432,11 +436,11 @@ export const CMSPartnershipsTab: React.FC = () => {
 
         <div className="flex items-center gap-2">
           {activeSubTab === 'college' ? (
-            <Button variant="primary" size="sm" onClick={handleSaveCollege} disabled={isSaving} leftIcon={<Save className="h-4 w-4" />}>
+            <Button variant="primary" size="sm" onClick={handleSaveCollege} disabled={isSaving || collegePage.loading || !!collegePage.loadError} leftIcon={<Save className="h-4 w-4" />}>
               {isSaving ? 'Saving...' : 'Save Page Settings'}
             </Button>
           ) : (
-            <Button variant="primary" size="sm" onClick={handleSaveCorp} leftIcon={<Save className="h-4 w-4" />}>
+            <Button variant="primary" size="sm" onClick={handleSaveCorp} isLoading={corpPage.saving} disabled={corpPage.loading || !!corpPage.loadError} leftIcon={<Save className="h-4 w-4" />}>
               Save Corporate Config
             </Button>
           )}

@@ -57,16 +57,15 @@ export const certificateService = {
       return {
         success: true,
         data: {
-          id: cert.id,
+          // Public verification returns only what is printed on the certificate.
+          id: cert.certificateNumber,
           certificateNumber: cert.certificateNumber,
-          studentId: cert.studentUserId,
           studentName: cert.studentNameAtIssue,
-          courseId: cert.courseId,
+          courseId: '',
           courseTitle: cert.courseNameAtIssue,
           issueDate: cert.issuedAt,
           completionDate: cert.issuedAt,
-          attendancePercentage: Number(cert.attendancePercentage || 85),
-          examScorePercentage: 90,
+          attendancePercentage: Number(cert.attendancePercentage),
           status: cert.certificateStatus === 'revoked' ? 'revoked' : 'valid',
           qrVerificationUrl: `/verify-certificate?id=${cert.certificateNumber}`,
           templateId: 'standard_dark',

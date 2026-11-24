@@ -44,15 +44,19 @@ export const ContactUsPage: React.FC = () => {
 
   const { showToast } = useNotification();
 
-  const handleGeneralSubmit = (e: React.FormEvent) => {
+  const handleGeneralSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    cmsService.submitEnquiry({
+    const sent = await cmsService.submitEnquiry({
       type: 'general',
       name: generalForm.name,
       email: generalForm.email,
       phone: '',
       message: `[Subject: ${generalForm.subject}] ${generalForm.message}`,
     });
+    if (!sent.success) {
+      showToast({ type: 'error', title: 'Not sent', message: sent.error || 'Your request could not be sent. Please try again.' });
+      return;
+    }
     analytics.trackEvent('submit_general_contact', 'Lead', generalForm.subject);
 
     showToast({
@@ -63,9 +67,9 @@ export const ContactUsPage: React.FC = () => {
     setGeneralForm({ name: '', email: '', subject: '', message: '' });
   };
 
-  const handleAdmissionSubmit = (e: React.FormEvent) => {
+  const handleAdmissionSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    cmsService.submitEnquiry({
+    const sent = await cmsService.submitEnquiry({
       type: 'course_admission',
       name: admissionForm.name,
       email: admissionForm.email,
@@ -74,31 +78,39 @@ export const ContactUsPage: React.FC = () => {
       organization: admissionForm.college,
       message: admissionForm.message,
     });
+    if (!sent.success) {
+      showToast({ type: 'error', title: 'Not sent', message: sent.error || 'Your request could not be sent. Please try again.' });
+      return;
+    }
     analytics.trackEvent('submit_admission_enquiry', 'Lead', admissionForm.course);
 
     showToast({
       type: 'success',
       title: 'Admission Enquiry Logged',
-      message: `Thank you ${admissionForm.name}! An admissions advisor has been assigned and will call you with syllabus & fee details.`,
+      message: `Thank you ${admissionForm.name}! Your admission enquiry was received. Our admissions team will contact you.`,
     });
     setAdmissionForm({ name: '', email: '', phone: '', course: '', college: '', message: '' });
   };
 
-  const handleCallbackSubmit = (e: React.FormEvent) => {
+  const handleCallbackSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    cmsService.submitEnquiry({
+    const sent = await cmsService.submitEnquiry({
       type: 'callback',
       name: callbackForm.name,
       phone: callbackForm.phone,
       courseOfInterest: callbackForm.course,
       preferredTimeSlot: callbackForm.timeSlot,
     });
+    if (!sent.success) {
+      showToast({ type: 'error', title: 'Not sent', message: sent.error || 'Your request could not be sent. Please try again.' });
+      return;
+    }
     analytics.trackEvent('submit_callback_request', 'Lead', callbackForm.timeSlot);
 
     showToast({
       type: 'success',
       title: 'Callback Scheduled',
-      message: `Your callback request has been prioritized. We will call you at ${callbackForm.phone} during ${callbackForm.timeSlot}.`,
+      message: `Your callback request was received. We will call you at ${callbackForm.phone} (preferred: ${callbackForm.timeSlot}).`,
     });
     setCallbackForm({ name: '', phone: '', course: '', timeSlot: 'Morning (9 AM - 12 PM)' });
   };

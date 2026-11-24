@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { MaintenanceNotice } from '../components/common/MaintenanceNotice';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   GraduationCap,
@@ -69,6 +70,7 @@ export const TeacherLayout: React.FC = () => {
 
   return (
     <div className="min-h-screen flex bg-slate-50 text-slate-800 antialiased">
+      <MaintenanceNotice />
       {/* Mobile Sidebar Overlay */}
       {sidebarOpen && (
         <div

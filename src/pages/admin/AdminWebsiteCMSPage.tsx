@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { adminService } from '../../services/adminService';
 import {
   Globe,
   Trophy,
@@ -24,6 +25,7 @@ import {
   type AchievementItem,
   type CareerOpening,
   type LeadEnquiry,
+  type CallbackRequest,
 } from '../../services/cmsService';
 import { formatDate } from '../../utils/formatters';
 import { CMSHomePageTab } from '../../components/admin/cms/CMSHomePageTab';
@@ -81,7 +83,7 @@ export const AdminWebsiteCMSPage: React.FC = () => {
   const [achievements, setAchievements] = useState<AchievementItem[]>([]);
   const [careers, setCareers] = useState<CareerOpening[]>([]);
   const [enquiries, setEnquiries] = useState<LeadEnquiry[]>([]);
-  const [corporateCount, setCorporateCount] = useState<number>(() => cmsService.getCorporateTrainingServices().length);
+  const [corporateCount, setCorporateCount] = useState<number>(0);
 
   // Edit Modals
   const [bannerModalOpen, setBannerModalOpen] = useState(false);
@@ -105,30 +107,91 @@ export const AdminWebsiteCMSPage: React.FC = () => {
   const [achievementModalOpen, setAchievementModalOpen] = useState(false);
   const [editingAchievement, setEditingAchievement] = useState<AchievementItem | null>(null);
 
-  const loadData = () => {
-    setBanners(cmsService.getBanners());
-    setBlogs(cmsService.getArticles());
-    setFaqs(cmsService.getFAQs());
-    setTrainers(cmsService.getTrainers());
-    setTestimonials(cmsService.getTestimonials());
-    setAchievements(cmsService.getAchievements());
-    setCareers(cmsService.getCareers());
-    setEnquiries(cmsService.getEnquiries());
-    setCorporateCount(cmsService.getCorporateTrainingServices().length);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [callbacks, setCallbacks] = useState<CallbackRequest[]>([]);
+  const [busy, setBusy] = useState(false);
+  /** PUB-006: real courses a trainer profile can be linked to. */
+  const [courseOptions, setCourseOptions] = useState<Array<{ id: string; title: string }>>([]);
+  const [courseOptionsError, setCourseOptionsError] = useState<string | null>(null);
+  useEffect(() => {
+    adminService.getCourses().then((res) => {
+      if (res.success) setCourseOptions(res.data.map((c) => ({ id: c.id, title: c.title })));
+      else setCourseOptionsError(res.error || 'Courses could not be loaded.');
+    });
+  }, []);
+
+  /** Loads every list from the Admin endpoints (hidden and draft items included). */
+  const loadData = async () => {
+    setIsLoading(true);
+    const [b, bl, f, tr, te, ac, ca, en, cb, cs] = await Promise.all([
+      cmsService.getAdminBanners(),
+      cmsService.getAdminArticles(),
+      cmsService.getAdminFAQs(),
+      cmsService.getAdminTrainers(),
+      cmsService.getAdminTestimonials(),
+      cmsService.getAdminAchievements(),
+      cmsService.getAdminCareers(),
+      cmsService.getEnquiriesAsync(),
+      cmsService.getCallbackRequestsAsync(),
+      cmsService.getAdminCorporateServices(),
+    ]);
+    setIsLoading(false);
+    if (b.success) setBanners(b.data);
+    if (bl.success) setBlogs(bl.data);
+    if (f.success) setFaqs(f.data);
+    if (tr.success) setTrainers(tr.data);
+    if (te.success) setTestimonials(te.data);
+    if (ac.success) setAchievements(ac.data);
+    if (ca.success) setCareers(ca.data);
+    if (en.success) setEnquiries(en.data);
+    if (cb.success) setCallbacks(cb.data);
+    if (cs.success) setCorporateCount(cs.data.length);
+    const failed = [b, bl, f, tr, te, ac, ca, en, cb, cs].find((r) => !r.success);
+    setLoadError(failed ? failed.error || 'Some website content could not be loaded from the server.' : null);
   };
 
   useEffect(() => {
     loadData();
-    const handleStorageUpdate = () => {
-      setCorporateCount(cmsService.getCorporateTrainingServices().length);
-    };
-    window.addEventListener('cms-update', handleStorageUpdate);
-    window.addEventListener('app-storage-update', handleStorageUpdate);
-    return () => {
-      window.removeEventListener('cms-update', handleStorageUpdate);
-      window.removeEventListener('app-storage-update', handleStorageUpdate);
-    };
   }, []);
+
+  /**
+   * Runs one server change. The screen is reloaded from the server only after
+   * the server confirmed; on failure the last confirmed state stays and the
+   * server's error is shown.
+   */
+  const act = async (
+    action: () => Promise<{ success: boolean; error?: string; message?: string }>,
+    ok: { title: string; message: string; type?: 'success' | 'info' },
+    reload: () => Promise<unknown>
+  ): Promise<boolean> => {
+    setBusy(true);
+    const res = await action();
+    setBusy(false);
+    if (!res.success) {
+      showToast({ type: 'error', title: 'Not saved', message: res.error || 'The server did not save the change. Please retry.' });
+      return false;
+    }
+    await reload();
+    showToast({ type: ok.type || 'success', title: ok.title, message: ok.message });
+    return true;
+  };
+
+  const reloadList = <T,>(load: () => Promise<{ success: boolean; data: T }>, set: (v: T) => void) => async () => {
+    const r = await load();
+    if (r.success) set(r.data);
+  };
+  const reloadBanners = reloadList(cmsService.getAdminBanners, setBanners);
+  const reloadBlogs = reloadList(cmsService.getAdminArticles, setBlogs);
+  const reloadFaqs = reloadList(cmsService.getAdminFAQs, setFaqs);
+  const reloadTestimonials = reloadList(cmsService.getAdminTestimonials, setTestimonials);
+  const reloadTrainers = reloadList(cmsService.getAdminTrainers, setTrainers);
+  const reloadAchievements = reloadList(cmsService.getAdminAchievements, setAchievements);
+  const reloadCareers = reloadList(cmsService.getAdminCareers, setCareers);
+  const reloadEnquiries = reloadList(cmsService.getEnquiriesAsync, setEnquiries);
+
+  const confirmDelete = (what: string) =>
+    window.confirm(`Permanently delete ${what}? This cannot be undone. Hiding keeps the record instead.`);
 
   // --- Banner Actions (PUB-022) ---
   const handleToggleBanner = (id: string) => {
@@ -136,111 +199,88 @@ export const AdminWebsiteCMSPage: React.FC = () => {
       ...b,
       isActive: b.id === id ? !b.isActive : false, // Only 1 active top banner at a time
     }));
-    cmsService.updateBanners(updated);
-    setBanners(updated);
-    showToast({
-      type: 'success',
-      title: 'Banner Status Updated',
-      message: 'Active announcement banner updated on the public website.',
-    });
+    act(() => cmsService.updateBanners(updated), { title: 'Banner Status Updated', message: 'Active announcement banner updated on the public website.' }, reloadBanners);
   };
 
-  const handleSaveBanner = (e: React.FormEvent) => {
+  const handleSaveBanner = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingBanner) return;
-
-    let updatedList: WebsiteBanner[];
-    if (banners.some((b) => b.id === editingBanner.id)) {
-      updatedList = banners.map((b) => (b.id === editingBanner.id ? editingBanner : b));
-    } else {
-      updatedList = [editingBanner, ...banners];
+    const updatedList = editingBanner.id
+      ? banners.map((b) => (b.id === editingBanner.id ? editingBanner : b))
+      : [editingBanner, ...banners];
+    if (await act(() => cmsService.updateBanners(updatedList), { title: 'Banner Saved', message: 'Announcement banner changes saved.' }, reloadBanners)) {
+      setBannerModalOpen(false);
     }
-
-    cmsService.updateBanners(updatedList);
-    setBanners(updatedList);
-    setBannerModalOpen(false);
-    showToast({
-      type: 'success',
-      title: 'Banner Saved',
-      message: 'Homepage announcement banner changes saved successfully.',
-    });
   };
 
   const handleDeleteBanner = (id: string) => {
-    cmsService.deleteBanner(id);
-    setBanners(cmsService.getBanners());
-    showToast({
-      type: 'info',
-      title: 'Banner Removed',
-      message: 'Announcement banner removed from the system.',
-    });
+    if (!confirmDelete('this banner')) return;
+    act(() => cmsService.deleteBanner(id), { type: 'info', title: 'Banner Removed', message: 'Announcement banner removed.' }, reloadBanners);
   };
 
   // --- FAQ Actions (PUB-012, PUB-023) ---
-  const handleSaveFaq = (e: React.FormEvent) => {
+  const handleSaveFaq = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingFaq) return;
-
-    cmsService.saveFAQ(editingFaq);
-    setFaqs(cmsService.getFAQs());
-    setFaqModalOpen(false);
-    showToast({
-      type: 'success',
-      title: 'FAQ Saved',
-      message: 'Knowledge base question updated.',
-    });
+    const isNew = !editingFaq.id;
+    if (
+      await act(
+        () => cmsService.saveFAQ(editingFaq),
+        { title: 'FAQ Saved', message: isNew ? 'FAQ created as hidden. Use Show to publish it.' : 'Knowledge base question updated.' },
+        reloadFaqs
+      )
+    ) {
+      setFaqModalOpen(false);
+    }
   };
 
+  const handleToggleFaq = (faq: FAQItem) =>
+    act(
+      () => cmsService.saveFAQ({ ...faq, isActive: !faq.isActive }),
+      { title: faq.isActive ? 'FAQ Hidden' : 'FAQ Published', message: `"${faq.question}" is now ${faq.isActive ? 'hidden' : 'visible'} on the website.` },
+      reloadFaqs
+    );
+
   const handleDeleteFaq = (id: string) => {
-    cmsService.deleteFAQ(id);
-    setFaqs(cmsService.getFAQs());
-    showToast({
-      type: 'info',
-      title: 'FAQ Deleted',
-      message: 'Question removed from the public website.',
-    });
+    if (!confirmDelete('this FAQ')) return;
+    act(() => cmsService.deleteFAQ(id), { type: 'info', title: 'FAQ Deleted', message: 'Question removed.' }, reloadFaqs);
   };
 
   // --- Blog Actions (PUB-013, PUB-023) ---
-  const handleSaveBlog = (e: React.FormEvent) => {
+  const handleSaveBlog = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingBlog) return;
-
-    cmsService.saveArticle(editingBlog);
-    setBlogs(cmsService.getArticles());
-    setBlogModalOpen(false);
-    showToast({
-      type: 'success',
-      title: 'Article Saved',
-      message: 'Technical publication updated and live on /blog.',
-    });
+    if (
+      await act(
+        () => cmsService.saveArticle(editingBlog),
+        { title: 'Article Saved', message: editingBlog.isPublished ? 'Article saved and published on /blog.' : 'Article saved as a draft.' },
+        reloadBlogs
+      )
+    ) {
+      setBlogModalOpen(false);
+    }
   };
 
+  const handleToggleBlog = (art: BlogArticle) =>
+    act(
+      () => cmsService.saveArticle({ ...art, isPublished: !art.isPublished }),
+      { title: art.isPublished ? 'Article Unpublished' : 'Article Published', message: `"${art.title}" is now ${art.isPublished ? 'a draft' : 'live on /blog'}.` },
+      reloadBlogs
+    );
+
   const handleDeleteBlog = (id: string) => {
-    cmsService.deleteArticle(id);
-    setBlogs(cmsService.getArticles());
-    showToast({
-      type: 'info',
-      title: 'Article Removed',
-      message: 'Article has been removed from the public catalog.',
-    });
+    if (!confirmDelete('this article')) return;
+    act(() => cmsService.deleteArticle(id), { type: 'info', title: 'Article Removed', message: 'Article deleted.' }, reloadBlogs);
   };
 
   // --- Lead Enquiry Status Update ---
-  const handleEnquiryStatusChange = (id: string, status: LeadEnquiry['status']) => {
-    cmsService.updateEnquiryStatus(id, status);
-    setEnquiries(cmsService.getEnquiries());
-    showToast({
-      type: 'success',
-      title: 'Lead Status Updated',
-      message: `Enquiry status changed to ${status}.`,
-    });
-  };
+  const handleEnquiryStatusChange = (id: string, status: LeadEnquiry['status']) =>
+    act(() => cmsService.updateEnquiryStatus(id, status), { title: 'Lead Status Updated', message: `Enquiry status changed to ${status}.` }, reloadEnquiries);
 
   // --- Testimonial Actions (PUB-009, PUB-010) ---
   const handleOpenAddTestimonial = () => {
     setEditingTestimonial({
-      id: `t-${Date.now()}`,
+      id: '',
       studentName: '',
       courseName: 'Full Stack Java Cloud Architecture',
       previousRole: 'B.Tech CSE Graduate',
@@ -260,46 +300,44 @@ export const AdminWebsiteCMSPage: React.FC = () => {
     setTestimonialModalOpen(true);
   };
 
-  const handleSaveTestimonial = (e: React.FormEvent) => {
+  const handleSaveTestimonial = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingTestimonial) return;
-    if (
-      !editingTestimonial.studentName.trim() ||
-      !editingTestimonial.companyName.trim() ||
-      !editingTestimonial.quote.trim()
-    ) {
-      showToast({
-        type: 'warning',
-        title: 'Validation Error',
-        message: 'Please complete all required fields (Student Name, Company Name, Testimonial Quote).',
-      });
+    if (!editingTestimonial.studentName.trim() || !editingTestimonial.companyName.trim() || !editingTestimonial.quote.trim()) {
+      showToast({ type: 'warning', title: 'Validation Error', message: 'Please complete all required fields (Student Name, Company Name, Testimonial Quote).' });
       return;
     }
-
-    cmsService.saveTestimonial(editingTestimonial);
-    setTestimonials(cmsService.getTestimonials());
-    setTestimonialModalOpen(false);
-    showToast({
-      type: 'success',
-      title: 'Testimonial Saved',
-      message: `Testimonial for ${editingTestimonial.studentName} has been saved and published to the website.`,
-    });
+    const isNew = !editingTestimonial.id;
+    if (
+      await act(
+        () => cmsService.saveTestimonial(editingTestimonial),
+        {
+          title: 'Testimonial Saved',
+          message: isNew ? `Testimonial for ${editingTestimonial.studentName} created as hidden. Use Publish to show it.` : `Testimonial for ${editingTestimonial.studentName} updated.`,
+        },
+        reloadTestimonials
+      )
+    ) {
+      setTestimonialModalOpen(false);
+    }
   };
 
+  const handleToggleTestimonial = (t: TestimonialItem) =>
+    act(
+      () => cmsService.saveTestimonial({ ...t, isPublished: !t.isPublished }),
+      { title: t.isPublished ? 'Testimonial Hidden' : 'Testimonial Published', message: `${t.studentName}'s testimonial is now ${t.isPublished ? 'hidden' : 'visible'}.` },
+      reloadTestimonials
+    );
+
   const handleDeleteTestimonial = (id: string, name: string) => {
-    cmsService.deleteTestimonial(id);
-    setTestimonials(cmsService.getTestimonials());
-    showToast({
-      type: 'info',
-      title: 'Testimonial Removed',
-      message: `Testimonial for ${name} has been removed from the website.`,
-    });
+    if (!confirmDelete(`the testimonial for ${name}`)) return;
+    act(() => cmsService.deleteTestimonial(id), { type: 'info', title: 'Testimonial Removed', message: `Testimonial for ${name} has been deleted.` }, reloadTestimonials);
   };
 
   // --- Trainer Actions (PUB-006) ---
   const handleOpenAddTrainer = () => {
     setEditingTrainer({
-      id: `tr-${Date.now()}`,
+      id: '',
       name: '',
       role: 'Principal Technical Architect & Mentor',
       specialization: 'Full Stack Java Cloud Architecture & Microservices',
@@ -310,7 +348,8 @@ export const AdminWebsiteCMSPage: React.FC = () => {
       avatarUrl: TRAINER_AVATAR_PRESETS[0].url,
       formerCompanies: ['Amazon', 'Oracle'],
       linkedinUrl: 'https://linkedin.com',
-      coursesTaught: ['Full Stack Java Cloud Architecture'],
+      coursesTaught: [],
+      courseIds: [],
     });
     setTrainerModalOpen(true);
   };
@@ -320,46 +359,34 @@ export const AdminWebsiteCMSPage: React.FC = () => {
     setTrainerModalOpen(true);
   };
 
-  const handleSaveTrainer = (e: React.FormEvent) => {
+  const handleSaveTrainer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingTrainer) return;
-    if (
-      !editingTrainer.name.trim() ||
-      !editingTrainer.role.trim() ||
-      !editingTrainer.specialization.trim()
-    ) {
-      showToast({
-        type: 'warning',
-        title: 'Validation Error',
-        message: 'Please complete all required fields (Trainer Name, Designation, Specialization).',
-      });
+    if (!editingTrainer.name.trim() || !editingTrainer.role.trim() || !editingTrainer.specialization.trim()) {
+      showToast({ type: 'warning', title: 'Validation Error', message: 'Please complete all required fields (Trainer Name, Designation, Specialization).' });
       return;
     }
-
-    cmsService.saveTrainer(editingTrainer);
-    setTrainers(cmsService.getTrainers());
-    setTrainerModalOpen(false);
-    showToast({
-      type: 'success',
-      title: 'Trainer Profile Saved',
-      message: `Profile for ${editingTrainer.name} has been published to /trainers.`,
-    });
+    if (await act(() => cmsService.saveTrainer(editingTrainer), { title: 'Trainer Profile Saved', message: `Profile for ${editingTrainer.name} saved.` }, reloadTrainers)) {
+      setTrainerModalOpen(false);
+    }
   };
 
+  const handleToggleTrainer = (tr: TrainerProfile) =>
+    act(
+      () => cmsService.saveTrainer({ ...tr, isActive: tr.isActive === false }),
+      { title: tr.isActive === false ? 'Profile Shown' : 'Profile Hidden', message: `${tr.name} is now ${tr.isActive === false ? 'visible on' : 'hidden from'} /trainers.` },
+      reloadTrainers
+    );
+
   const handleDeleteTrainer = (id: string, name: string) => {
-    cmsService.deleteTrainer(id);
-    setTrainers(cmsService.getTrainers());
-    showToast({
-      type: 'info',
-      title: 'Trainer Profile Removed',
-      message: `Trainer profile for ${name} removed from the website.`,
-    });
+    if (!confirmDelete(`the public profile of ${name}`)) return;
+    act(() => cmsService.deleteTrainer(id), { type: 'info', title: 'Trainer Profile Removed', message: `Trainer profile for ${name} deleted.` }, reloadTrainers);
   };
 
   // --- Career / Job Opening Actions (PUB-014) ---
   const handleOpenAddCareer = () => {
     setEditingCareer({
-      id: `car-${Date.now()}`,
+      id: '',
       title: '',
       department: 'Technical Training',
       location: 'Hyderabad (Hybrid)',
@@ -390,55 +417,34 @@ export const AdminWebsiteCMSPage: React.FC = () => {
     const target = careers.find((c) => c.id === id);
     if (!target) return;
     const updated = { ...target, isActive: !target.isActive };
-    cmsService.saveCareer(updated);
-    setCareers(cmsService.getCareers());
-    showToast({
-      type: 'success',
-      title: 'Job Status Updated',
-      message: `Opening "${target.title}" is now ${updated.isActive ? 'Active (Accepting Applications)' : 'Closed'}.`,
-    });
+    act(
+      () => cmsService.saveCareer(updated),
+      { title: 'Job Status Updated', message: `Opening "${target.title}" is now ${updated.isActive ? 'Active (Accepting Applications)' : 'Closed'}.` },
+      reloadCareers
+    );
   };
 
-  const handleSaveCareer = (e: React.FormEvent) => {
+  const handleSaveCareer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingCareer) return;
-    if (
-      !editingCareer.title.trim() ||
-      !editingCareer.department.trim() ||
-      !editingCareer.description.trim()
-    ) {
-      showToast({
-        type: 'warning',
-        title: 'Validation Error',
-        message: 'Please complete all required fields (Job Title, Department, Description).',
-      });
+    if (!editingCareer.title.trim() || !editingCareer.department.trim() || !editingCareer.description.trim()) {
+      showToast({ type: 'warning', title: 'Validation Error', message: 'Please complete all required fields (Job Title, Department, Description).' });
       return;
     }
-
-    cmsService.saveCareer(editingCareer);
-    setCareers(cmsService.getCareers());
-    setCareerModalOpen(false);
-    showToast({
-      type: 'success',
-      title: 'Career Opening Saved',
-      message: `Job vacancy "${editingCareer.title}" saved and live on /careers.`,
-    });
+    if (await act(() => cmsService.saveCareer(editingCareer), { title: 'Career Opening Saved', message: `Job vacancy "${editingCareer.title}" saved.` }, reloadCareers)) {
+      setCareerModalOpen(false);
+    }
   };
 
   const handleDeleteCareer = (id: string, title: string) => {
-    cmsService.deleteCareer(id);
-    setCareers(cmsService.getCareers());
-    showToast({
-      type: 'info',
-      title: 'Job Opening Removed',
-      message: `Job vacancy "${title}" removed from the careers portal.`,
-    });
+    if (!confirmDelete(`the opening "${title}"`)) return;
+    act(() => cmsService.deleteCareer(id), { type: 'info', title: 'Job Opening Removed', message: `Job vacancy "${title}" deleted.` }, reloadCareers);
   };
 
   // --- Student Achievement Actions (PUB-010) ---
   const handleOpenAddAchievement = () => {
     setEditingAchievement({
-      id: `ach-${Date.now()}`,
+      id: '',
       title: '',
       studentName: '',
       category: 'Hackathon',
@@ -455,44 +461,44 @@ export const AdminWebsiteCMSPage: React.FC = () => {
     setAchievementModalOpen(true);
   };
 
-  const handleSaveAchievement = (e: React.FormEvent) => {
+  const handleSaveAchievement = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingAchievement) return;
-    if (
-      !editingAchievement.title.trim() ||
-      !editingAchievement.studentName.trim() ||
-      !editingAchievement.description.trim()
-    ) {
-      showToast({
-        type: 'warning',
-        title: 'Validation Error',
-        message: 'Please complete all required fields (Title, Student Name, Description).',
-      });
+    if (!editingAchievement.title.trim() || !editingAchievement.studentName.trim() || !editingAchievement.description.trim()) {
+      showToast({ type: 'warning', title: 'Validation Error', message: 'Please complete all required fields (Title, Student Name, Description).' });
       return;
     }
-
-    cmsService.saveAchievement(editingAchievement);
-    setAchievements(cmsService.getAchievements());
-    setAchievementModalOpen(false);
-    showToast({
-      type: 'success',
-      title: 'Achievement Published',
-      message: `Milestone for ${editingAchievement.studentName} is now live on /achievements.`,
-    });
+    const isNew = !editingAchievement.id;
+    if (
+      await act(
+        () => cmsService.saveAchievement(editingAchievement),
+        { title: 'Achievement Saved', message: isNew ? `Achievement created as hidden. Use Show to publish it.` : `Achievement "${editingAchievement.title}" updated.` },
+        reloadAchievements
+      )
+    ) {
+      setAchievementModalOpen(false);
+    }
   };
 
+  const handleToggleAchievement = (a: AchievementItem) =>
+    act(
+      () => cmsService.saveAchievement({ ...a, isActive: !a.isActive }),
+      { title: a.isActive ? 'Achievement Hidden' : 'Achievement Published', message: `"${a.title}" is now ${a.isActive ? 'hidden' : 'visible'}.` },
+      reloadAchievements
+    );
+
   const handleDeleteAchievement = (id: string, title: string) => {
-    cmsService.deleteAchievement(id);
-    setAchievements(cmsService.getAchievements());
-    showToast({
-      type: 'info',
-      title: 'Achievement Removed',
-      message: `Achievement "${title}" removed from the website.`,
-    });
+    if (!confirmDelete(`the achievement "${title}"`)) return;
+    act(() => cmsService.deleteAchievement(id), { type: 'info', title: 'Achievement Removed', message: `Achievement "${title}" deleted.` }, reloadAchievements);
   };
 
   return (
     <div className="space-y-8">
+      {(isLoading || loadError) && (
+        <div className={`p-3 rounded-lg border text-xs ${loadError ? 'bg-rose-50 border-rose-200 text-rose-800' : 'bg-slate-50 border-slate-200 text-slate-500'}`}>
+          {loadError || 'Loading website content from the server...'}
+        </div>
+      )}
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -667,7 +673,7 @@ export const AdminWebsiteCMSPage: React.FC = () => {
               leftIcon={<Plus className="h-4 w-4" />}
               onClick={() => {
                 setEditingBanner({
-                  id: `ban-${Date.now()}`,
+                  id: '',
                   text: 'New batch admission alert with scholarship discount',
                   badgeText: 'Batch Alert',
                   linkText: 'Register Now',
@@ -747,7 +753,7 @@ export const AdminWebsiteCMSPage: React.FC = () => {
               leftIcon={<Plus className="h-4 w-4" />}
               onClick={() => {
                 setEditingBlog({
-                  id: `blog-${Date.now()}`,
+                  id: '',
                   slug: `technical-guide-${Date.now()}`,
                   title: '',
                   category: 'Java & Cloud',
@@ -784,6 +790,10 @@ export const AdminWebsiteCMSPage: React.FC = () => {
                 </div>
 
                 <div className="flex items-center gap-2 shrink-0">
+                  <Badge variant={art.isPublished ? 'success' : 'neutral'} size="sm">{art.isPublished ? 'Published' : 'Draft'}</Badge>
+                  <Button variant="outline" size="sm" disabled={busy} onClick={() => handleToggleBlog(art)}>
+                    {art.isPublished ? 'Hide' : 'Publish'}
+                  </Button>
                   <a href={`/blog/${art.slug}`} target="_blank" rel="noopener noreferrer">
                     <Button variant="outline" size="sm" className="text-xs">
                       View
@@ -825,7 +835,7 @@ export const AdminWebsiteCMSPage: React.FC = () => {
               leftIcon={<Plus className="h-4 w-4" />}
               onClick={() => {
                 setEditingFaq({
-                  id: `faq-${Date.now()}`,
+                  id: '',
                   category: 'Admissions',
                   question: '',
                   answer: '',
@@ -850,6 +860,15 @@ export const AdminWebsiteCMSPage: React.FC = () => {
                 </div>
 
                 <div className="flex items-center gap-2 shrink-0">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={busy}
+                    onClick={() => handleToggleFaq(faq)}
+                  >
+                    {faq.isActive ? 'Hide' : 'Show'}
+                  </Button>
+                  <Badge variant={faq.isActive ? 'success' : 'neutral'} size="sm">{faq.isActive ? 'Visible' : 'Hidden'}</Badge>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -946,6 +965,24 @@ export const AdminWebsiteCMSPage: React.FC = () => {
               ))}
             </div>
           )}
+
+          <div className="space-y-3 pt-4">
+            <h3 className="text-sm font-bold text-slate-900">Callback Requests ({callbacks.length})</h3>
+            <p className="text-xs text-slate-500">Read-only: the callback status values are set by the database and are not yet confirmed for editing.</p>
+            {callbacks.length === 0 ? (
+              <p className="text-xs text-slate-400 italic">No callback requests yet.</p>
+            ) : (
+              callbacks.map((c) => (
+                <Card key={c.id} className="p-4 flex flex-wrap items-center justify-between gap-2 bg-white text-xs">
+                  <span className="font-bold text-slate-900">{c.name}</span>
+                  <span className="text-slate-600">Phone: <strong>{c.phone}</strong></span>
+                  {c.preferredTimeSlot && <span className="text-slate-600">Preferred: {c.preferredTimeSlot}</span>}
+                  <span className="text-slate-400">{formatDate(c.requestedAt)}</span>
+                  {c.status && <Badge variant="neutral" size="sm">{c.status}</Badge>}
+                </Card>
+              ))
+            )}
+          </div>
         </div>
       )}
 
@@ -1011,6 +1048,10 @@ export const AdminWebsiteCMSPage: React.FC = () => {
                 </div>
 
                 <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+                  <Badge variant={tr.isActive === false ? 'neutral' : 'success'} size="sm">{tr.isActive === false ? 'Hidden' : 'Visible'}</Badge>
+                  <Button variant="outline" size="sm" disabled={busy} onClick={() => handleToggleTrainer(tr)}>
+                    {tr.isActive === false ? 'Show' : 'Hide'}
+                  </Button>
                   <Button
                     variant="outline"
                     size="sm"
@@ -1089,6 +1130,10 @@ export const AdminWebsiteCMSPage: React.FC = () => {
                   </div>
 
                   <div className="flex items-center gap-2">
+                    <Badge variant={t.isPublished ? 'success' : 'neutral'} size="sm">{t.isPublished ? 'Published' : 'Hidden'}</Badge>
+                    <Button variant="outline" size="sm" disabled={busy} onClick={() => handleToggleTestimonial(t)}>
+                      {t.isPublished ? 'Hide' : 'Publish'}
+                    </Button>
                     <Button
                       variant="outline"
                       size="sm"
@@ -1164,6 +1209,10 @@ export const AdminWebsiteCMSPage: React.FC = () => {
                 </div>
 
                 <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+                  <Badge variant={a.isActive ? 'success' : 'neutral'} size="sm">{a.isActive ? 'Visible' : 'Hidden'}</Badge>
+                  <Button variant="outline" size="sm" disabled={busy} onClick={() => handleToggleAchievement(a)}>
+                    {a.isActive ? 'Hide' : 'Show'}
+                  </Button>
                   <Button
                     variant="outline"
                     size="sm"
@@ -1812,19 +1861,34 @@ export const AdminWebsiteCMSPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Courses Taught (Comma-separated)</label>
-                <input
-                  type="text"
-                  value={editingTrainer.coursesTaught.join(', ')}
-                  onChange={(e) =>
-                    setEditingTrainer({
-                      ...editingTrainer,
-                      coursesTaught: e.target.value.split(',').map((s) => s.trim()).filter(Boolean),
-                    })
-                  }
-                  placeholder="e.g. Full Stack Java Cloud, DevOps Microservices"
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                />
+                <label className="block font-semibold text-slate-700 mb-1">Courses taught (linked to real courses)</label>
+                {courseOptions.length === 0 ? (
+                  <p className="text-slate-400">{courseOptionsError ?? 'No courses available to link.'}</p>
+                ) : (
+                  <div className="max-h-36 overflow-y-auto border border-slate-200 rounded-lg p-2 space-y-1">
+                    {courseOptions.map((c) => {
+                      const checked = (editingTrainer.courseIds ?? []).includes(c.id);
+                      return (
+                        <label key={c.id} className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() =>
+                              setEditingTrainer({
+                                ...editingTrainer,
+                                courseIds: checked
+                                  ? (editingTrainer.courseIds ?? []).filter((x) => x !== c.id)
+                                  : [...(editingTrainer.courseIds ?? []), c.id],
+                              })
+                            }
+                          />
+                          {c.title}
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+                <p className="text-[11px] text-slate-500 mt-1">Only published courses appear on the public trainer profile.</p>
               </div>
             </div>
 

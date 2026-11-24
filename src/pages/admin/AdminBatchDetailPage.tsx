@@ -1,21 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
-  Calendar,
   Users,
-  Clock,
-  Video,
   AlertCircle,
   ExternalLink,
   Edit,
   ArrowLeft,
   BookOpen,
-  GraduationCap,
   Mail,
   Phone,
   Plus,
-  Save,
-  Radio,
 } from 'lucide-react';
 import { adminService } from '../../services/adminService';
 import { useAuth } from '../../context/AuthContext';
@@ -40,10 +34,6 @@ export const AdminBatchDetailPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'overview' | 'students' | 'instructors' | 'curriculum'>('overview');
   const [isLoading, setIsLoading] = useState(true);
 
-  // Edit Meeting URL State (BR-015)
-  const [isEditingMeeting, setIsEditingMeeting] = useState(false);
-  const [meetingUrlInput, setMeetingUrlInput] = useState('');
-
   // Status Change Modal
   const [statusModalOpen, setStatusModalOpen] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState<BatchStatus>('ongoing');
@@ -62,7 +52,6 @@ export const AdminBatchDetailPage: React.FC = () => {
 
     if (bRes.success && bRes.data) {
       setBatch(bRes.data);
-      setMeetingUrlInput(bRes.data.meetingUrl || '');
       setSelectedStatus(bRes.data.status);
 
       if (cRes.success) {
@@ -79,22 +68,6 @@ export const AdminBatchDetailPage: React.FC = () => {
   useEffect(() => {
     loadBatchDetails();
   }, [batchId]);
-
-  const handleSaveMeetingUrl = async () => {
-    if (!user || !batch) return;
-    const res = await adminService.updateBatch({ id: user.id, name: user.name }, batch.id, {
-      meetingUrl: meetingUrlInput.trim(),
-    });
-    if (res.success) {
-      showToast({
-        type: 'success',
-        title: 'Meeting Link Updated (BR-015)',
-        message: 'Live class link updated. Teachers and students now see the new link.',
-      });
-      setIsEditingMeeting(false);
-      loadBatchDetails();
-    }
-  };
 
   const handleUpdateStatus = async () => {
     if (!user || !batch) return;
@@ -203,23 +176,6 @@ export const AdminBatchDetailPage: React.FC = () => {
       ),
     },
     {
-      key: 'progress',
-      header: 'LMS Progress',
-      render: (row) => (
-        <div className="flex items-center gap-2">
-          <div className="w-16 bg-slate-100 rounded-full h-2 overflow-hidden">
-            <div
-              className="bg-indigo-600 h-full rounded-full"
-              style={{ width: `${row.enrollment.progressPercentage || 0}%` }}
-            />
-          </div>
-          <span className="text-xs font-semibold text-slate-700">
-            {row.enrollment.progressPercentage || 0}%
-          </span>
-        </div>
-      ),
-    },
-    {
       key: 'status',
       header: 'Enrollment Status',
       render: (row) => (
@@ -300,60 +256,10 @@ export const AdminBatchDetailPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Live Meeting Link Banner (BR-015) */}
-        <div className="p-4 bg-indigo-50/60 border border-indigo-100 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-          <div className="space-y-0.5">
-            <div className="flex items-center gap-2">
-              <Radio className="h-4 w-4 text-emerald-600 animate-pulse" />
-              <strong className="text-indigo-950 font-bold">Manual Live Meeting Room (SRS Rule BR-015)</strong>
-            </div>
-            {isEditingMeeting ? (
-              <div className="flex items-center gap-2 pt-2">
-                <input
-                  type="url"
-                  value={meetingUrlInput}
-                  onChange={(e) => setMeetingUrlInput(e.target.value)}
-                  placeholder="https://meet.google.com/..."
-                  className="w-72 text-xs px-2.5 py-1.5 bg-white border border-indigo-200 rounded-lg focus:ring-2 focus:ring-indigo-500"
-                />
-                <Button variant="primary" size="sm" onClick={handleSaveMeetingUrl} leftIcon={<Save className="h-3.5 w-3.5" />}>
-                  Save Link
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => setIsEditingMeeting(false)}>
-                  Cancel
-                </Button>
-              </div>
-            ) : (
-              <p className="text-indigo-800 font-mono text-[11px] truncate max-w-md">
-                {batch.meetingUrl || 'No meeting room configured yet.'}
-              </p>
-            )}
-          </div>
-
-          {!isEditingMeeting && (
-            <div className="flex items-center gap-2 shrink-0">
-              {batch.meetingUrl && (
-                <a href={batch.meetingUrl} target="_blank" rel="noopener noreferrer">
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    className="bg-indigo-600 hover:bg-indigo-700"
-                    leftIcon={<Video className="h-3.5 w-3.5" />}
-                  >
-                    Launch Meeting
-                  </Button>
-                </a>
-              )}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setIsEditingMeeting(true)}
-                leftIcon={<Edit className="h-3.5 w-3.5" />}
-              >
-                Edit Link
-              </Button>
-            </div>
-          )}
+        {/* Live meeting link (BR-015): no batch column exists to store it yet. */}
+        <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-600">
+          <strong className="text-slate-800">Manual live meeting link (BR-015):</strong> not available yet. The batch
+          table has no meeting-link column; this will be enabled once the database change is approved.
         </div>
 
         {/* Navigation Tabs */}

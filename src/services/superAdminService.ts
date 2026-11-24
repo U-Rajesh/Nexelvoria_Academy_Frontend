@@ -1,4 +1,5 @@
 import { apiClient } from './api';
+import { fromBackendAuditLog, type BackendAuditLog } from './auditLogMapper';
 import { STORAGE_KEYS } from '../constants/appConfig';
 import { getStorageItem, setStorageItem } from '../utils/storage';
 import { SEED_USERS, SEED_COURSES, SEED_BATCHES, SEED_PAYMENTS, SEED_REFUNDS } from '../mocks/seedData';
@@ -9,7 +10,7 @@ import type {
   PaymentTransaction,
   ApiResponse,
   FinancialOverrideRequest,
-  SystemConfig,
+  SystemConfigStatus,
   GlobalRole,
   SuperAdminDashboardStats,
 } from '../types';
@@ -23,6 +24,96 @@ import type {
 const USE_DEV_MOCKS = import.meta.env.VITE_USE_DEV_MOCKS === 'true';
 
 const sleep = (ms: number = 200) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Server message plus any per-field validation details. */
+const decisionErrorMessage = (err: any, fallback: string): string => {
+  const data = err?.response?.data;
+  const details: { message?: string }[] = Array.isArray(data?.details) ? data.details : [];
+  const detail = details.map((d) => d?.message).filter(Boolean).join('; ');
+  const base = data?.message || err?.message || fallback;
+  return detail ? `${base}: ${detail}` : base;
+};
+
+/** Shape of GET /super-admin/refunds items (NXA_Refunds). */
+interface BackendRefund {
+  id: string;
+  refundReference?: string;
+  transactionId?: string;
+  requestedByUserId: string;
+  requestedByName?: string;
+  amount: number;
+  reason: string;
+  refundStatus: string;
+  requestedAt: string;
+  approvedAt?: string;
+  approvedBySuperAdminUserId?: string;
+}
+
+/**
+ * NXA_Refunds has no course link or remarks column: the course is shown as
+ * unknown and decision remarks live in the audit log, not on the record.
+ */
+const fromBackendRefund = (r: BackendRefund): RefundRequest => {
+  const status = (r.refundStatus || '').toLowerCase();
+  return {
+    id: r.id,
+    transactionId: r.transactionId ?? r.refundReference ?? '',
+    studentId: r.requestedByUserId,
+    studentName: r.requestedByName || `User #${r.requestedByUserId}`,
+    courseId: '',
+    courseTitle: '',
+    amountINR: Number(r.amount) || 0,
+    reason: r.reason,
+    status: (status === 'pending' ? 'pending_super_admin' : status) as RefundRequest['status'],
+    requestedAt: r.requestedAt,
+    ...(r.approvedAt ? { decidedAt: r.approvedAt } : {}),
+    ...(r.approvedBySuperAdminUserId ? { decidedBySuperAdminId: r.approvedBySuperAdminUserId } : {}),
+  };
+};
+
+/** Shape of GET /super-admin/financial-overrides items (NXA_EnrollmentOverrides + enrollment). */
+interface BackendOverride {
+  id: string;
+  studentId: string;
+  studentName?: string;
+  studentEmail?: string;
+  courseId: string;
+  courseTitle?: string;
+  enrollmentId: string;
+  originalAmountINR: number;
+  proposedAmountINR: number;
+  discountOrWaiverINR: number;
+  adjustmentType: string;
+  reason: string;
+  requestedByAdminId: string;
+  requestedByAdminName?: string;
+  requestedAt: string;
+  status: 'pending' | 'approved' | 'rejected';
+  decidedAt?: string;
+  decidedBySuperAdminId?: string;
+}
+
+const fromBackendOverride = (o: BackendOverride): FinancialOverrideRequest => ({
+  id: o.id,
+  studentId: o.studentId,
+  studentName: o.studentName || (o.studentId ? `User #${o.studentId}` : 'Unknown student'),
+  studentEmail: o.studentEmail ?? '',
+  courseId: o.courseId,
+  courseTitle: o.courseTitle ?? '',
+  enrollmentId: o.enrollmentId,
+  originalAmountINR: Number(o.originalAmountINR) || 0,
+  proposedAmountINR: Number(o.proposedAmountINR) || 0,
+  discountOrWaiverINR: Number(o.discountOrWaiverINR) || 0,
+  adjustmentType: o.adjustmentType as FinancialOverrideRequest['adjustmentType'],
+  reason: o.reason,
+  requestedByAdminId: o.requestedByAdminId,
+  // NXA_EnrollmentOverrides has no requested-by column.
+  requestedByAdminName: o.requestedByAdminName || '',
+  requestedAt: o.requestedAt,
+  status: o.status,
+  ...(o.decidedAt ? { decidedAt: o.decidedAt } : {}),
+  ...(o.decidedBySuperAdminId ? { decidedBySuperAdminId: o.decidedBySuperAdminId } : {}),
+});
 
 const SEED_ADMINS: AdminProfile[] = [
   SEED_USERS.admin,
@@ -119,142 +210,6 @@ const SEED_FINANCIAL_OVERRIDES: FinancialOverrideRequest[] = [
     decidedAt: '2026-10-26T09:40:00Z',
     decidedBySuperAdminId: 'user-super-001',
     superAdminRemarks: 'Corporate employee ID and HR referral verified. Concession approved.',
-  },
-];
-
-const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
-  institute: {
-    name: 'Nexelvoria Academy',
-    code: 'NEX-ACAD-2024',
-    affiliation: 'ISO 9001:2015 & NSDC Accredited Institute',
-    supportEmail: 'admissions@nexelvoria.edu.in',
-    supportPhone: '+91 98765 43210',
-    whatsappNumber: '+91 98765 43210',
-    address: 'Nexelvoria Tech Tower, Financial District, Hyderabad, Telangana 500032',
-    website: 'https://nexelvoria.edu.in',
-    gstNumber: '36AAACN1234F1Z5',
-    currency: 'INR (₹)',
-    timezone: 'Asia/Kolkata (IST)',
-  },
-  branding: {
-    logoUrl: 'https://images.unsplash.com/photo-1546410531-bb4caa6b424d?auto=format&fit=crop&w=180&q=80',
-    faviconUrl: '/favicon.ico',
-    primaryColor: '#e11d48',
-    secondaryColor: '#0f172a',
-    tagline: 'Bridging Talent with Industry Excellence',
-    motto: 'Transforming learners into high-impact software leaders',
-  },
-  academic: {
-    currentAcademicYear: '2026-2027',
-    activeTerm: 'Fall Cohort',
-    isRegistrationOpen: true,
-    isCatalogPublic: true,
-    maxBatchCapacity: 40,
-    minAttendancePercentage: 75,
-    assignmentGracePeriodDays: 2,
-    passPercentage: 60,
-  },
-  paymentGateway: {
-    provider: 'razorpay',
-    keyId: 'rzp_live_89aB12cdEF34gh',
-    keySecretMasked: '••••••••••••••••••••••••••••••••',
-    webhookSecretMasked: '••••••••••••••••••••••••••••••••',
-    isLiveMode: true,
-    autoReconcile: true,
-  },
-  emailSms: {
-    smtpHost: 'smtp.sendgrid.net',
-    smtpPort: 587,
-    smtpUser: 'apikey',
-    smtpPasswordMasked: '••••••••••••••••••••••••••••••••',
-    senderName: 'Nexelvoria Academy Academic Office',
-    senderEmail: 'notifications@nexelvoria.edu.in',
-    isSmsEnabled: false, // BR-014 Enforced
-    smsProvider: 'Twilio / MSG91 (Disabled BR-014)',
-    smsApiKeyMasked: '••••••••••••••••••••••••••••••••',
-  },
-  notifications: {
-    emailOnAdmission: true,
-    emailOnPayment: true,
-    emailOnExamResult: true,
-    smsOnClassReminder: false,
-    pushAnnouncements: true,
-  },
-  security: {
-    sessionTimeoutMinutes: 60,
-    enforceTwoFactor: true,
-    maxFailedLogins: 5,
-    passwordExpiryDays: 90,
-    requireSpecialChars: true,
-  },
-  maintenance: {
-    isMaintenanceMode: false,
-    message: 'Nexelvoria Academy LMS is undergoing scheduled maintenance. Services will resume shortly.',
-    allowedIps: '192.168.1.1, 10.0.0.1, 127.0.0.1',
-  },
-  preferences: {
-    dateFormat: 'DD/MM/YYYY',
-    timeFormat: '12-Hour (AM/PM)',
-    numberFormat: 'inr_lakhs',
-    defaultLanguage: 'English (IN)',
-  },
-};
-
-const SEED_GLOBAL_ROLES: GlobalRole[] = [
-  {
-    id: 'role-super-admin',
-    name: 'Super Administrator',
-    slug: 'super_admin',
-    description: 'System Owner with root authority, financial overrides, refund approvals, and admin account management.',
-    isSystemRole: true,
-    userCount: 1,
-    permissions: ['all_permissions', 'manage_admins', 'approve_refunds', 'financial_overrides', 'system_config'],
-    createdAt: '2024-01-01T00:00:00Z',
-    updatedAt: '2026-11-10T00:00:00Z',
-  },
-  {
-    id: 'role-admin',
-    name: 'Administrator',
-    slug: 'admin',
-    description: 'Academic and operational administrators managing students, courses, batches, manual payments, and LMS content.',
-    isSystemRole: true,
-    userCount: 2,
-    permissions: ['manage_students', 'approve_students', 'manage_courses', 'manage_batches', 'manage_teachers', 'manual_payments', 'view_reports'],
-    createdAt: '2024-01-01T00:00:00Z',
-    updatedAt: '2026-11-10T00:00:00Z',
-  },
-  {
-    id: 'role-teacher',
-    name: 'Teaching Faculty',
-    slug: 'teacher',
-    description: 'Instructors and faculty members managing attendance, course materials, assignments, evaluations, and doubts.',
-    isSystemRole: true,
-    userCount: 6,
-    permissions: ['view_assigned_courses', 'mark_attendance', 'upload_materials', 'evaluate_assignments', 'create_tests'],
-    createdAt: '2024-01-01T00:00:00Z',
-    updatedAt: '2026-11-10T00:00:00Z',
-  },
-  {
-    id: 'role-student',
-    name: 'Student Learner',
-    slug: 'student',
-    description: 'Enrolled students accessing course syllabus, live classes, assignments, tests, receipts, and certificates.',
-    isSystemRole: true,
-    userCount: 42,
-    permissions: ['view_enrolled_courses', 'attend_live_classes', 'submit_assignments', 'take_tests', 'download_certificates'],
-    createdAt: '2024-01-01T00:00:00Z',
-    updatedAt: '2026-11-10T00:00:00Z',
-  },
-  {
-    id: 'role-placement-officer',
-    name: 'Placement & Corporate Relations Officer',
-    slug: 'placement_officer',
-    description: 'Specialized role for coordinating company partnerships, mock interviews, and student job drives.',
-    isSystemRole: false,
-    userCount: 1,
-    permissions: ['manage_placements', 'schedule_mock_interviews', 'view_student_resumes', 'export_placement_reports'],
-    createdAt: '2026-08-01T00:00:00Z',
-    updatedAt: '2026-11-05T00:00:00Z',
   },
 ];
 
@@ -403,32 +358,45 @@ export const superAdminService = {
     }
 
     try {
-      const res = await apiClient.get('/super-admin/stats');
-      return { success: true, data: res.data?.data };
+      // Super admins may read /admin routes (role inheritance); together the
+      // two endpoints cover the institute-wide figures.
+      const [saRes, adminRes, refundsRes] = await Promise.all([
+        apiClient.get('/super-admin/stats'),
+        apiClient.get('/admin/stats'),
+        apiClient.get('/super-admin/refunds', { params: { status: 'pending' } }),
+      ]);
+      const sa = saRes.data?.data ?? {};
+      const ad = adminRes.data?.data ?? {};
+      const refunds: { amount?: number }[] = refundsRes.data?.data ?? [];
+
+      const stats: SuperAdminDashboardStats = {
+        totalStudents: ad.totalStudents ?? 0,
+        totalAdmins: sa.totalAdminAccounts ?? 0,
+        totalTeachers: ad.totalTeachers ?? 0,
+        totalCourses: ad.totalCourses ?? 0,
+        totalBatches: ad.activeBatches ?? 0,
+        totalEnrollments: ad.totalEnrollments ?? 0,
+        totalRevenueINR: ad.totalRevenueINR ?? null,
+        revenueYearToDateINR: sa.totalRevenueYTD ?? null,
+        ...(typeof sa.financialYearLabel === 'string' ? { financialYearLabel: sa.financialYearLabel } : {}),
+        revenueThisMonthINR: sa.revenueThisMonth ?? null,
+        outstandingFeesINR: ad.pendingFeesINR ?? 0,
+        pendingRefundsCount: sa.pendingRefundRequests ?? null,
+        pendingRefundsAmountINR: Array.isArray(refunds)
+          ? refunds.reduce((sum, r) => sum + (Number(r.amount) || 0), 0)
+          : null,
+        pendingOverridesCount: sa.pendingFinancialOverrides ?? null,
+        // Override amounts need the verified NXA_EnrollmentOverrides definition.
+        pendingOverridesAmountINR: null,
+        placementRatePercentage: ad.placementRate ?? null,
+        totalPlacedStudents: ad.placementsCount ?? null,
+        activeHiringPartners: null,
+        averageAttendancePercentage: null,
+      };
+      return { success: true, data: stats };
     } catch (err: any) {
       const message = err?.response?.data?.message || err?.message || 'Failed to fetch super admin dashboard statistics.';
-      return {
-        success: false,
-        data: {
-          totalStudents: 0,
-          totalAdmins: 0,
-          totalTeachers: 0,
-          totalCourses: 0,
-          totalBatches: 0,
-          totalEnrollments: 0,
-          totalRevenueINR: 0,
-          outstandingFeesINR: 0,
-          pendingRefundsCount: 0,
-          pendingRefundsAmountINR: 0,
-          pendingOverridesCount: 0,
-          pendingOverridesAmountINR: 0,
-          placementRatePercentage: 0,
-          totalPlacedStudents: 0,
-          activeHiringPartners: 0,
-          averageAttendancePercentage: 0,
-        },
-        error: message,
-      };
+      return { success: false, data: null as any, error: message };
     }
   },
 
@@ -454,8 +422,8 @@ export const superAdminService = {
 
   async createAdmin(
     superAdmin: { id: string; name: string },
-    data: { name: string; email: string; mobile: string; department: string; permissions: string[] }
-  ): Promise<ApiResponse<AdminProfile>> {
+    data: { name: string; email: string; mobile: string; department: string; permissions?: string[] }
+  ): Promise<ApiResponse<AdminProfile & { temporaryPassword?: string }>> {
     if (USE_DEV_MOCKS) {
       await sleep(300);
       const admins = getStorageItem<AdminProfile[]>(STORAGE_KEYS.ADMINS, SEED_ADMINS);
@@ -474,7 +442,7 @@ export const superAdminService = {
         role: 'admin',
         status: 'active',
         department: data.department,
-        permissions: data.permissions,
+        permissions: data.permissions ?? [],
         createdAt: new Date().toISOString(),
         lastLoginIp: 'Not logged in yet',
       };
@@ -487,7 +455,7 @@ export const superAdminService = {
         'ADMIN_ACCOUNT_CREATED',
         'admins',
         `Admin: ${newAdmin.name} (${newAdmin.email})`,
-        `Created admin for department "${newAdmin.department}" with ${data.permissions.length} active permissions.`,
+        `Created admin for department "${newAdmin.department}".`,
         'SUCCESS'
       );
 
@@ -495,7 +463,9 @@ export const superAdminService = {
     }
 
     try {
-      const res = await apiClient.post('/super-admin/admins', data);
+      // Permissions are not sent: there is no persisted permission model yet.
+      const { name, email, mobile, department } = data;
+      const res = await apiClient.post('/super-admin/admins', { name, email, mobile, department });
       return { success: true, data: res.data?.data, message: res.data?.message || 'Admin account created successfully.' };
     } catch (err: any) {
       const message = err?.response?.data?.message || err?.message || 'Failed to create admin account.';
@@ -589,7 +559,7 @@ export const superAdminService = {
   async resetAdminPassword(
     superAdmin: { id: string; name: string },
     adminId: string
-  ): Promise<ApiResponse<{ temporaryPassword: string; resetLink: string }>> {
+  ): Promise<ApiResponse<{ temporaryPassword: string }>> {
     if (USE_DEV_MOCKS) {
       await sleep(300);
       const admins = getStorageItem<AdminProfile[]>(STORAGE_KEYS.ADMINS, SEED_ADMINS);
@@ -597,7 +567,6 @@ export const superAdminService = {
       if (!admin) return { success: false, data: null as any, error: 'Admin account not found.' };
 
       const temporaryPassword = `NexPass#${Math.floor(1000 + Math.random() * 9000)}!${admin.name.slice(0, 3)}`;
-      const resetLink = `https://nexelvoria.edu.in/reset-password?token=sec_${Date.now()}`;
 
       this.recordSystemAuditLog(
         superAdmin,
@@ -610,7 +579,7 @@ export const superAdminService = {
 
       return {
         success: true,
-        data: { temporaryPassword, resetLink },
+        data: { temporaryPassword },
         message: 'Temporary password generated successfully.',
       };
     }
@@ -631,93 +600,47 @@ export const superAdminService = {
   /**
    * 3. System Configuration
    */
-  async getSystemConfig(): Promise<ApiResponse<SystemConfig>> {
-    if (USE_DEV_MOCKS) {
-      await sleep(100);
-      const config = getStorageItem<SystemConfig>(STORAGE_KEYS.SYSTEM_CONFIG, DEFAULT_SYSTEM_CONFIG);
-      return { success: true, data: config };
-    }
-
+  /** Platform configuration as the server runs it (read-only; no secrets). */
+  async getSystemConfig(): Promise<ApiResponse<SystemConfigStatus>> {
     try {
       const res = await apiClient.get('/super-admin/system-config');
       return { success: true, data: res.data?.data };
     } catch (err: any) {
-      const message = err?.response?.data?.message || err?.message || 'Failed to fetch system configuration.';
-      return { success: false, data: null as any, error: message };
+      return { success: false, data: null as any, error: decisionErrorMessage(err, 'Failed to fetch system configuration.') };
     }
   },
 
-  async updateSystemConfig(
-    superAdmin: { id: string; name: string },
-    updates: Partial<SystemConfig>
-  ): Promise<ApiResponse<SystemConfig>> {
-    if (USE_DEV_MOCKS) {
-      await sleep(350);
-      const current = getStorageItem<SystemConfig>(STORAGE_KEYS.SYSTEM_CONFIG, DEFAULT_SYSTEM_CONFIG);
-      const merged: SystemConfig = {
-        ...current,
-        ...updates,
-        institute: { ...current.institute, ...updates.institute },
-        branding: { ...current.branding, ...updates.branding },
-        academic: { ...current.academic, ...updates.academic },
-        paymentGateway: { ...current.paymentGateway, ...updates.paymentGateway },
-        emailSms: { ...current.emailSms, ...updates.emailSms },
-        notifications: { ...current.notifications, ...updates.notifications },
-        security: { ...current.security, ...updates.security },
-        maintenance: { ...current.maintenance, ...updates.maintenance },
-        preferences: { ...current.preferences, ...updates.preferences },
-      };
-
-      setStorageItem(STORAGE_KEYS.SYSTEM_CONFIG, merged);
-
-      this.recordSystemAuditLog(
-        superAdmin,
-        'SYSTEM_CONFIG_UPDATED',
-        'system_config',
-        'Global System Configuration',
-        'Modified system parameters, security policies, and institutional settings.',
-        'SUCCESS'
-      );
-
-      return { success: true, data: merged, message: 'System configuration updated successfully.' };
-    }
-
+  /**
+   * Sends a real message through the server's SMTP settings. A failure or an
+   * unconfigured server is reported as such - never as a successful send.
+   */
+  /** CFG-20 maintenance mode, as saved on the server. */
+  async getMaintenance(): Promise<ApiResponse<{ enabled: boolean; message: string } | null>> {
     try {
-      const res = await apiClient.put('/super-admin/system-config', updates);
-      return { success: true, data: res.data?.data, message: res.data?.message || 'System configuration updated successfully.' };
+      const res = await apiClient.get('/super-admin/maintenance');
+      return { success: true, data: res.data?.data ?? null };
     } catch (err: any) {
-      const message = err?.response?.data?.message || err?.message || 'Failed to update system configuration.';
-      return { success: false, data: null as any, error: message };
+      return { success: false, data: null, error: decisionErrorMessage(err, 'Maintenance status could not be loaded.') };
+    }
+  },
+
+  async setMaintenance(enabled: boolean, message?: string): Promise<ApiResponse<{ enabled: boolean; message: string } | null>> {
+    try {
+      const res = await apiClient.put('/super-admin/maintenance', { enabled, ...(message ? { message } : {}) });
+      return { success: true, data: res.data?.data ?? null, message: res.data?.message };
+    } catch (err: any) {
+      return { success: false, data: null, error: decisionErrorMessage(err, 'Maintenance mode could not be changed.') };
     }
   },
 
   async testEmailConfiguration(
-    superAdmin: { id: string; name: string },
     recipientEmail: string
-  ): Promise<ApiResponse<{ sentTo: string; timestamp: string }>> {
-    if (USE_DEV_MOCKS) {
-      await sleep(500);
-      this.recordSystemAuditLog(
-        superAdmin,
-        'TEST_EMAIL_DISPATCHED',
-        'system_config',
-        `Email Test to ${recipientEmail}`,
-        'Verified SMTP server connectivity and handshake.',
-        'SUCCESS'
-      );
-      return {
-        success: true,
-        data: { sentTo: recipientEmail, timestamp: new Date().toISOString() },
-        message: `Test email sent to ${recipientEmail}. SMTP handshake verified.`,
-      };
-    }
-
+  ): Promise<ApiResponse<{ sentTo: string; messageId: string; sentAt: string }>> {
     try {
       const res = await apiClient.post('/super-admin/system-config/test-email', { recipientEmail });
-      return { success: true, data: res.data?.data, message: res.data?.message || 'Test email dispatched successfully.' };
+      return { success: true, data: res.data?.data, message: res.data?.message };
     } catch (err: any) {
-      const message = err?.response?.data?.message || err?.message || 'Failed to send test email.';
-      return { success: false, data: null as any, error: message };
+      return { success: false, data: null as any, error: decisionErrorMessage(err, 'The test email could not be sent.') };
     }
   },
 
@@ -733,11 +656,24 @@ export const superAdminService = {
 
     try {
       const res = await apiClient.get('/super-admin/refunds');
-      const items = res.data?.data?.items ?? res.data?.data ?? [];
-      return { success: true, data: Array.isArray(items) ? items : [] };
+      const items: BackendRefund[] = res.data?.data?.items ?? res.data?.data ?? [];
+      return { success: true, data: Array.isArray(items) ? items.map(fromBackendRefund) : [] };
     } catch (err: any) {
-      const message = err?.response?.data?.message || err?.message || 'Failed to fetch refund requests.';
+      const message = decisionErrorMessage(err, 'Failed to fetch refund requests.');
       return { success: false, data: [], error: message };
+    }
+  },
+
+  /** GET /admin/finance/refunds/:id (Super Admin): NXA_FinancialAuditHistory rows for the refund. */
+  async getRefundHistory(refundId: string): Promise<
+    ApiResponse<Array<{ id: string; actionType: string; reason?: string; performedByUserId: string; performedByName?: string; performedAt: string }>>
+  > {
+    try {
+      const res = await apiClient.get(`/admin/finance/refunds/${encodeURIComponent(refundId)}`);
+      const history = res.data?.data?.history;
+      return { success: true, data: Array.isArray(history) ? history : [] };
+    } catch (err: any) {
+      return { success: false, data: [], error: decisionErrorMessage(err, 'Refund history could not be loaded.') };
     }
   },
 
@@ -784,14 +720,17 @@ export const superAdminService = {
     }
 
     try {
-      const res = await apiClient.post(`/super-admin/refunds/${encodeURIComponent(refundId)}/approve`, { remarks });
+      const res = await apiClient.post(
+        `/super-admin/refunds/${encodeURIComponent(refundId)}/approve`,
+        remarks?.trim() ? { remarks: remarks.trim() } : {}
+      );
       return {
         success: true,
-        data: res.data?.data,
-        message: res.data?.message || 'Refund approved. Internal financial authorization recorded.',
+        data: fromBackendRefund(res.data?.data),
+        message: res.data?.message || 'Refund approved.',
       };
     } catch (err: any) {
-      const message = err?.response?.data?.message || err?.message || 'Failed to approve refund.';
+      const message = decisionErrorMessage(err, 'Failed to approve refund.');
       return { success: false, data: null as any, error: message };
     }
   },
@@ -834,14 +773,16 @@ export const superAdminService = {
     }
 
     try {
-      const res = await apiClient.post(`/super-admin/refunds/${encodeURIComponent(refundId)}/reject`, { mandatoryReason });
+      const res = await apiClient.post(`/super-admin/refunds/${encodeURIComponent(refundId)}/reject`, {
+        mandatoryReason: mandatoryReason.trim(),
+      });
       return {
         success: true,
-        data: res.data?.data,
+        data: fromBackendRefund(res.data?.data),
         message: res.data?.message || 'Refund request rejected.',
       };
     } catch (err: any) {
-      const message = err?.response?.data?.message || err?.message || 'Failed to reject refund.';
+      const message = decisionErrorMessage(err, 'Failed to reject refund.');
       return { success: false, data: null as any, error: message };
     }
   },
@@ -861,10 +802,10 @@ export const superAdminService = {
 
     try {
       const res = await apiClient.get('/super-admin/financial-overrides');
-      const items = res.data?.data?.items ?? res.data?.data ?? [];
-      return { success: true, data: Array.isArray(items) ? items : [] };
+      const items: BackendOverride[] = res.data?.data?.items ?? res.data?.data ?? [];
+      return { success: true, data: Array.isArray(items) ? items.map(fromBackendOverride) : [] };
     } catch (err: any) {
-      const message = err?.response?.data?.message || err?.message || 'Failed to fetch financial overrides.';
+      const message = decisionErrorMessage(err, 'Failed to fetch financial overrides.');
       return { success: false, data: [], error: message };
     }
   },
@@ -906,14 +847,17 @@ export const superAdminService = {
     }
 
     try {
-      const res = await apiClient.post(`/super-admin/financial-overrides/${encodeURIComponent(overrideId)}/approve`, { remarks });
+      const res = await apiClient.post(
+        `/super-admin/financial-overrides/${encodeURIComponent(overrideId)}/approve`,
+        remarks?.trim() ? { remarks: remarks.trim() } : {}
+      );
       return {
         success: true,
-        data: res.data?.data,
+        data: fromBackendOverride(res.data?.data),
         message: res.data?.message || 'Financial override approved.',
       };
     } catch (err: any) {
-      const message = err?.response?.data?.message || err?.message || 'Failed to approve financial override.';
+      const message = decisionErrorMessage(err, 'Failed to approve financial override.');
       return { success: false, data: null as any, error: message };
     }
   },
@@ -959,14 +903,16 @@ export const superAdminService = {
     }
 
     try {
-      const res = await apiClient.post(`/super-admin/financial-overrides/${encodeURIComponent(overrideId)}/reject`, { mandatoryReason });
+      const res = await apiClient.post(`/super-admin/financial-overrides/${encodeURIComponent(overrideId)}/reject`, {
+        mandatoryReason: mandatoryReason.trim(),
+      });
       return {
         success: true,
-        data: res.data?.data,
+        data: fromBackendOverride(res.data?.data),
         message: res.data?.message || 'Financial override rejected.',
       };
     } catch (err: any) {
-      const message = err?.response?.data?.message || err?.message || 'Failed to reject financial override.';
+      const message = decisionErrorMessage(err, 'Failed to reject financial override.');
       return { success: false, data: null as any, error: message };
     }
   },
@@ -974,120 +920,40 @@ export const superAdminService = {
   /**
    * 6. Global Roles and Permissions Management
    */
+  /**
+   * Roles from NXA_Roles. Creating roles and editing permissions are not
+   * offered until the verified permission catalog exists.
+   */
   async getGlobalRoles(): Promise<ApiResponse<GlobalRole[]>> {
-    if (USE_DEV_MOCKS) {
-      await sleep(150);
-      const roles = getStorageItem<GlobalRole[]>(STORAGE_KEYS.GLOBAL_ROLES, SEED_GLOBAL_ROLES);
-      return { success: true, data: roles };
-    }
-
     try {
       const res = await apiClient.get('/super-admin/roles');
-      const items = res.data?.data?.items ?? res.data?.data ?? [];
-      return { success: true, data: Array.isArray(items) ? items : [] };
-    } catch (err: any) {
-      const message = err?.response?.data?.message || err?.message || 'Failed to fetch global roles.';
-      return { success: false, data: [], error: message };
-    }
-  },
-
-  async createGlobalRole(
-    superAdmin: { id: string; name: string },
-    data: { name: string; slug: string; description: string; permissions: string[] }
-  ): Promise<ApiResponse<GlobalRole>> {
-    if (USE_DEV_MOCKS) {
-      await sleep(300);
-      const roles = getStorageItem<GlobalRole[]>(STORAGE_KEYS.GLOBAL_ROLES, SEED_GLOBAL_ROLES);
-      const slug = data.slug.toLowerCase().replace(/\s+/g, '_');
-
-      if (roles.some((r) => r.slug === slug)) {
-        return { success: false, data: null as any, error: 'A role with this identifier already exists.' };
-      }
-
-      const newRole: GlobalRole = {
-        id: `role-${Date.now()}`,
-        name: data.name,
-        slug,
-        description: data.description,
-        isSystemRole: false,
-        userCount: 0,
-        permissions: data.permissions,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-
-      setStorageItem(STORAGE_KEYS.GLOBAL_ROLES, [...roles, newRole]);
-
-      this.recordSystemAuditLog(
-        superAdmin,
-        'GLOBAL_ROLE_CREATED',
-        'roles_permissions',
-        `Role: ${newRole.name} (${newRole.slug})`,
-        `Created custom role with ${data.permissions.length} initial permissions.`,
-        'SUCCESS'
-      );
-
-      return { success: true, data: newRole, message: 'Custom role created successfully.' };
-    }
-
-    try {
-      const res = await apiClient.post('/super-admin/roles', data);
+      const items: Array<{
+        id: string;
+        roleCode: string;
+        roleName: string;
+        description?: string;
+        isSystemRole: boolean;
+        isActive: boolean;
+        permissions?: string[];
+        createdAt: string;
+      }> = res.data?.data ?? [];
       return {
         success: true,
-        data: res.data?.data,
-        message: res.data?.message || 'Custom role created successfully.',
+        data: Array.isArray(items)
+          ? items.map((r) => ({
+              id: r.id,
+              name: r.roleName,
+              slug: r.roleCode,
+              description: r.description ?? '',
+              isSystemRole: Boolean(r.isSystemRole),
+              isActive: Boolean(r.isActive),
+              permissions: Array.isArray(r.permissions) ? r.permissions : [],
+              createdAt: r.createdAt,
+            }))
+          : [],
       };
     } catch (err: any) {
-      const message = err?.response?.data?.message || err?.message || 'Failed to create global role.';
-      return { success: false, data: null as any, error: message };
-    }
-  },
-
-  async updateRolePermissions(
-    superAdmin: { id: string; name: string },
-    roleSlug: string,
-    permissions: string[]
-  ): Promise<ApiResponse<GlobalRole>> {
-    if (USE_DEV_MOCKS) {
-      await sleep(350);
-      const roles = getStorageItem<GlobalRole[]>(STORAGE_KEYS.GLOBAL_ROLES, SEED_GLOBAL_ROLES);
-      const idx = roles.findIndex((r) => r.slug === roleSlug);
-      if (idx === -1) return { success: false, data: null as any, error: 'Role not found.' };
-
-      if (roleSlug === 'super_admin') {
-        return {
-          success: false,
-          data: null as any,
-          error: 'Super Administrator root permissions cannot be revoked to safeguard administrative lockout.',
-        };
-      }
-
-      roles[idx].permissions = permissions;
-      roles[idx].updatedAt = new Date().toISOString();
-      setStorageItem(STORAGE_KEYS.GLOBAL_ROLES, roles);
-
-      this.recordSystemAuditLog(
-        superAdmin,
-        'ROLE_PERMISSIONS_UPDATED',
-        'roles_permissions',
-        `Role: ${roles[idx].name} (${roles[idx].slug})`,
-        `Updated permission matrix (${permissions.length} actions enabled).`,
-        'SUCCESS'
-      );
-
-      return { success: true, data: roles[idx], message: `Permissions for ${roles[idx].name} updated successfully.` };
-    }
-
-    try {
-      const res = await apiClient.put(`/super-admin/roles/${encodeURIComponent(roleSlug)}/permissions`, { permissions });
-      return {
-        success: true,
-        data: res.data?.data,
-        message: res.data?.message || `Permissions for ${roleSlug} updated successfully.`,
-      };
-    } catch (err: any) {
-      const message = err?.response?.data?.message || err?.message || 'Failed to update role permissions.';
-      return { success: false, data: null as any, error: message };
+      return { success: false, data: [], error: decisionErrorMessage(err, 'Failed to fetch roles.') };
     }
   },
 
@@ -1103,8 +969,8 @@ export const superAdminService = {
 
     try {
       const res = await apiClient.get('/super-admin/audit-logs');
-      const items = res.data?.data?.items ?? res.data?.data ?? [];
-      return { success: true, data: Array.isArray(items) ? items : [] };
+      const items: BackendAuditLog[] = res.data?.data?.items ?? res.data?.data ?? [];
+      return { success: true, data: Array.isArray(items) ? items.map(fromBackendAuditLog) : [] };
     } catch (err: any) {
       const message = err?.response?.data?.message || err?.message || 'Failed to fetch audit logs.';
       return { success: false, data: [], error: message };

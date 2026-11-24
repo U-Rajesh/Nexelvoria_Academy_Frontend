@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Layers,
   BookOpen,
@@ -25,6 +25,18 @@ interface AdminCourseSyllabusEditorModalProps {
   onSaved: () => void;
 }
 
+/** ISO instant -> value for a datetime-local input (the editor's local time). */
+const toLocalInput = (iso?: string | null): string => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
+/** datetime-local value -> absolute ISO instant (the server stores an instant, so no time-zone rule is needed). */
+const fromLocalInput = (value: string): string | null => (value ? new Date(value).toISOString() : null);
+
 export const AdminCourseSyllabusEditorModal: React.FC<AdminCourseSyllabusEditorModalProps> = ({
   isOpen,
   onClose,
@@ -34,9 +46,35 @@ export const AdminCourseSyllabusEditorModal: React.FC<AdminCourseSyllabusEditorM
   const { user } = useAuth();
   const { showToast } = useNotification();
 
-  const [modules, setModules] = useState<CourseModule[]>(course.modules || []);
-  const [activeModuleId, setActiveModuleId] = useState<string>(course.modules[0]?.id || '');
+  const [modules, setModules] = useState<CourseModule[]>([]);
+  const [activeModuleId, setActiveModuleId] = useState<string>('');
   const [isSaving, setIsSaving] = useState(false);
+  const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [loadError, setLoadError] = useState<string | null>(null);
+  /** D9 course settings: starting values for NEW lessons only (undefined = never saved). */
+  const [lessonDefaults, setLessonDefaults] = useState<{ sequentialUnlock?: boolean; downloadAllowed?: boolean }>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    adminService.getInstituteSettings().then((res) => {
+      if (cancelled || !res.success) return;
+      setLessonDefaults({ sequentialUnlock: res.data.defaultLessonSequentialUnlock, downloadAllowed: res.data.defaultLessonDownloadAllowed });
+    });
+    adminService.getCourseById(course.id).then((res) => {
+      if (cancelled) return;
+      if (res.success && res.data) {
+        setModules(res.data.modules || []);
+        setActiveModuleId(res.data.modules?.[0]?.id || '');
+        setLoadState('ready');
+      } else {
+        setLoadError(res.error || 'The curriculum could not be loaded.');
+        setLoadState('error');
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [course.id]);
 
   // Module Modal / Form state
   const [moduleModalOpen, setModuleModalOpen] = useState(false);
@@ -61,21 +99,28 @@ export const AdminCourseSyllabusEditorModal: React.FC<AdminCourseSyllabusEditorM
     pdfUrl: string;
     studyMaterialText: string;
     isFreePreview: boolean;
+    /** LMS-004 */
+    isSequentialUnlock: boolean;
+    /** LMS-005: value of a datetime-local input (the editor's local time), '' = available now. */
+    publishAtLocal: string;
   }>({
     title: '',
     durationMinutes: 45,
     lessonType: 'video',
-    videoUrl: 'https://www.youtube.com/embed/dQw4w9WgXcQ',
+    videoUrl: '',
     pdfUrl: '',
     studyMaterialText: '',
     isFreePreview: false,
+    isSequentialUnlock: false,
+    publishAtLocal: '',
   });
 
   const activeModule = modules.find((m) => m.id === activeModuleId) || modules[0];
 
   // Save full curriculum
   const handleSaveCurriculum = async () => {
-    if (!user) return;
+    // Never save unless the stored curriculum was loaded first.
+    if (!user || loadState !== 'ready') return;
     setIsSaving(true);
     const res = await adminService.updateCourseCurriculum(
       { id: user.id, name: user.name },
@@ -216,10 +261,12 @@ export const AdminCourseSyllabusEditorModal: React.FC<AdminCourseSyllabusEditorM
       title: '',
       durationMinutes: 45,
       lessonType: 'video',
-      videoUrl: 'https://www.youtube.com/embed/dQw4w9WgXcQ',
+      videoUrl: '',
       pdfUrl: '',
       studyMaterialText: '',
       isFreePreview: false,
+      isSequentialUnlock: lessonDefaults.sequentialUnlock ?? false,
+      publishAtLocal: '',
     });
     setLessonModalOpen(true);
   };
@@ -235,6 +282,8 @@ export const AdminCourseSyllabusEditorModal: React.FC<AdminCourseSyllabusEditorM
       pdfUrl: les.pdfUrl || '',
       studyMaterialText: les.studyMaterialText || '',
       isFreePreview: !!les.isFreePreview,
+      isSequentialUnlock: !!les.isSequentialUnlock,
+      publishAtLocal: toLocalInput(les.publishAt),
     });
     setLessonModalOpen(true);
   };
@@ -262,6 +311,8 @@ export const AdminCourseSyllabusEditorModal: React.FC<AdminCourseSyllabusEditorM
                       pdfUrl: lessonForm.pdfUrl,
                       studyMaterialText: lessonForm.studyMaterialText,
                       isFreePreview: lessonForm.isFreePreview,
+                      isSequentialUnlock: lessonForm.isSequentialUnlock,
+                      publishAt: fromLocalInput(lessonForm.publishAtLocal),
                     }
                   : les
               ),
@@ -277,7 +328,11 @@ export const AdminCourseSyllabusEditorModal: React.FC<AdminCourseSyllabusEditorM
               pdfUrl: lessonForm.pdfUrl,
               studyMaterialText: lessonForm.studyMaterialText,
               isFreePreview: lessonForm.isFreePreview,
+              isSequentialUnlock: lessonForm.isSequentialUnlock,
+              publishAt: fromLocalInput(lessonForm.publishAtLocal),
               order: ch.lessons.length + 1,
+              // D9: the saved download default applies to new lessons only.
+              ...(lessonDefaults.downloadAllowed === undefined ? {} : { isDownloadRestricted: !lessonDefaults.downloadAllowed }),
             };
             return { ...ch, lessons: [...ch.lessons, newLes] };
           }
@@ -309,6 +364,11 @@ export const AdminCourseSyllabusEditorModal: React.FC<AdminCourseSyllabusEditorM
         title={`Curriculum & Syllabus Authoring: ${course.title}`}
         size="xl"
       >
+        {loadState !== 'ready' ? (
+          <div className="p-6 text-sm text-slate-600">
+            {loadState === 'loading' ? 'Loading curriculum…' : <span className="text-rose-700">{loadError}</span>}
+          </div>
+        ) : (
         <div className="space-y-6">
           {/* Header Info */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-slate-50 border border-slate-200 rounded-xl">
@@ -563,6 +623,7 @@ export const AdminCourseSyllabusEditorModal: React.FC<AdminCourseSyllabusEditorM
             </div>
           </div>
         </div>
+        )}
       </Modal>
 
       {/* 1. Add / Edit Module Modal */}
@@ -723,30 +784,33 @@ export const AdminCourseSyllabusEditorModal: React.FC<AdminCourseSyllabusEditorM
             </div>
           </div>
 
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Reference PDF / Lab Notes URL
-            </label>
-            <input
-              type="url"
-              value={lessonForm.pdfUrl}
-              onChange={(e) => setLessonForm({ ...lessonForm, pdfUrl: e.target.value })}
-              placeholder="https://example.com/handouts/lab-01.pdf"
-              className="w-full text-xs px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500"
-            />
+          <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 text-[11px] text-slate-600">
+            Lesson PDFs and lecture notes cannot be saved yet: the lesson table has no columns for them. Upload
+            study materials from the course materials screen once file storage is configured.
           </div>
 
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Lecture Notes & Key Takeaways
+          {/* LMS-004 / LMS-005: enforced by the server for every student lesson action */}
+          <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-xl space-y-2 text-xs text-indigo-950">
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={lessonForm.isSequentialUnlock}
+                onChange={(e) => setLessonForm({ ...lessonForm, isSequentialUnlock: e.target.checked })}
+                className="h-4 w-4 mt-0.5"
+              />
+              <span>
+                <strong>Unlock in sequence:</strong> students can open this lesson only after completing the previous lesson.
+              </span>
             </label>
-            <textarea
-              rows={3}
-              value={lessonForm.studyMaterialText}
-              onChange={(e) => setLessonForm({ ...lessonForm, studyMaterialText: e.target.value })}
-              placeholder="Structured study notes for students..."
-              className="w-full text-xs px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500"
-            />
+            <label className="block">
+              <strong>Available from</strong> (optional, your local time):
+              <input
+                type="datetime-local"
+                value={lessonForm.publishAtLocal}
+                onChange={(e) => setLessonForm({ ...lessonForm, publishAtLocal: e.target.value })}
+                className="ml-2 px-2 py-1 border border-indigo-200 rounded"
+              />
+            </label>
           </div>
 
           {/* BR-003 Free Preview Flag */}

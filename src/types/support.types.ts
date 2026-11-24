@@ -12,6 +12,8 @@ export interface TicketMessage {
   message: string;
   sentAt: string;
   attachmentUrl?: string;
+  /** Staff-only note (never shown to the student). */
+  isInternal?: boolean;
 }
 
 export interface SupportTicket {
@@ -27,6 +29,10 @@ export interface SupportTicket {
   createdAt: string;
   updatedAt: string;
   assignedAdminId?: string;
+  /** Backend fields (live API): category name, assignee name, original message. */
+  categoryName?: string;
+  assignedAdminName?: string;
+  description?: string;
   messages: TicketMessage[];
 }
 

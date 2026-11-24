@@ -33,7 +33,8 @@ export interface RefundRequest {
   courseTitle: string;
   amountINR: number;
   reason: string;
-  status: 'pending_super_admin' | 'approved' | 'rejected';
+  /** `completed` is set by the payment module once the gateway refund settles. */
+  status: 'pending_super_admin' | 'approved' | 'rejected' | 'completed';
   requestedAt: string;
   decidedAt?: string;
   decidedBySuperAdminId?: string;
@@ -49,5 +50,9 @@ export interface CouponDiscount {
   applicableCourseIds: string[]; // empty for all courses
   isActive: boolean;
   validUntil: string;
+  /** From the server (NXA_Coupons): null/undefined means no limit. */
+  usageCount?: number;
+  usageLimit?: number | null;
+  perUserLimit?: number | null;
 }
 

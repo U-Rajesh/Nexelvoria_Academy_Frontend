@@ -1,26 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import {
-  UserCheck,
   CheckCircle2,
-  XCircle,
-  School,
   Mail,
   Phone,
-  Calendar,
   FileText,
-  Download,
-  Eye,
-  ExternalLink,
-  ShieldCheck,
   AlertTriangle,
-  User,
   MapPin,
-  Clock,
-  Sparkles,
   AlertCircle,
 } from 'lucide-react';
-import { getStorageItem } from '../../utils/storage';
-import { STORAGE_KEYS } from '../../constants/appConfig';
 import { adminService } from '../../services/adminService';
 import { useAuth } from '../../context/AuthContext';
 import { useNotification } from '../../context/NotificationContext';
@@ -38,7 +25,6 @@ export const AdminStudentApprovalsPage: React.FC = () => {
 
   const [students, setStudents] = useState<StudentProfile[]>([]);
   const [rejectingStudent, setRejectingStudent] = useState<StudentProfile | null>(null);
-  const [previewingResumeStudent, setPreviewingResumeStudent] = useState<StudentProfile | null>(null);
   const [rejectRemarks, setRejectRemarks] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [activeTab, setActiveTab] = useState<'pending' | 'all'>('pending');
@@ -77,18 +63,14 @@ export const AdminStudentApprovalsPage: React.FC = () => {
   const handleApprove = async (student: StudentProfile) => {
     if (!user) return;
     setIsProcessing(true);
-    const res = await adminService.approveStudentRegistration(
-      { id: user.id, name: user.name },
-      student.id,
-      'Approved: Academic credentials & resume verified against enrollment requirements (BR-002).'
-    );
+    const res = await adminService.approveStudentRegistration({ id: user.id, name: user.name }, student.id);
     setIsProcessing(false);
 
     if (res.success) {
       showToast({
         type: 'success',
         title: 'Registration Approved',
-        message: `${student.name} is now approved. Course selection and fee payment unlocked. (SRS Rule BR-002)`,
+        message: `${student.name} is approved: they now have full access to select courses and pay (BR-002). No separate activation is needed.`,
       });
       void loadStudents();
     } else {
@@ -239,15 +221,12 @@ export const AdminStudentApprovalsPage: React.FC = () => {
                             Registration Rejected
                           </Badge>
                         )}
-                        {student.isEmailVerified && student.isMobileVerified ? (
-                          <Badge variant="info" size="sm">
-                            Dual OTP Verified (BR-001)
-                          </Badge>
-                        ) : (
-                          <Badge variant="neutral" size="sm">
-                            Unverified OTP
-                          </Badge>
-                        )}
+                        <Badge variant={student.isEmailVerified ? 'info' : 'neutral'} size="sm">
+                          Email {student.isEmailVerified ? 'verified' : 'not verified'}
+                        </Badge>
+                        <Badge variant={student.isMobileVerified ? 'info' : 'neutral'} size="sm">
+                          {student.isMobileVerified ? 'Mobile verified' : 'Mobile verification deferred (CL-001)'}
+                        </Badge>
                       </div>
                       <p className="text-xs text-slate-500 mt-0.5">
                         Registered on {formatDate(student.createdAt)} • ID:{' '}
@@ -258,16 +237,6 @@ export const AdminStudentApprovalsPage: React.FC = () => {
 
                   {/* Actions */}
                   <div className="flex flex-wrap items-center gap-2 shrink-0">
-                    {/* Resume Inspection Button */}
-                    <button
-                      type="button"
-                      onClick={() => setPreviewingResumeStudent(student)}
-                      className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 flex items-center gap-1.5 transition-colors cursor-pointer"
-                    >
-                      <FileText className="h-3.5 w-3.5 text-indigo-600" />
-                      <span>Inspect Resume</span>
-                    </button>
-
                     {isPending && (
                       <>
                         <Button
@@ -286,12 +255,18 @@ export const AdminStudentApprovalsPage: React.FC = () => {
                           variant="primary"
                           size="sm"
                           onClick={() => handleApprove(student)}
-                          disabled={isProcessing}
+                          disabled={isProcessing || !student.isEmailVerified}
+                          title={student.isEmailVerified ? undefined : 'Approval requires a verified email (BR-001, CL-001)'}
                           leftIcon={<CheckCircle2 className="h-4 w-4" />}
                         >
                           Approve Candidate
                         </Button>
                       </>
+                    )}
+                    {isPending && !student.isEmailVerified && (
+                      <p className="basis-full text-[11px] text-amber-700 text-right">
+                        Approval unlocks after the student verifies their email.
+                      </p>
                     )}
                   </div>
                 </div>
@@ -304,10 +279,10 @@ export const AdminStudentApprovalsPage: React.FC = () => {
                       Academic Education
                     </span>
                     <p className="font-semibold text-slate-900 truncate" title={student.collegeName}>
-                      {student.collegeName || 'Osmania University'}
+                      {student.collegeName || 'Not provided'}
                     </p>
                     <p className="text-slate-500">
-                      {student.degreeBranch || 'B.Tech CSE'} (Graduation: {student.passingYear || '2025'})
+                      {student.degreeBranch || 'Degree not provided'} (Graduation: {student.passingYear || 'not provided'})
                     </p>
                   </div>
 
@@ -317,10 +292,10 @@ export const AdminStudentApprovalsPage: React.FC = () => {
                       Target Course & Details
                     </span>
                     <p className="font-semibold text-indigo-700 truncate" title={student.courseInterestedIn}>
-                      {student.courseInterestedIn || 'Full Stack Development'}
+                      {student.courseInterestedIn || 'Not specified'}
                     </p>
                     <p className="text-slate-500">
-                      DOB: {student.dateOfBirth || '2002-08-15'} • Gender: {student.gender || 'Prefer not to say'}
+                      DOB: {student.dateOfBirth || 'not provided'} • Gender: {student.gender || 'not provided'}
                     </p>
                   </div>
 
@@ -349,14 +324,11 @@ export const AdminStudentApprovalsPage: React.FC = () => {
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
                       Uploaded Documents & Links
                     </span>
-                    <div className="flex items-center gap-2">
-                      <div className="flex items-center gap-1 text-[11px] font-medium text-slate-800 bg-slate-100 px-2 py-0.5 rounded">
-                        <FileText className="h-3 w-3 text-indigo-500" />
-                        <span className="truncate max-w-[110px]" title={student.resumeFileName || 'Student_CV.pdf'}>
-                          {student.resumeFileName || 'Student_CV.pdf'}
-                        </span>
-                      </div>
-                      <span className="text-[10px] text-slate-400">({student.resumeFileSize || '1.5 MB'})</span>
+                    <div className="flex items-center gap-1 text-[11px] font-medium text-slate-800">
+                      <FileText className="h-3 w-3 text-indigo-500" />
+                      <span className="truncate max-w-[160px]" title={student.resumeFileName || undefined}>
+                        {student.resumeFileName || 'No resume on file'}
+                      </span>
                     </div>
 
                     <div className="flex items-center gap-2 pt-0.5">
@@ -409,126 +381,6 @@ export const AdminStudentApprovalsPage: React.FC = () => {
         </div>
       )}
 
-      {/* Resume Inspection Modal */}
-      <Modal
-        isOpen={!!previewingResumeStudent}
-        onClose={() => setPreviewingResumeStudent(null)}
-        title={`Candidate Resume: ${previewingResumeStudent?.name}`}
-        size="md"
-      >
-        {previewingResumeStudent && (
-          <div className="space-y-4 text-xs">
-            {/* Meta Header */}
-            <div className="p-3.5 bg-indigo-50/70 border border-indigo-100 rounded-xl flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="h-9 w-9 rounded-lg bg-indigo-600 text-white flex items-center justify-center font-bold">
-                  PDF
-                </div>
-                <div>
-                  <p className="font-bold text-slate-900">
-                    {previewingResumeStudent.resumeFileName || 'Resume_Document.pdf'}
-                  </p>
-                  <p className="text-[11px] text-slate-500">
-                    Size: {previewingResumeStudent.resumeFileSize || '1.8 MB'} • Uploaded during registration
-                  </p>
-                </div>
-              </div>
-
-              <a
-                href={previewingResumeStudent.resumeDataUrl || '#'}
-                download={previewingResumeStudent.resumeFileName || 'Candidate_Resume.pdf'}
-                onClick={(e) => {
-                  if (!previewingResumeStudent.resumeDataUrl) {
-                    e.preventDefault();
-                    showToast({
-                      type: 'info',
-                      title: 'Simulated File Download',
-                      message: `Initiating secure download for ${previewingResumeStudent.name}'s resume document.`,
-                    });
-                  }
-                }}
-                className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-semibold flex items-center gap-1.5 transition-colors shadow-xs"
-              >
-                <Download className="h-3.5 w-3.5" />
-                <span>Download</span>
-              </a>
-            </div>
-
-            {/* Document Preview Frame (Simulated Paper Document) */}
-            <div className="p-5 bg-white border border-slate-300 rounded-xl shadow-inner space-y-4 max-h-[380px] overflow-y-auto">
-              <div className="text-center border-b border-slate-200 pb-3">
-                <h3 className="text-base font-bold text-slate-900">{previewingResumeStudent.name}</h3>
-                <p className="text-[11px] text-slate-600">
-                  {previewingStudentContact(previewingResumeStudent)}
-                </p>
-              </div>
-
-              {/* Education section */}
-              <div className="space-y-1">
-                <h4 className="font-bold text-[11px] uppercase tracking-wider text-indigo-700 border-b border-slate-100 pb-1">
-                  Education & Academic Credentials
-                </h4>
-                <div className="flex justify-between font-semibold text-slate-800">
-                  <span>{previewingResumeStudent.collegeName || 'Osmania University College of Engineering'}</span>
-                  <span>{previewingResumeStudent.passingYear || '2025'}</span>
-                </div>
-                <p className="text-slate-600">{previewingResumeStudent.degreeBranch || 'B.Tech in Computer Science'}</p>
-              </div>
-
-              {/* Course Objective */}
-              <div className="space-y-1">
-                <h4 className="font-bold text-[11px] uppercase tracking-wider text-indigo-700 border-b border-slate-100 pb-1">
-                  Target Course & Specialization
-                </h4>
-                <p className="text-slate-700">
-                  Seeking intensive career advancement in{' '}
-                  <strong>{previewingResumeStudent.courseInterestedIn || 'Full Stack Software Development'}</strong>.
-                </p>
-              </div>
-
-              {/* Skills summary */}
-              <div className="space-y-1">
-                <h4 className="font-bold text-[11px] uppercase tracking-wider text-indigo-700 border-b border-slate-100 pb-1">
-                  Technical Foundation
-                </h4>
-                <p className="text-slate-600 leading-relaxed">
-                  JavaScript, TypeScript, React, Python, Data Structures & Algorithms, Git, REST APIs, SQL Databases.
-                </p>
-              </div>
-
-              {/* Verification status stamp */}
-              <div className="pt-2 flex items-center justify-between text-[11px] text-slate-400 border-t border-slate-100">
-                <span className="flex items-center gap-1 text-emerald-700 font-semibold">
-                  <ShieldCheck className="h-3.5 w-3.5" />
-                  Dual OTP Verified Candidate (BR-001)
-                </span>
-                <span className="font-mono">Nexelvoria Admissions Registry</span>
-              </div>
-            </div>
-
-            {/* Quick Action Footer */}
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-              <Button variant="outline" size="sm" onClick={() => setPreviewingResumeStudent(null)}>
-                Close Preview
-              </Button>
-              {previewingResumeStudent.adminApprovalStatus === 'pending' && (
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={() => {
-                    handleApprove(previewingResumeStudent);
-                    setPreviewingResumeStudent(null);
-                  }}
-                  leftIcon={<CheckCircle2 className="h-4 w-4" />}
-                >
-                  Approve Application
-                </Button>
-              )}
-            </div>
-          </div>
-        )}
-      </Modal>
-
       {/* Reject Remarks Modal */}
       <Modal
         isOpen={!!rejectingStudent}
@@ -562,9 +414,3 @@ export const AdminStudentApprovalsPage: React.FC = () => {
     </div>
   );
 };
-
-function previewingStudentContact(s: StudentProfile): string {
-  const parts = [s.email, `+91 ${s.mobile}`];
-  if (s.fullAddress) parts.push(s.fullAddress.split(',')[0]);
-  return parts.join(' • ');
-}

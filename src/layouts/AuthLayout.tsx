@@ -1,4 +1,5 @@
 import React from 'react';
+import { MaintenanceNotice } from '../components/common/MaintenanceNotice';
 import { Outlet, Link } from 'react-router-dom';
 import { GraduationCap, ShieldCheck, Award, Users, CheckCircle2 } from 'lucide-react';
 import { APP_CONFIG } from '../constants/appConfig';
@@ -6,6 +7,7 @@ import { APP_CONFIG } from '../constants/appConfig';
 export const AuthLayout: React.FC = () => {
   return (
     <div className="min-h-screen flex flex-col lg:flex-row bg-slate-50 antialiased">
+      <MaintenanceNotice />
       {/* Left Marketing Banner (Desktop) */}
       <div className="lg:w-1/2 bg-slate-900 text-white p-8 lg:p-14 flex flex-col justify-between relative overflow-hidden">
         {/* Subtle decorative glow */}

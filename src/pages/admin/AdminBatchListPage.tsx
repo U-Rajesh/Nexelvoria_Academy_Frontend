@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import {
-  Calendar,
   Plus,
   Clock,
   Video,
@@ -48,10 +47,9 @@ export const AdminBatchListPage: React.FC = () => {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [maxCapacity, setMaxCapacity] = useState(40);
-  const [meetingUrl, setMeetingUrl] = useState('');
   const [assignedTeacherId, setAssignedTeacherId] = useState('');
   const [assistantTeacherId, setAssistantTeacherId] = useState('');
-  const [status, setStatus] = useState<BatchStatus>('ongoing');
+  const [status, setStatus] = useState<BatchStatus>('upcoming');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const loadData = async () => {
@@ -61,13 +59,13 @@ export const AdminBatchListPage: React.FC = () => {
       adminService.getTeachers(),
     ]);
     if (bRes.success) setBatches(bRes.data);
+    else showToast({ type: 'error', title: 'Could not load batches', message: bRes.error || 'Please retry.' });
     if (cRes.success) {
       setCourses(cRes.data);
       if (cRes.data.length > 0 && !courseId) setCourseId(cRes.data[0].id);
     }
     if (tRes.success) {
       setTeachers(tRes.data);
-      if (tRes.data.length > 0 && !assignedTeacherId) setAssignedTeacherId(tRes.data[0].id);
     }
   };
 
@@ -90,12 +88,12 @@ export const AdminBatchListPage: React.FC = () => {
     setEndTime('09:30');
     setTimezone('IST');
     setScheduleDays(['Mon', 'Tue', 'Wed', 'Thu', 'Fri']);
-    setMeetingUrl('https://meet.google.com/nex-batch-live');
     setStartDate(new Date().toISOString().split('T')[0]);
     const futureDate = new Date();
     futureDate.setMonth(futureDate.getMonth() + 6);
     setEndDate(futureDate.toISOString().split('T')[0]);
-    setStatus('ongoing');
+    setStatus('upcoming');
+    setAssistantTeacherId('');
     setIsModalOpen(true);
   };
 
@@ -112,7 +110,6 @@ export const AdminBatchListPage: React.FC = () => {
     setStartDate(b.startDate);
     setEndDate(b.endDate);
     setMaxCapacity(b.maxCapacity ?? 40);
-    setMeetingUrl(b.meetingUrl || '');
     setAssignedTeacherId(b.assignedTeacherIds[0] || '');
     setAssistantTeacherId(b.assignedTeacherIds[1] || '');
     setStatus(b.status);
@@ -134,63 +131,79 @@ export const AdminBatchListPage: React.FC = () => {
       ? scheduleTiming
       : `${scheduleDays.join('-')} ${startTime} - ${endTime} ${timezone}`;
 
+    const admin = { id: user.id, name: user.name };
+    const problems: string[] = [];
+
+    let saved: Batch | null = null;
     if (editingBatch) {
-      const res = await adminService.updateBatch({ id: user.id, name: user.name }, editingBatch.id, {
+      const res = await adminService.updateBatch(admin, editingBatch.id, {
         name,
-        batchCode,
         scheduleTiming: formattedTiming,
-        startTime,
-        endTime,
-        timezone,
-        scheduleDays,
         startDate,
         endDate,
         maxCapacity,
-        meetingUrl,
-        assignedTeacherIds: teacherIds,
-        primaryTeacherId: assignedTeacherId,
-        assistantTeacherId: assistantTeacherId || undefined,
-        status,
       });
-      setIsSubmitting(false);
-      if (res.success) {
-        showToast({ type: 'success', title: 'Batch Updated', message: res.message || 'Batch updated.' });
-        setIsModalOpen(false);
-        loadData();
+      if (!res.success) {
+        setIsSubmitting(false);
+        showToast({ type: 'error', title: 'Update failed', message: res.error || 'Could not update the batch.' });
+        return;
       }
+      saved = res.data;
     } else {
-      const res = await adminService.createBatch(
-        { id: user.id, name: user.name },
-        {
-          courseId,
-          courseName: courseObj?.title || 'Course Program',
-          name,
-          batchCode,
-          scheduleTiming: formattedTiming,
-          startTime,
-          endTime,
-          timezone,
-          scheduleDays,
-          startDate,
-          endDate,
-          maxCapacity,
-          meetingUrl,
-          assignedTeacherIds: teacherIds,
-          primaryTeacherId: assignedTeacherId,
-          assistantTeacherId: assistantTeacherId || undefined,
-          status,
-        }
-      );
-      setIsSubmitting(false);
-      if (res.success) {
-        showToast({
-          type: 'success',
-          title: 'Batch Created',
-          message: `${name} (${batchCode}) cohort created. (ADM-007)`,
-        });
-        setIsModalOpen(false);
-        loadData();
+      const res = await adminService.createBatch(admin, {
+        courseId,
+        courseName: courseObj?.title || '',
+        name,
+        batchCode,
+        scheduleTiming: formattedTiming,
+        startDate,
+        endDate,
+        maxCapacity,
+        assignedTeacherIds: [],
+        status: 'upcoming',
+      });
+      if (!res.success) {
+        setIsSubmitting(false);
+        showToast({ type: 'error', title: 'Batch not created', message: res.error || 'Could not create the batch.' });
+        return;
       }
+      saved = res.data;
+    }
+
+    // Status is changed through its own endpoint.
+    if (saved && saved.status !== status) {
+      const st = await adminService.updateBatchStatus(admin, saved.id, status);
+      if (!st.success) problems.push(`status: ${st.error}`);
+    }
+
+    // Allocations are (course, batch, teacher) triples managed by their own endpoints.
+    if (saved) {
+      const before = editingBatch?.assignedTeacherIds ?? [];
+      for (const tId of teacherIds.filter((t) => !before.includes(t))) {
+        const r = await adminService.allocateTeacher(admin, tId, saved.courseId, saved.id);
+        if (!r.success) problems.push(`allocate ${teachers.find((t) => t.id === tId)?.name ?? tId}: ${r.error}`);
+      }
+      for (const tId of before.filter((t) => !teacherIds.includes(t))) {
+        const r = await adminService.unallocateTeacher(admin, tId, saved.id);
+        if (!r.success) problems.push(`remove ${teachers.find((t) => t.id === tId)?.name ?? tId}: ${r.error}`);
+      }
+    }
+
+    setIsSubmitting(false);
+    setIsModalOpen(false);
+    loadData();
+    if (problems.length > 0) {
+      showToast({
+        type: 'warning',
+        title: editingBatch ? 'Batch updated with issues' : 'Batch created with issues',
+        message: problems.join(' | '),
+      });
+    } else {
+      showToast({
+        type: 'success',
+        title: editingBatch ? 'Batch Updated' : 'Batch Created',
+        message: `${name} (${batchCode}) saved.`,
+      });
     }
   };
 
@@ -258,19 +271,19 @@ export const AdminBatchListPage: React.FC = () => {
       header: 'Seat Capacity',
       sortable: true,
       render: (b) => {
-        const count = b.enrolledStudentIds?.length || 0;
-        const capacity = b.maxCapacity ?? 40;
-        const isFull = count >= capacity;
+        const count = b.enrolledCount ?? b.enrolledStudentIds?.length ?? 0;
+        const capacity = b.maxCapacity;
+        const isFull = capacity !== undefined && count >= capacity;
         return (
           <div className="min-w-[90px]">
             <div className="flex justify-between text-[11px] font-bold text-slate-700">
-              <span>{count} / {capacity}</span>
+              <span>{count} / {capacity ?? '—'}</span>
               {isFull && <span className="text-rose-500 text-[10px]">FULL</span>}
             </div>
             <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden mt-0.5">
               <div
                 className={`h-full rounded-full ${isFull ? 'bg-rose-500' : 'bg-emerald-500'}`}
-                style={{ width: `${Math.min(100, (count / capacity) * 100)}%` }}
+                style={{ width: capacity ? `${Math.min(100, (count / capacity) * 100)}%` : '0%' }}
               />
             </div>
           </div>
@@ -500,8 +513,6 @@ export const AdminBatchListPage: React.FC = () => {
                 >
                   <option value="upcoming">Upcoming</option>
                   <option value="ongoing">Ongoing</option>
-                  <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
                   <option value="completed">Completed</option>
                   <option value="cancelled">Cancelled</option>
                 </select>
@@ -663,20 +674,9 @@ export const AdminBatchListPage: React.FC = () => {
               </div>
             </div>
 
-            <div>
-              <label className="block font-semibold text-slate-800 mb-1">
-                Manual Live Meeting Link (Google Meet / Zoom URL - BR-015)
-              </label>
-              <input
-                type="url"
-                placeholder="https://meet.google.com/abc-defg-hij"
-                value={meetingUrl}
-                onChange={(e) => setMeetingUrl(e.target.value)}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
-              />
-              <p className="text-[11px] text-slate-400 mt-1">
-                Per rule BR-015, instructors and students launch live lectures via this manual link.
-              </p>
+            <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 text-[11px] text-slate-600">
+              Manual meeting links (BR-015) cannot be saved yet: the batch table has no meeting-link column. This
+              field will be enabled once the database change is approved.
             </div>
 
             <div className="pt-4 flex justify-end gap-3 border-t border-slate-100">

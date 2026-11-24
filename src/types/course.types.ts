@@ -14,6 +14,10 @@ export interface Lesson {
   order: number;
   isLocked?: boolean;
   isDownloadRestricted?: boolean; // LMS-006: Study materials download permission control (Read-Only)
+  /** LMS-004: the lesson opens only after the previous lesson is completed (enforced by the server). */
+  isSequentialUnlock?: boolean;
+  /** LMS-005: ISO instant before which students cannot open the lesson (enforced by the server). */
+  publishAt?: string | null;
 }
 
 export interface Chapter {
@@ -78,9 +82,13 @@ export interface Batch {
   endTime?: string; // e.g. "09:30"
   timezone?: string; // e.g. "IST"
   assignedTeacherIds: string[];
+  /** Names of the allocated teachers, aligned with assignedTeacherIds (from the API). */
+  assignedTeacherNames?: string[];
   primaryTeacherId?: string;
   assistantTeacherId?: string;
   enrolledStudentIds: string[];
+  /** Non-cancelled enrollment count from the API (the list does not return ids). */
+  enrolledCount?: number;
   status: BatchStatus;
   maxCapacity?: number; // Pending final confirmation per SRS (TBD default 40)
   meetingUrl?: string; // Manually configured meeting link (BR-015)

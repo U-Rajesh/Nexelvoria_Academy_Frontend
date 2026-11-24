@@ -1,14 +1,16 @@
 export interface CertificateRecord {
   id: string;
   certificateNumber: string; // e.g. "NEX-2026-FSD-0042"
-  studentId: string;
+  /** Not returned by public verification. */
+  studentId?: string;
   studentName: string;
   courseId: string;
   courseTitle: string;
   issueDate: string;
   completionDate: string;
   attendancePercentage: number;
-  examScorePercentage: number;
+  /** No exam score is stored on certificates; absent unless a real value exists. */
+  examScorePercentage?: number;
   status: 'valid' | 'revoked';
   qrVerificationUrl: string;
   templateId: 'standard_dark' | 'executive_gold' | 'minimal_blue';

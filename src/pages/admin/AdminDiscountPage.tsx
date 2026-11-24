@@ -4,7 +4,6 @@ import {
   Plus,
   Tag,
   Copy,
-  Trash2,
   Calendar,
   CheckCircle2,
   BookOpen,
@@ -20,14 +19,13 @@ import { Badge } from '../../components/common/Badge';
 import { DataTable, type Column } from '../../components/tables/DataTable';
 import { Modal } from '../../components/feedback/Modal';
 import { Card } from '../../components/common/Card';
-import type { CouponDiscount, Course } from '../../types';
+import type { CouponDiscount } from '../../types';
 
 export const AdminDiscountPage: React.FC = () => {
   const { user } = useAuth();
   const { showToast } = useNotification();
 
   const [discounts, setDiscounts] = useState<CouponDiscount[]>([]);
-  const [courses, setCourses] = useState<Course[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   // Form State
@@ -35,17 +33,24 @@ export const AdminDiscountPage: React.FC = () => {
   const [description, setDescription] = useState('');
   const [discountType, setDiscountType] = useState<'percentage' | 'fixed_amount'>('fixed_amount');
   const [value, setValue] = useState(5000);
-  const [validUntil, setValidUntil] = useState('2026-12-31');
-  const [applicableCourseId, setApplicableCourseId] = useState('');
+  const [validUntil, setValidUntil] = useState('');
+  const [usageLimit, setUsageLimit] = useState('');
+  const [perUserLimit, setPerUserLimit] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   const loadData = async () => {
-    const [dRes, cRes] = await Promise.all([
-      adminService.getDiscounts(),
-      adminService.getCourses(),
-    ]);
-    if (dRes.success) setDiscounts(dRes.data);
-    if (cRes.success) setCourses(cRes.data);
+    setIsLoading(true);
+    const dRes = await adminService.getDiscounts();
+    setIsLoading(false);
+    if (dRes.success) {
+      setDiscounts(dRes.data);
+      setLoadError(null);
+    } else {
+      setLoadError(dRes.error || 'Coupons could not be loaded.');
+    }
   };
 
   useEffect(() => {
@@ -57,48 +62,44 @@ export const AdminDiscountPage: React.FC = () => {
     if (!user || !code.trim()) return;
 
     setIsSubmitting(true);
-    const res = await adminService.createDiscount(
-      { id: user.id, name: user.name },
-      {
-        code: code.trim().toUpperCase(),
-        description,
-        discountType,
-        value,
-        validUntil,
-        applicableCourseIds: applicableCourseId ? [applicableCourseId] : [],
-        isActive: true,
-      }
-    );
+    const res = await adminService.createDiscount({
+      code: code.trim().toUpperCase(),
+      description: description.trim(),
+      discountType,
+      value,
+      ...(validUntil ? { validUntil } : {}),
+      ...(usageLimit ? { usageLimit: Number(usageLimit) } : {}),
+      ...(perUserLimit ? { perUserLimit: Number(perUserLimit) } : {}),
+    });
     setIsSubmitting(false);
 
     if (res.success) {
       showToast({
         type: 'success',
         title: 'Discount Coupon Created',
-        message: `Coupon code ${code.toUpperCase()} is now live. (ADM-010)`,
+        message: `Coupon code ${code.toUpperCase()} was created and is active. (ADM-010)`,
       });
       setIsModalOpen(false);
       loadData();
       setCode('');
       setDescription('');
+      setUsageLimit('');
+      setPerUserLimit('');
+    } else {
+      showToast({ type: 'error', title: 'Coupon not created', message: res.error || 'Please retry.' });
     }
   };
 
-  const handleToggle = async (id: string) => {
+  const handleToggle = async (d: CouponDiscount) => {
     if (!user) return;
-    const res = await adminService.toggleDiscount({ id: user.id, name: user.name }, id);
+    setBusyId(d.id);
+    const res = await adminService.setCouponActive(d.id, !d.isActive);
+    setBusyId(null);
     if (res.success) {
-      showToast({ type: 'info', title: 'Coupon Status Changed', message: res.message || 'Coupon status changed.' });
+      showToast({ type: 'info', title: 'Coupon Status', message: res.message || 'Coupon status changed.' });
       loadData();
-    }
-  };
-
-  const handleDelete = async (id: string) => {
-    if (!user) return;
-    const res = await adminService.deleteDiscount({ id: user.id, name: user.name }, id);
-    if (res.success) {
-      showToast({ type: 'info', title: 'Coupon Removed', message: 'Discount deleted.' });
-      loadData();
+    } else {
+      showToast({ type: 'error', title: 'Status not changed', message: res.error || 'Please retry.' });
     }
   };
 
@@ -143,25 +144,19 @@ export const AdminDiscountPage: React.FC = () => {
       ),
     },
     {
-      key: 'applicableCourseIds',
-      header: 'Applicable Programs',
-      render: (d) => {
-        if (!d.applicableCourseIds || d.applicableCourseIds.length === 0) {
-          return <Badge variant="neutral" size="sm">ALL COURSES</Badge>;
-        }
-        const crs = courses.filter((c) => d.applicableCourseIds.includes(c.id));
-        return (
-          <span className="text-xs text-slate-600 truncate max-w-[150px] block">
-            {crs.map((c) => c.title).join(', ')}
-          </span>
-        );
-      },
+      key: 'usageCount',
+      header: 'Usage / Limits',
+      render: (d) => (
+        <span className="text-xs text-slate-600">
+          {d.usageCount ?? 0} used · {d.usageLimit ? `max ${d.usageLimit}` : 'no limit'} · {d.perUserLimit ? `${d.perUserLimit}/student` : 'no per-student limit'}
+        </span>
+      ),
     },
     {
       key: 'validUntil',
       header: 'Validity Expiration',
       sortable: true,
-      render: (d) => <span className="text-xs text-slate-500">{formatDate(d.validUntil)}</span>,
+      render: (d) => <span className="text-xs text-slate-500">{d.validUntil ? formatDate(d.validUntil) : 'No expiry'}</span>,
     },
     {
       key: 'isActive',
@@ -169,7 +164,7 @@ export const AdminDiscountPage: React.FC = () => {
       sortable: true,
       render: (d) => (
         <Badge variant={d.isActive ? 'success' : 'neutral'} size="sm" dot>
-          {d.isActive ? 'ACTIVE' : 'EXPIRED'}
+          {d.isActive ? 'ACTIVE' : 'INACTIVE'}
         </Badge>
       ),
     },
@@ -177,25 +172,15 @@ export const AdminDiscountPage: React.FC = () => {
       key: 'actions',
       header: 'Actions',
       render: (d) => (
-        <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => handleToggle(d.id)}
-            className="text-xs text-slate-600 hover:bg-slate-100"
-          >
-            {d.isActive ? 'Pause' : 'Activate'}
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => handleDelete(d.id)}
-            className="text-xs text-rose-500 hover:text-rose-700 hover:bg-rose-50"
-            leftIcon={<Trash2 className="h-3 w-3" />}
-          >
-            Delete
-          </Button>
-        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          isLoading={busyId === d.id}
+          onClick={() => handleToggle(d)}
+          className="text-xs text-slate-600 hover:bg-slate-100"
+        >
+          {d.isActive ? 'Deactivate' : 'Activate'}
+        </Button>
       ),
     },
   ];
@@ -220,6 +205,12 @@ export const AdminDiscountPage: React.FC = () => {
           Create Discount Coupon
         </Button>
       </div>
+
+      {loadError && <Card className="p-4 border border-rose-200 bg-rose-50 text-xs text-rose-800">{loadError}</Card>}
+      {isLoading && <p className="text-xs text-slate-400">Loading coupons…</p>}
+      {!isLoading && !loadError && discounts.length === 0 && (
+        <p className="text-xs text-slate-400 italic">No coupons have been created yet.</p>
+      )}
 
       {/* Main Table */}
       <DataTable
@@ -292,26 +283,39 @@ export const AdminDiscountPage: React.FC = () => {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block font-semibold text-slate-800 mb-1">Course Scope</label>
-                <select
-                  value={applicableCourseId}
-                  onChange={(e) => setApplicableCourseId(e.target.value)}
+                <label className="block font-semibold text-slate-800 mb-1">Total Usage Limit</label>
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  placeholder="No limit"
+                  value={usageLimit}
+                  onChange={(e) => setUsageLimit(e.target.value)}
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
-                >
-                  <option value="">All Institute Programs</option>
-                  {courses.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.title}
-                    </option>
-                  ))}
-                </select>
+                />
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-800 mb-1">Expiry Date *</label>
+                <label className="block font-semibold text-slate-800 mb-1">Limit per Student</label>
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  placeholder="No limit"
+                  value={perUserLimit}
+                  onChange={(e) => setPerUserLimit(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
+                />
+              </div>
+            </div>
+
+            <p className="text-[11px] text-slate-500">Coupons apply to all programs: the database has no coupon-to-course mapping.</p>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block font-semibold text-slate-800 mb-1">Expiry Date</label>
                 <input
                   type="date"
-                  required
                   value={validUntil}
                   onChange={(e) => setValidUntil(e.target.value)}
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium"

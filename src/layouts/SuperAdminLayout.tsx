@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { MaintenanceNotice } from '../components/common/MaintenanceNotice';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   Shield,
@@ -27,7 +28,7 @@ export const SuperAdminLayout: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const navItems = [
+  const navItems: Array<{ label: string; path: string; icon: React.ReactNode; badge?: string }> = [
     { label: 'Dashboard Overview', path: '/super-admin/dashboard', icon: <LayoutDashboard className="h-4 w-4" /> },
     { label: 'Admin Accounts', path: '/super-admin/admins', icon: <UserCheck className="h-4 w-4" /> },
     { label: 'System Configuration', path: '/super-admin/system-config', icon: <Sliders className="h-4 w-4" /> },
@@ -35,17 +36,17 @@ export const SuperAdminLayout: React.FC = () => {
       label: 'Refund Approvals',
       path: '/super-admin/refund-approvals',
       icon: <DollarSign className="h-4 w-4 text-rose-400" />,
-      badge: '1 Pending',
     },
     {
       label: 'Financial Overrides',
       path: '/super-admin/financial-overrides',
       icon: <FileCheck2 className="h-4 w-4 text-amber-400" />,
-      badge: '2 Pending',
     },
     { label: 'All Reports & Analytics', path: '/super-admin/reports', icon: <BarChart3 className="h-4 w-4" /> },
     { label: 'Roles & Permissions', path: '/super-admin/roles-permissions', icon: <KeyRound className="h-4 w-4" /> },
     { label: 'System Audit Logs', path: '/super-admin/audit-logs', icon: <History className="h-4 w-4" /> },
+    { label: 'Account Security', path: '/super-admin/security', icon: <KeyRound className="h-4 w-4" /> },
+    { label: 'Messages', path: '/super-admin/messages', icon: <History className="h-4 w-4" /> },
     { label: 'Website CMS', path: '/super-admin/website-cms', icon: <Globe className="h-4 w-4" /> },
   ];
 
@@ -56,6 +57,7 @@ export const SuperAdminLayout: React.FC = () => {
 
   return (
     <div className="min-h-screen flex bg-slate-100 text-slate-800 antialiased">
+      <MaintenanceNotice />
       {/* Mobile Sidebar Overlay */}
       {sidebarOpen && (
         <div

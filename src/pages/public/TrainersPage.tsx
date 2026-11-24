@@ -192,7 +192,7 @@ export const TrainersPage: React.FC = () => {
             <div className="space-y-2">
               <span className="font-bold text-slate-700 uppercase tracking-wider text-[11px]">Courses Mentored</span>
               <ul className="space-y-1 text-slate-600">
-                {selectedTrainer.coursesTaught.map((c) => (
+                {(selectedTrainer.linkedCourses?.map((c) => c.title) ?? selectedTrainer.coursesTaught).map((c) => (
                   <li key={c} className="flex items-center gap-1.5">
                     <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
                     <span>{c}</span>

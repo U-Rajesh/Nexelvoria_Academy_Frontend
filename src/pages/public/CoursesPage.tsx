@@ -64,11 +64,11 @@ export const CoursesPage: React.FC = () => {
     return isPublic && matchesCategory && matchesLevel && matchesSearch;
   });
 
-  const handleEnquirySubmit = (e: React.FormEvent) => {
+  const handleEnquirySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!enquiryModalCourse) return;
 
-    cmsService.submitEnquiry({
+    const sent = await cmsService.submitEnquiry({
       type: 'course_admission',
       name: enquiryForm.name,
       email: enquiryForm.email,
@@ -76,6 +76,10 @@ export const CoursesPage: React.FC = () => {
       courseOfInterest: enquiryModalCourse,
       message: enquiryForm.message,
     });
+    if (!sent.success) {
+      showToast({ type: 'error', title: 'Not sent', message: sent.error || 'Your request could not be sent. Please try again.' });
+      return;
+    }
     analytics.trackEvent('submit_course_card_enquiry', 'Course', enquiryModalCourse);
 
     showToast({

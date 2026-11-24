@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { MaintenanceNotice } from '../components/common/MaintenanceNotice';
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import {
   GraduationCap,
@@ -114,6 +115,7 @@ export const PublicLayout: React.FC = () => {
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 text-slate-800 antialiased relative isolate">
+      <MaintenanceNotice />
       {/* Subtle Premium Animated Background Layer (PUB-ANIM-BG) */}
       <AnimatedBackgroundLayer />
 

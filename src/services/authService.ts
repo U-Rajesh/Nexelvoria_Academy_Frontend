@@ -1,7 +1,6 @@
 import { STORAGE_KEYS } from '../constants/appConfig';
 import { getStorageItem, setStorageItem, removeStorageItem } from '../utils/storage';
 import { SEED_USERS } from '../mocks/seedData';
-import { recordAuditLog } from '../mocks/mockStorage';
 import type {
   User,
   StudentProfile,
@@ -230,6 +229,49 @@ const toRegistrationPayload = (data: StudentRegistrationFormData) => ({
   // the checkbox was ticked in the browser. Omitting it makes every
   // registration fail with a 422 on `termsAccepted`.
   termsAccepted: data.termsAccepted,
+});
+
+/* ---------- Account security helpers (server shapes -> UI types) ---------- */
+
+
+const securityError = (err: any, fallback: string): string => {
+  const body = err?.response?.data;
+  const details: { field?: string; message?: string }[] = Array.isArray(body?.details) ? body.details : [];
+  const detail = details.map((d) => d.message).filter(Boolean).join(' ');
+  return [body?.message || fallback, detail].filter(Boolean).join(' ');
+};
+
+const relativeTime = (iso?: string): string => {
+  if (!iso) return '';
+  const diff = Date.now() - new Date(iso).getTime();
+  if (diff < 60_000) return 'Just now';
+  if (diff < 3_600_000) return `${Math.round(diff / 60_000)} min ago`;
+  if (diff < 86_400_000) return `${Math.round(diff / 3_600_000)} h ago`;
+  return new Date(iso).toLocaleString();
+};
+
+/** GET /auth/sessions item -> SessionItem. Unknown fields stay empty; nothing is invented. */
+const toSessionItem = (s: any): SessionItem => ({
+  id: String(s.id),
+  device: s.device || 'Unknown device',
+  browser: s.browser || '',
+  os: s.os || '',
+  ipAddress: s.ipAddress || '',
+  location: s.location || '',
+  lastActive: s.isCurrent ? 'Active now' : relativeTime(s.lastActiveAt || s.createdAt),
+  isCurrent: Boolean(s.isCurrent),
+});
+
+/** GET /auth/login-history item -> LoginHistoryItem. */
+const toLoginHistoryItem = (h: any): LoginHistoryItem => ({
+  id: String(h.id),
+  timestamp: h.loggedAt,
+  device: h.deviceInfo || '',
+  browser: '',
+  ipAddress: h.ipAddress || '',
+  location: '',
+  status: h.isSuccessful ? 'success' : 'failed',
+  ...(h.failureReason ? { failureReason: String(h.failureReason).replace(/_/g, ' ') } : {}),
 });
 
 export const authService = {
@@ -877,208 +919,127 @@ export const authService = {
   // ---------------------------------------------------------------------------
 
   /**
-   * Forgot Password Workflow
+   * Forgot Password (AUTH-006). Live: POST /auth/password/forgot and
+   * /auth/password/reset. Codes are sent by email; the server answers the same
+   * way whether or not the email belongs to an account.
    */
   async requestPasswordReset(identifier: string): Promise<ApiResponse<{ maskedTarget: string; identifier: string }>> {
-    await sleep(300);
-    const students = getStorageItem<StudentProfile[]>(STORAGE_KEYS.STUDENTS, [
-      SEED_USERS.student,
-      SEED_USERS.studentPending,
-    ]);
-
-    const student = students.find(
-      (s) => s.email.toLowerCase() === identifier.toLowerCase() || s.mobile === identifier
-    );
-
-    if (!student) {
+    const email = identifier.trim().toLowerCase();
+    try {
+      const res = await apiClient.post('/auth/password/forgot', { email });
       return {
-        success: false,
-        data: null as any,
-        error: 'No active student account found with the provided email or mobile number.',
+        success: true,
+        data: { maskedTarget: maskEmail(email), identifier: email },
+        message: res.data?.message,
       };
+    } catch (err: any) {
+      return { success: false, data: null as any, error: securityError(err, 'The reset code could not be requested. Please retry.') };
     }
-
-    const masked = student.email.replace(/(.{2})(.*)(?=@)/, (_gp1, h1, h2) => h1 + '*'.repeat(h2.length));
-
-    return {
-      success: true,
-      data: {
-        maskedTarget: masked,
-        identifier: student.email,
-      },
-      message: 'Verification code sent for password recovery. (Demo Code: 123456)',
-    };
   },
 
-  async verifyResetOtp(identifier: string, otp: string): Promise<ApiResponse<boolean>> {
-    await sleep(250);
-    if (otp !== '123456' && otp.length !== 6) {
+  /**
+   * Format check only. The server verifies the code together with the new
+   * password (one request), so nothing is claimed as verified here.
+   */
+  async verifyResetOtp(_identifier: string, otp: string): Promise<ApiResponse<boolean>> {
+    if (!/^\d{6}$/.test(otp)) {
+      return { success: false, data: false, error: 'Please enter the 6-digit code from the email.' };
+    }
+    return { success: true, data: true };
+  },
+
+  async resetPassword(identifier: string, newPassword: string, code: string): Promise<ApiResponse<boolean> & { errorCode?: string }> {
+    try {
+      const res = await apiClient.post('/auth/password/reset', { email: identifier.trim().toLowerCase(), code, newPassword });
+      return { success: true, data: true, message: res.data?.message };
+    } catch (err: any) {
       return {
         success: false,
         data: false,
-        error: 'Invalid recovery code. Please check and retry. (Demo Code: 123456)',
+        error: securityError(err, 'The password could not be reset. Please retry.'),
+        errorCode: err?.response?.data?.error,
       };
     }
-
-    return {
-      success: true,
-      data: true,
-      message: 'Code verified successfully. You may now enter your new password.',
-    };
   },
 
-  async resetPassword(identifier: string, _newPassword: string): Promise<ApiResponse<boolean>> {
-    await sleep(400);
-    const students = getStorageItem<StudentProfile[]>(STORAGE_KEYS.STUDENTS, [
-      SEED_USERS.student,
-      SEED_USERS.studentPending,
-    ]);
-
-    const idx = students.findIndex(
-      (s) => s.email.toLowerCase() === identifier.toLowerCase() || s.mobile === identifier
-    );
-
-    if (idx === -1) {
-      return { success: false, data: false, error: 'Student account could not be located.' };
+  /** Change password (AUTH-007): POST /auth/password/change. Other sessions are signed out. */
+  async changePassword(currentPassword: string, newPassword: string): Promise<ApiResponse<{ otherSessionsEnded: number } | null>> {
+    try {
+      const res = await apiClient.post('/auth/password/change', { currentPassword, newPassword });
+      return { success: true, data: res.data?.data ?? null, message: res.data?.message };
+    } catch (err: any) {
+      return { success: false, data: null, error: securityError(err, 'The password could not be changed.') };
     }
-
-    // Reset password & unlock account if locked
-    students[idx].failedLoginAttempts = 0;
-    if (students[idx].accountState === 'locked') {
-      students[idx].accountState = students[idx].adminApprovalStatus === 'approved' ? 'approved' : 'pending_approval';
-    }
-    students[idx].lastPasswordChange = new Date().toISOString();
-
-    setStorageItem(STORAGE_KEYS.STUDENTS, students);
-
-    recordAuditLog(
-      { id: students[idx].id, name: students[idx].name, role: 'student' },
-      'PASSWORD_RESET',
-      `Student: ${students[idx].name}`,
-      'Password successfully reset via recovery OTP flow.'
-    );
-
-    return {
-      success: true,
-      data: true,
-      message: 'Password reset successfully! You can now sign in with your new password.',
-    };
   },
 
   /**
-   * Account Security: Session Management
+   * Active sessions (AUTH-009): GET /auth/sessions. Always the signed-in
+   * user's own sessions; `_userId` is kept for existing callers and ignored.
    */
-  async getActiveSessions(userId: string): Promise<ApiResponse<SessionItem[]>> {
-    await sleep(150);
-    const students = getStorageItem<StudentProfile[]>(STORAGE_KEYS.STUDENTS, [
-      SEED_USERS.student,
-      SEED_USERS.studentPending,
-    ]);
-    const student = students.find((s) => s.id === userId);
-
-    const defaultSessions: SessionItem[] = [
-      {
-        id: 'sess-current',
-        device: 'Current Browser Session',
-        browser: 'Chrome 131.0',
-        os: 'Windows 11',
-        ipAddress: '157.48.12.90',
-        location: 'Hyderabad, India',
-        lastActive: 'Active Now',
-        isCurrent: true,
-      },
-      {
-        id: 'sess-mobile',
-        device: 'Apple iPhone 15 Pro',
-        browser: 'Mobile Safari 18.1',
-        os: 'iOS 18.1',
-        ipAddress: '49.37.152.11',
-        location: 'Secunderabad, India',
-        lastActive: '2 hours ago',
-        isCurrent: false,
-      },
-    ];
-
-    const list = student?.activeSessions || defaultSessions;
-    return { success: true, data: list };
+  async getActiveSessions(_userId?: string): Promise<ApiResponse<SessionItem[]>> {
+    try {
+      const res = await apiClient.get('/auth/sessions');
+      const rows: any[] = Array.isArray(res.data?.data) ? res.data.data : [];
+      return { success: true, data: rows.map(toSessionItem) };
+    } catch (err: any) {
+      return { success: false, data: [], error: securityError(err, 'Sessions could not be loaded.') };
+    }
   },
 
-  async terminateSession(userId: string, sessionId: string): Promise<ApiResponse<SessionItem[]>> {
-    await sleep(250);
-    const students = getStorageItem<StudentProfile[]>(STORAGE_KEYS.STUDENTS, [
-      SEED_USERS.student,
-      SEED_USERS.studentPending,
-    ]);
-    const idx = students.findIndex((s) => s.id === userId);
-
-    if (idx !== -1 && students[idx].activeSessions) {
-      students[idx].activeSessions = students[idx].activeSessions!.filter((s) => s.id !== sessionId);
-      setStorageItem(STORAGE_KEYS.STUDENTS, students);
-      return { success: true, data: students[idx].activeSessions! };
+  /** Ends one of the signed-in user's sessions (AUTH-010), then returns the remaining list. */
+  async terminateSession(_userId: string, sessionId: string): Promise<ApiResponse<SessionItem[]>> {
+    try {
+      await apiClient.delete(`/auth/sessions/${encodeURIComponent(sessionId)}`);
+    } catch (err: any) {
+      return { success: false, data: [], error: securityError(err, 'The session could not be signed out.') };
     }
-
-    return { success: true, data: [] };
+    return this.getActiveSessions();
   },
 
-  async terminateOtherSessions(userId: string): Promise<ApiResponse<SessionItem[]>> {
-    await sleep(300);
-    const students = getStorageItem<StudentProfile[]>(STORAGE_KEYS.STUDENTS, [
-      SEED_USERS.student,
-      SEED_USERS.studentPending,
-    ]);
-    const idx = students.findIndex((s) => s.id === userId);
-
-    if (idx !== -1 && students[idx].activeSessions) {
-      students[idx].activeSessions = students[idx].activeSessions!.filter((s) => s.isCurrent);
-      setStorageItem(STORAGE_KEYS.STUDENTS, students);
-      return { success: true, data: students[idx].activeSessions! };
+  /** Ends every other session of the signed-in user (AUTH-010), then returns the remaining list. */
+  async terminateOtherSessions(_userId?: string): Promise<ApiResponse<SessionItem[]>> {
+    let message: string | undefined;
+    try {
+      const res = await apiClient.post('/auth/sessions/end-others', {});
+      message = res.data?.message;
+    } catch (err: any) {
+      return { success: false, data: [], error: securityError(err, 'The other sessions could not be signed out.') };
     }
+    const list = await this.getActiveSessions();
+    return { ...list, message };
+  },
 
-    return { success: true, data: [] };
+  /** Login history (AUTH-008): the signed-in user's own attempts, newest first. */
+  async getLoginHistory(_userId?: string): Promise<ApiResponse<LoginHistoryItem[]>> {
+    try {
+      const res = await apiClient.get('/auth/login-history', { params: { limit: 50 } });
+      const rows: any[] = Array.isArray(res.data?.data) ? res.data.data : [];
+      return { success: true, data: rows.map(toLoginHistoryItem) };
+    } catch (err: any) {
+      return { success: false, data: [], error: securityError(err, 'Login history could not be loaded.') };
+    }
+  },
+
+  /** Super Admin only: another user's login history (AUTH-008). */
+  async getUserLoginHistory(userId: string): Promise<ApiResponse<LoginHistoryItem[]>> {
+    try {
+      const res = await apiClient.get(`/auth/users/${encodeURIComponent(userId)}/login-history`, { params: { limit: 50 } });
+      const rows: any[] = Array.isArray(res.data?.data) ? res.data.data : [];
+      return { success: true, data: rows.map(toLoginHistoryItem) };
+    } catch (err: any) {
+      return { success: false, data: [], error: securityError(err, 'Login history could not be loaded.') };
+    }
   },
 
   /**
-   * Account Security: Login History
+   * Two-factor authentication (AUTH-013) is BLOCKED until the 2FA policy is
+   * approved. No fake activation: this always reports it as unavailable.
    */
-  async getLoginHistory(userId: string): Promise<ApiResponse<LoginHistoryItem[]>> {
-    await sleep(150);
-    const students = getStorageItem<StudentProfile[]>(STORAGE_KEYS.STUDENTS, [
-      SEED_USERS.student,
-      SEED_USERS.studentPending,
-    ]);
-    const student = students.find((s) => s.id === userId);
-    return { success: true, data: student?.loginHistory || [] };
-  },
-
-  /**
-   * Account Security: 2FA Settings
-   */
-  async toggleTwoFactor(userId: string, enabled: boolean, _code?: string): Promise<ApiResponse<TwoFactorSettings>> {
-    await sleep(300);
-    const students = getStorageItem<StudentProfile[]>(STORAGE_KEYS.STUDENTS, [
-      SEED_USERS.student,
-      SEED_USERS.studentPending,
-    ]);
-    const idx = students.findIndex((s) => s.id === userId);
-
-    const settings: TwoFactorSettings = {
-      enabled,
-      method: 'authenticator',
-      secretKey: 'NEX-SEC-9921-AF88-LMS',
-      backupCodes: ['8942-1102', '3391-7784', '5021-9943', '6172-8841'],
-      lastConfiguredAt: new Date().toISOString(),
-    };
-
-    if (idx !== -1) {
-      students[idx].twoFactorEnabled = enabled;
-      students[idx].twoFactorSettings = settings;
-      setStorageItem(STORAGE_KEYS.STUDENTS, students);
-    }
-
+  async toggleTwoFactor(_userId: string, _enabled: boolean, _code?: string): Promise<ApiResponse<TwoFactorSettings>> {
     return {
-      success: true,
-      data: settings,
-      message: enabled ? 'Two-Factor Authentication activated successfully.' : 'Two-Factor Authentication disabled.',
+      success: false,
+      data: null as any,
+      error: 'Two-factor authentication is not available yet: the 2FA policy has not been approved.',
     };
   },
 
@@ -1142,6 +1103,15 @@ export const authService = {
    * Logout
    */
   async logout(): Promise<void> {
+    // End the session on the server (it stays revocable even if this fails),
+    // then forget the local token.
+    if (!USE_MOCK_AUTH && getStorageItem<string | null>(STORAGE_KEYS.AUTH_TOKEN, null)) {
+      try {
+        await apiClient.post('/auth/logout', {});
+      } catch {
+        // An expired or already-ended session: nothing left to end.
+      }
+    }
     removeStorageItem(STORAGE_KEYS.CURRENT_USER);
     removeStorageItem(STORAGE_KEYS.AUTH_TOKEN);
   },

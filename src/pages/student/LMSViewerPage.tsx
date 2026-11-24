@@ -33,6 +33,8 @@ import { Card } from '../../components/common/Card';
 import { formatINR, formatDate } from '../../utils/formatters';
 import type { Course, Lesson, CourseModule, Chapter, StudentProfile, StudentDoubt } from '../../types';
 
+import { lmsService, type LessonContent, type LessonOutlineItem } from '../../services/lmsService';
+
 const USE_DEV_MOCKS = import.meta.env.VITE_USE_DEV_MOCKS === 'true';
 
 export const LMSViewerPage: React.FC = () => {
@@ -84,6 +86,32 @@ export const LMSViewerPage: React.FC = () => {
     }
   }, [initialLesson, currentLesson]);
 
+  // LMS-004 / LMS-005: availability and completion come from the server (enrolled students only).
+  const [serverAccess, setServerAccess] = useState<Record<string, LessonOutlineItem> | null>(null);
+  const [lessonContent, setLessonContent] = useState<LessonContent | null>(null);
+  const [lessonError, setLessonError] = useState<string | null>(null);
+  const courseKey = course?.id;
+  const loadOutline = React.useCallback(async () => {
+    if (USE_DEV_MOCKS || !courseKey) return;
+    const res = await lmsService.getOutline(courseKey);
+    if (res.success) {
+      setServerAccess(Object.fromEntries(res.data.map((l) => [l.id, l])));
+      setCompletedLessonIds(res.data.filter((l) => l.isCompleted).map((l) => l.id));
+    } else setServerAccess(null);
+  }, [courseKey]);
+  React.useEffect(() => {
+    loadOutline();
+  }, [loadOutline]);
+  React.useEffect(() => {
+    if (USE_DEV_MOCKS || !courseKey || !currentLesson || !serverAccess) return;
+    setLessonContent(null);
+    setLessonError(null);
+    lmsService.getLesson(courseKey, currentLesson.id).then((res) => {
+      if (res.success) setLessonContent(res.data);
+      else setLessonError(res.error || 'This lesson could not be opened.');
+    });
+  }, [courseKey, currentLesson, serverAccess]);
+
   // Doubt submission and forum state (LMS-008)
   const [doubtText, setDoubtText] = useState('');
   const [courseDoubts, setCourseDoubts] = useState<StudentDoubt[]>([]);
@@ -133,6 +161,8 @@ export const LMSViewerPage: React.FC = () => {
   }
 
   const isLessonLocked = (les: Lesson): boolean => {
+    // The server's decision wins whenever it is available (LMS-004 / LMS-005).
+    if (serverAccess) return serverAccess[les.id]?.state !== 'available';
     // If student is not enrolled, only free preview lessons are unlocked
     if (!isEnrolled) return !les.isFreePreview;
     // Completed lessons are always unlocked
@@ -168,7 +198,19 @@ export const LMSViewerPage: React.FC = () => {
       });
       return;
     }
-    if (isEnrolled && isLessonLocked(les)) {
+    const access = serverAccess?.[les.id];
+    if (access && access.state !== 'available') {
+      showToast({
+        type: 'warning',
+        title: access.state === 'scheduled' ? 'Not Yet Available' : 'Lesson Locked',
+        message:
+          access.state === 'scheduled'
+            ? `This lesson opens on ${new Date(access.availableAt ?? '').toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}.`
+            : `Complete "${access.requiresLessonTitle ?? 'the previous lesson'}" to unlock this lesson.`,
+      });
+      return;
+    }
+    if (!serverAccess && isEnrolled && isLessonLocked(les)) {
       const idx = allCourseLessons.findIndex((l) => l.id === les.id);
       const prevLes = idx > 0 ? allCourseLessons[idx - 1] : null;
       showToast({
@@ -197,6 +239,7 @@ export const LMSViewerPage: React.FC = () => {
     const res = await studentService.completeLesson(user.id, course.id, currentLesson.id);
     if (res.success) {
       setCompletedLessonIds((prev) => Array.from(new Set([...prev, currentLesson.id])));
+      loadOutline();
       showToast({
         type: 'success',
         title: 'Lesson Completed',
@@ -526,8 +569,8 @@ export const LMSViewerPage: React.FC = () => {
                   </div>
                 )}
                 <div className="text-xs text-slate-300 leading-relaxed font-mono bg-slate-900 p-4 rounded-xl">
-                  {currentLesson.studyMaterialText ||
-                    'Enterprise Virtual Threads decouple tasks from underlying kernel OS threads, maintaining low memory footprints of ~2KB per virtual thread compared to 1MB per platform thread.'}
+                  {lessonError ? lessonError : lessonContent?.studyMaterialText ?? currentLesson.studyMaterialText ??
+                    'No notes have been added to this lesson.'}
                 </div>
               </div>
             )}
