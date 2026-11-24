@@ -30,9 +30,9 @@ export const AccountStatusBanner: React.FC<AccountStatusBannerProps> = ({
         <div className={`p-4 bg-amber-50 border border-amber-200/90 rounded-xl flex items-start gap-3 text-amber-900 text-xs ${className}`}>
           <Clock className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
           <div className="flex-1 space-y-1">
-            <h4 className="font-bold">Dual OTP Verification Incomplete</h4>
+            <h4 className="font-bold">Email OTP Verification Incomplete</h4>
             <p className="text-amber-800 leading-relaxed">
-              Your registered email address and mobile number have not yet completed dual OTP verification (SRS Rule BR-001).
+              Your registered email address has not yet completed OTP verification (SRS Rule BR-001).
             </p>
             <div className="pt-1">
               {onActionClick ? (
@@ -63,7 +63,7 @@ export const AccountStatusBanner: React.FC<AccountStatusBannerProps> = ({
           <div className="flex-1 space-y-1">
             <h4 className="font-bold">Application Status: Pending Admissions Review (BR-002)</h4>
             <p className="text-sky-800 leading-relaxed">
-              Your dual OTP has been verified. Academic administration is reviewing your eligibility credentials and graduation year.
+              Your email address has been verified. Academic administration is reviewing your eligibility credentials and graduation year.
               Once approved, full course selection and tuition fee payment will be unlocked.
             </p>
             {remarks && (

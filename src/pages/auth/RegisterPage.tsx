@@ -123,7 +123,7 @@ export const RegisterPage: React.FC = () => {
       showToast({
         type: 'info',
         title: 'Registration Initiated',
-        message: 'Please complete dual email and mobile OTP verification (SRS Rule BR-001).',
+        message: 'Please complete email OTP verification (SRS Rule BR-001).',
       });
       // The ticket goes to sessionStorage, NOT the query string. The student
       // id that used to travel here was a real internal identifier.
@@ -144,7 +144,7 @@ export const RegisterPage: React.FC = () => {
         </div>
         <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Student Registration</h2>
         <p className="text-xs text-slate-500 leading-relaxed">
-          Complete the 4-part application below. Following submission, complete mandatory dual OTP verification (BR-001) for Admissions review (BR-002).
+          Complete the 4-part application below. Following submission, complete mandatory email OTP verification (BR-001) for Admissions review (BR-002).
         </p>
       </div>
 
@@ -504,7 +504,7 @@ export const RegisterPage: React.FC = () => {
           isLoading={isSubmitting}
           rightIcon={<ArrowRight className="h-4 w-4" />}
         >
-          Submit Application & Proceed to Dual OTP
+          Submit Application & Proceed to Verification
         </Button>
       </form>
 
